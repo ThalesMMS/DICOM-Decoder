@@ -2,6 +2,9 @@
 
 This directory packages the Swift-only DICOM decoding core extracted from the legacy viewer project. It delivers a clean SwiftPM target that can be embedded in new apps without any UIKit or Objective‑C baggage.
 
+- Repository: [`ThalesMMS/DICOM-Decoder`](https://github.com/ThalesMMS/DICOM-Decoder)
+- Latest release: [`1.0.0`](https://github.com/ThalesMMS/DICOM-Decoder/releases/tag/1.0.0)
+
 ## Module Layout
 
 - `Package.swift` – defines a single library product, `DicomCore`, plus unit tests.
@@ -22,7 +25,7 @@ This directory packages the Swift-only DICOM decoding core extracted from the le
 Add the package to your project via SwiftPM:
 
 ```swift
-.package(url: "https://github.com/ThalesMMS/Swift-DICOM-Decoder.git", from: "1.0.0")
+.package(url: "https://github.com/ThalesMMS/DICOM-Decoder.git", from: "1.0.0")
 ```
 
 and declare the dependency:
