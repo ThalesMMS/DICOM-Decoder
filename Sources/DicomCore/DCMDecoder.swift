@@ -25,6 +25,14 @@ import Foundation
 import CoreGraphics
 import ImageIO
 
+#if DEBUG
+private func debugPerfLog(_ message: String) {
+    print(message)
+}
+#else
+private func debugPerfLog(_ message: String) {}
+#endif
+
 /// Various DICOM tag constants used by the decoder.  The values
 /// mirror the hexadecimal definitions found in the original
 /// Objective‑C header.  Group and element numbers are
@@ -296,6 +304,67 @@ public final class DCMDecoder {
 
     // MARK: - Public API
 
+    /// Validates DICOM file structure and required tags
+    /// - Parameter filename: Path to the DICOM file
+    /// - Returns: Validation result with detailed issues if any
+    public func validateDICOMFile(_ filename: String) -> (isValid: Bool, issues: [String]) {
+        var issues: [String] = []
+        var warnings: [String] = []
+
+        // Check file exists
+        guard FileManager.default.fileExists(atPath: filename) else {
+            return (false, ["File does not exist"])
+        }
+
+        // Check file size
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: filename),
+              let fileSize = attributes[.size] as? Int else {
+            return (false, ["Cannot read file attributes"])
+        }
+
+        if fileSize == 0 {
+            issues.append("File is empty")
+        } else if fileSize < 132 {
+            warnings.append("File smaller than 132 bytes; DICOM preamble may be missing")
+        }
+
+        // Check optional DICM header without loading entire file
+        if fileSize >= 132 {
+            if let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: filename)) {
+                defer { try? handle.close() }
+                do {
+                    try handle.seek(toOffset: 128)
+                    if let bytes = try handle.read(upToCount: 4) {
+                        if bytes.count == 4 && bytes != Data([0x44, 0x49, 0x43, 0x4D]) {
+                            warnings.append("Missing DICM signature at offset 128 (preamble optional)")
+                        }
+                    } else {
+                        warnings.append("Could not read DICM signature (preamble optional)")
+                    }
+                } catch {
+                    warnings.append("Could not read DICM signature (preamble optional)")
+                }
+            } else {
+                warnings.append("Could not open file for validation")
+            }
+        }
+
+        let isValid = issues.isEmpty
+        return (isValid, issues + warnings)
+    }
+
+    /// Checks if the decoder has successfully read and parsed the DICOM file
+    /// - Returns: True if file is loaded and valid
+    public func isValid() -> Bool {
+        return dicomFileReadSuccess && dicomFound && width > 0 && height > 0
+    }
+
+    /// Returns detailed validation status of the loaded DICOM file
+    public func getValidationStatus() -> (isValid: Bool, width: Int, height: Int, hasPixels: Bool, isCompressed: Bool) {
+        let hasPixels = pixels8 != nil || pixels16 != nil || pixels24 != nil
+        return (dicomFileReadSuccess, width, height, hasPixels, compressedImage)
+    }
+
     /// Assigns a file to decode.  The file is read into memory and
     /// parsed immediately.  Errors are logged to the console in
     /// DEBUG builds; on failure ``dicomFileReadSuccess`` will be
@@ -325,13 +394,13 @@ public final class DCMDecoder {
                 dicomData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
                 mappedData = dicomData
                 let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-                print("[PERF] Memory-mapped DICOM load: \(String(format: "%.2f", elapsed))ms | size: \(fileSize/1024/1024)MB")
+                debugPerfLog("[PERF] Memory-mapped DICOM load: \(String(format: "%.2f", elapsed))ms | size: \(fileSize/1024/1024)MB")
             } else {
                 // Regular loading for smaller files
                 dicomData = try Data(contentsOf: fileURL)
                 mappedData = nil
                 let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-                print("[PERF] Regular DICOM load: \(String(format: "%.2f", elapsed))ms | size: \(fileSize/1024)KB")
+                debugPerfLog("[PERF] Regular DICOM load: \(String(format: "%.2f", elapsed))ms | size: \(fileSize/1024)KB")
             }
         } catch {
             print("[DCMDecoder] Error: Failed to load file at \(filename): \(error)")
@@ -366,7 +435,7 @@ public final class DCMDecoder {
         let startTime = CFAbsoluteTimeGetCurrent()
         if pixels8 == nil { readPixels() }
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-        if elapsed > 1 { print("[PERF] getPixels8: \(String(format: "%.2f", elapsed))ms") }
+        if elapsed > 1 { debugPerfLog("[PERF] getPixels8: \(String(format: "%.2f", elapsed))ms") }
         return pixels8
     }
 
@@ -377,7 +446,7 @@ public final class DCMDecoder {
         let startTime = CFAbsoluteTimeGetCurrent()
         if pixels16 == nil { readPixels() }
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-        if elapsed > 1 { print("[PERF] getPixels16: \(String(format: "%.2f", elapsed))ms") }
+        if elapsed > 1 { debugPerfLog("[PERF] getPixels16: \(String(format: "%.2f", elapsed))ms") }
         return pixels16
     }
 
@@ -388,7 +457,7 @@ public final class DCMDecoder {
         let startTime = CFAbsoluteTimeGetCurrent()
         if pixels24 == nil { readPixels() }
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-        if elapsed > 1 { print("[PERF] getPixels24: \(String(format: "%.2f", elapsed))ms") }
+        if elapsed > 1 { debugPerfLog("[PERF] getPixels24: \(String(format: "%.2f", elapsed))ms") }
         return pixels24
     }
     
@@ -456,7 +525,7 @@ public final class DCMDecoder {
         }
         
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-        print("[PERF] getDownsampledPixels16: \(String(format: "%.2f", elapsed))ms | thumbSize: \(thumbWidth)x\(thumbHeight)")
+        debugPerfLog("[PERF] getDownsampledPixels16: \(String(format: "%.2f", elapsed))ms | thumbSize: \(thumbWidth)x\(thumbHeight)")
         
         return (downsampledPixels, thumbWidth, thumbHeight)
     }
@@ -469,11 +538,11 @@ public final class DCMDecoder {
         if DCMDecoder.frequentTags.contains(tag), let cached = cachedInfo[tag] {
             return cached
         }
-        
+
         guard let info = dicomInfoDict[tag] else {
             return ""
         }
-        
+
         // Split on the first colon to remove the VR description
         let result: String
         if let range = info.range(of: ":") {
@@ -481,13 +550,77 @@ public final class DCMDecoder {
         } else {
             result = info
         }
-        
+
         // Cache frequently accessed tags
         if DCMDecoder.frequentTags.contains(tag) {
             cachedInfo[tag] = result
         }
-        
+
         return result
+    }
+
+    /// Retrieves an integer value for a DICOM tag
+    /// - Parameter tag: The DICOM tag to retrieve
+    /// - Returns: Integer value or nil if not found or cannot be parsed
+    public func intValue(for tag: Int) -> Int? {
+        let stringValue = info(for: tag)
+        return Int(stringValue)
+    }
+
+    /// Retrieves a double value for a DICOM tag
+    /// - Parameter tag: The DICOM tag to retrieve
+    /// - Returns: Double value or nil if not found or cannot be parsed
+    public func doubleValue(for tag: Int) -> Double? {
+        let stringValue = info(for: tag)
+        return Double(stringValue)
+    }
+
+    /// Returns all available DICOM tags as a dictionary
+    /// - Returns: Dictionary of tag hex string to value
+    public func getAllTags() -> [String: String] {
+        var result: [String: String] = [:]
+        for (tag, value) in dicomInfoDict {
+            let hexTag = String(format: "%08X", tag)
+            result[hexTag] = value
+        }
+        return result
+    }
+
+    /// Returns patient demographics in a structured format
+    /// - Returns: Dictionary with patient information
+    public func getPatientInfo() -> [String: String] {
+        return [
+            "Name": info(for: Tag.patientName.rawValue),
+            "ID": info(for: Tag.patientID.rawValue),
+            "Sex": info(for: Tag.patientSex.rawValue),
+            "Age": info(for: Tag.patientAge.rawValue)
+        ]
+    }
+
+    /// Returns study information in a structured format
+    /// - Returns: Dictionary with study information
+    public func getStudyInfo() -> [String: String] {
+        return [
+            "StudyInstanceUID": info(for: Tag.studyInstanceUID.rawValue),
+            "StudyID": info(for: Tag.studyID.rawValue),
+            "StudyDate": info(for: Tag.studyDate.rawValue),
+            "StudyTime": info(for: Tag.studyTime.rawValue),
+            "StudyDescription": info(for: Tag.studyDescription.rawValue),
+            "ReferringPhysician": info(for: Tag.referringPhysicianName.rawValue)
+        ]
+    }
+
+    /// Returns series information in a structured format
+    /// - Returns: Dictionary with series information
+    public func getSeriesInfo() -> [String: String] {
+        return [
+            "SeriesInstanceUID": info(for: Tag.seriesInstanceUID.rawValue),
+            "SeriesNumber": info(for: Tag.seriesNumber.rawValue),
+            "SeriesDate": info(for: Tag.seriesDate.rawValue),
+            "SeriesTime": info(for: Tag.seriesTime.rawValue),
+            "SeriesDescription": info(for: Tag.seriesDescription.rawValue),
+            "Modality": info(for: Tag.modality.rawValue)
+        ]
     }
 
     // MARK: - Private helper methods
@@ -1098,7 +1231,7 @@ public final class DCMDecoder {
             }
             
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-            print("[PERF] readPixels (8-bit): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height)")
+            debugPerfLog("[PERF] readPixels (8-bit): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height)")
             return
         }
         // Grayscale 16‑bit
@@ -1107,7 +1240,7 @@ public final class DCMDecoder {
             let numBytes = numPixels * 2
             
             // Debug logging
-            print("[DCMDecoder] Reading 16-bit pixels: width=\(width), height=\(height), numPixels=\(numPixels), offset=\(offset), dataSize=\(dicomData.count)")
+            debugPerfLog("[DCMDecoder] Reading 16-bit pixels: width=\(width), height=\(height), numPixels=\(numPixels), offset=\(offset), dataSize=\(dicomData.count)")
             
             guard offset > 0 && offset + numBytes <= dicomData.count else {
                 print("[DCMDecoder] Error: Invalid offset or insufficient data. offset=\(offset), needed=\(numBytes), available=\(dicomData.count - offset)")
@@ -1189,7 +1322,7 @@ public final class DCMDecoder {
             
             pixels16 = pixels
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-            print("[PERF] readPixels (16-bit): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height) | pixels: \(numPixels)")
+            debugPerfLog("[PERF] readPixels (16-bit): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height) | pixels: \(numPixels)")
             return
         }
         // Colour 8‑bit RGB
@@ -1199,7 +1332,7 @@ public final class DCMDecoder {
             guard offset + numBytes <= dicomData.count else { return }
             pixels24 = Array(dicomData[offset..<offset + numBytes])
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-            print("[PERF] readPixels (24-bit RGB): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height)")
+            debugPerfLog("[PERF] readPixels (24-bit RGB): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height)")
             return
         }
         // Fallback: leave buffers nil
@@ -1308,5 +1441,131 @@ public final class DCMDecoder {
             }
             pixels24 = output
         }
+    }
+}
+
+// MARK: - Async/Await Extensions
+
+extension DCMDecoder {
+
+    /// Loads and decodes a DICOM file asynchronously
+    /// - Parameter filename: Path to the DICOM file
+    /// - Returns: True if the file was successfully loaded and decoded
+    @available(macOS 10.15, iOS 13.0, *)
+    public func loadDICOMFileAsync(_ filename: String) async -> Bool {
+        return await withCheckedContinuation { continuation in
+            Task.detached(priority: .userInitiated) {
+                self.setDicomFilename(filename)
+                continuation.resume(returning: self.dicomFileReadSuccess)
+            }
+        }
+    }
+
+    /// Retrieves 16-bit pixels asynchronously
+    /// - Returns: Array of 16-bit pixel values or nil
+    @available(macOS 10.15, iOS 13.0, *)
+    public func getPixels16Async() async -> [UInt16]? {
+        return await withCheckedContinuation { continuation in
+            Task.detached(priority: .userInitiated) {
+                continuation.resume(returning: self.getPixels16())
+            }
+        }
+    }
+
+    /// Retrieves 8-bit pixels asynchronously
+    /// - Returns: Array of 8-bit pixel values or nil
+    @available(macOS 10.15, iOS 13.0, *)
+    public func getPixels8Async() async -> [UInt8]? {
+        return await withCheckedContinuation { continuation in
+            Task.detached(priority: .userInitiated) {
+                continuation.resume(returning: self.getPixels8())
+            }
+        }
+    }
+
+    /// Retrieves 24-bit RGB pixels asynchronously
+    /// - Returns: Array of 24-bit pixel values or nil
+    @available(macOS 10.15, iOS 13.0, *)
+    public func getPixels24Async() async -> [UInt8]? {
+        return await withCheckedContinuation { continuation in
+            Task.detached(priority: .userInitiated) {
+                continuation.resume(returning: self.getPixels24())
+            }
+        }
+    }
+
+    /// Retrieves downsampled thumbnail pixels asynchronously
+    /// - Parameter maxDimension: Maximum dimension for the thumbnail
+    /// - Returns: Tuple with downsampled pixels and dimensions, or nil
+    @available(macOS 10.15, iOS 13.0, *)
+    public func getDownsampledPixels16Async(maxDimension: Int = 150) async -> (pixels: [UInt16], width: Int, height: Int)? {
+        return await withCheckedContinuation { continuation in
+            Task.detached(priority: .utility) {
+                continuation.resume(returning: self.getDownsampledPixels16(maxDimension: maxDimension))
+            }
+        }
+    }
+}
+
+// MARK: - Convenience Extensions
+
+extension DCMDecoder {
+
+    /// Quick check if this is a valid grayscale image
+    public var isGrayscale: Bool {
+        return samplesPerPixel == 1
+    }
+
+    /// Quick check if this is a color/RGB image
+    public var isColorImage: Bool {
+        return samplesPerPixel == 3
+    }
+
+    /// Quick check if this is a multi-frame image
+    public var isMultiFrame: Bool {
+        return nImages > 1
+    }
+
+    /// Returns image dimensions as a tuple
+    public var imageDimensions: (width: Int, height: Int) {
+        return (width, height)
+    }
+
+    /// Returns pixel spacing as a tuple
+    public var pixelSpacing: (width: Double, height: Double, depth: Double) {
+        return (pixelWidth, pixelHeight, pixelDepth)
+    }
+
+    /// Returns window settings as a tuple
+    public var windowSettings: (center: Double, width: Double) {
+        return (windowCenter, windowWidth)
+    }
+
+    /// Returns rescale parameters as a tuple
+    public var rescaleParameters: (intercept: Double, slope: Double) {
+        return (rescaleIntercept, rescaleSlope)
+    }
+
+    /// Applies rescale slope and intercept to a pixel value
+    /// - Parameter pixelValue: Raw pixel value
+    /// - Returns: Rescaled value (Hounsfield Units for CT, etc.)
+    public func applyRescale(to pixelValue: Double) -> Double {
+        return rescaleSlope * pixelValue + rescaleIntercept
+    }
+
+    /// Calculates optimal window/level based on pixel data statistics
+    /// - Returns: Tuple with calculated center and width, or nil if no pixel data
+    public func calculateOptimalWindow() -> (center: Double, width: Double)? {
+        guard let pixels = getPixels16() else { return nil }
+
+        let stats = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: pixels)
+        return (stats.center, stats.width)
+    }
+
+    /// Returns image quality metrics
+    /// - Returns: Dictionary with quality metrics or nil if no pixel data
+    public func getQualityMetrics() -> [String: Double]? {
+        guard let pixels = getPixels16() else { return nil }
+        return DCMWindowingProcessor.calculateQualityMetrics(pixels16: pixels)
     }
 }
