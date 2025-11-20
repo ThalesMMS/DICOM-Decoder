@@ -21,13 +21,63 @@ import Accelerate
 /// in the Objective‑C NS_ENUM.  Each case describes a typical
 /// anatomy or modality and can be mapped to a pair of centre and
 /// width values via ``getPresetValues(preset:)``.
-enum MedicalPreset: Int {
+public enum MedicalPreset: Int, CaseIterable {
+    // Original CT presets (raw values preserved for backward compatibility)
     case lung       = 0
     case bone       = 1
     case softTissue = 2
     case brain      = 3
     case liver      = 4
     case custom     = 5
+
+    // Additional CT presets
+    case mediastinum = 6
+    case abdomen     = 7
+    case spine       = 8
+    case pelvis      = 9
+
+    // Angiography presets
+    case angiography = 10
+    case pulmonaryEmbolism = 11
+
+    // Other modalities
+    case mammography = 12
+    case petScan     = 13
+
+    /// Human-readable name for the preset
+    public var displayName: String {
+        switch self {
+        case .lung: return "Lung"
+        case .bone: return "Bone"
+        case .softTissue: return "Soft Tissue"
+        case .brain: return "Brain"
+        case .liver: return "Liver"
+        case .mediastinum: return "Mediastinum"
+        case .abdomen: return "Abdomen"
+        case .spine: return "Spine"
+        case .pelvis: return "Pelvis"
+        case .angiography: return "Angiography"
+        case .pulmonaryEmbolism: return "Pulmonary Embolism"
+        case .mammography: return "Mammography"
+        case .petScan: return "PET Scan"
+        case .custom: return "Custom"
+        }
+    }
+
+    /// Typical modality associated with this preset
+    public var associatedModality: String {
+        switch self {
+        case .lung, .bone, .softTissue, .brain, .liver, .mediastinum,
+             .abdomen, .spine, .pelvis, .angiography, .pulmonaryEmbolism:
+            return "CT"
+        case .mammography:
+            return "MG"
+        case .petScan:
+            return "PT"
+        case .custom:
+            return "OT"
+        }
+    }
 }
 
 // MARK: - Window/Level Operations Struct
@@ -249,10 +299,11 @@ public struct DCMWindowingProcessor {
     ///
     /// - Parameter preset: The anatomical preset.
     /// - Returns: A tuple `(center, width)` with default values.
-    static func getPresetValues(preset: MedicalPreset) -> (center: Double, width: Double) {
+    public static func getPresetValues(preset: MedicalPreset) -> (center: Double, width: Double) {
         switch preset {
+        // Original CT Presets
         case .lung:
-            return (-600.0, 1200.0)
+            return (-600.0, 1500.0)  // Enhanced for better lung visualization
         case .bone:
             return (400.0, 1800.0)
         case .softTissue:
@@ -261,10 +312,69 @@ public struct DCMWindowingProcessor {
             return (40.0, 80.0)
         case .liver:
             return (120.0, 200.0)
+
+        // Additional CT Presets
+        case .mediastinum:
+            return (50.0, 350.0)
+        case .abdomen:
+            return (60.0, 400.0)
+        case .spine:
+            return (50.0, 250.0)
+        case .pelvis:
+            return (40.0, 400.0)
+
+        // Angiography Presets
+        case .angiography:
+            return (300.0, 600.0)
+        case .pulmonaryEmbolism:
+            return (100.0, 500.0)
+
+        // Other Modalities
+        case .mammography:
+            return (2000.0, 4000.0)  // For digital mammography
+        case .petScan:
+            return (2500.0, 5000.0)  // SUV units
+
+        // Custom/Default
         case .custom:
-            fallthrough
-        default:
             return (0.0, 4096.0)
+        }
+    }
+
+    /// Suggests appropriate presets based on modality and body part
+    /// - Parameters:
+    ///   - modality: DICOM modality code (e.g., "CT", "MR", "MG")
+    ///   - bodyPart: Optional body part examined
+    /// - Returns: Array of suggested presets
+    public static func suggestPresets(for modality: String, bodyPart: String? = nil) -> [MedicalPreset] {
+        switch modality.uppercased() {
+        case "CT":
+            if let part = bodyPart?.lowercased() {
+                if part.contains("lung") || part.contains("chest") || part.contains("thorax") {
+                    return [.lung, .mediastinum, .bone, .softTissue]
+                } else if part.contains("brain") || part.contains("head") {
+                    return [.brain, .bone, .softTissue]
+                } else if part.contains("abdomen") || part.contains("liver") {
+                    return [.abdomen, .liver, .softTissue]
+                } else if part.contains("spine") {
+                    return [.spine, .bone, .softTissue]
+                } else if part.contains("pelvis") {
+                    return [.pelvis, .bone, .softTissue]
+                }
+            }
+            return [.softTissue, .bone, .lung, .brain]
+
+        case "MG":
+            return [.mammography]
+
+        case "PT":
+            return [.petScan]
+
+        case "MR":
+            return [.brain, .softTissue]
+
+        default:
+            return [.custom]
         }
     }
 
@@ -429,40 +539,54 @@ extension DCMWindowingProcessor {
 // MARK: - DCMWindowingProcessor Preset Extensions
 
 extension DCMWindowingProcessor {
-    
+
     /// Get all available medical presets
-    static var allPresets: [MedicalPreset] {
-        return [.lung, .bone, .softTissue, .brain, .liver, .custom]
+    public static var allPresets: [MedicalPreset] {
+        return MedicalPreset.allCases
     }
-    
+
+    /// Get all CT-specific presets
+    public static var ctPresets: [MedicalPreset] {
+        return [.lung, .bone, .softTissue, .brain, .liver, .mediastinum,
+                .abdomen, .spine, .pelvis, .angiography, .pulmonaryEmbolism]
+    }
+
     /// Get preset values by name
-    static func getPresetValues(named presetName: String) -> (center: Double, width: Double)? {
+    public static func getPresetValues(named presetName: String) -> (center: Double, width: Double)? {
         switch presetName.lowercased() {
         case "lung": return getPresetValues(preset: .lung)
         case "bone": return getPresetValues(preset: .bone)
         case "soft tissue", "softtissue": return getPresetValues(preset: .softTissue)
         case "brain": return getPresetValues(preset: .brain)
         case "liver": return getPresetValues(preset: .liver)
+        case "mediastinum": return getPresetValues(preset: .mediastinum)
+        case "abdomen": return getPresetValues(preset: .abdomen)
+        case "spine": return getPresetValues(preset: .spine)
+        case "pelvis": return getPresetValues(preset: .pelvis)
+        case "angiography": return getPresetValues(preset: .angiography)
+        case "pulmonary embolism", "pulmonaryembolism", "pe":
+            return getPresetValues(preset: .pulmonaryEmbolism)
+        case "mammography", "mammo": return getPresetValues(preset: .mammography)
+        case "pet", "petscan", "pet scan": return getPresetValues(preset: .petScan)
         default: return nil
         }
     }
-    
+
     /// Get preset name from values (approximate match)
-    static func getPresetName(center: Double, width: Double, tolerance: Double = 50.0) -> String? {
+    public static func getPresetName(center: Double, width: Double, tolerance: Double = 50.0) -> String? {
         for preset in allPresets {
             let values = getPresetValues(preset: preset)
             if abs(values.center - center) <= tolerance && abs(values.width - width) <= tolerance {
-                switch preset {
-                case .lung: return "Lung"
-                case .bone: return "Bone"
-                case .softTissue: return "Soft Tissue"
-                case .brain: return "Brain"
-                case .liver: return "Liver"
-                case .custom: return "Custom"
-                }
+                return preset.displayName
             }
         }
         return nil
+    }
+
+    /// Get preset by enum case
+    public static func getPreset(for preset: MedicalPreset) -> (name: String, center: Double, width: Double, modality: String) {
+        let values = getPresetValues(preset: preset)
+        return (preset.displayName, values.center, values.width, preset.associatedModality)
     }
 }
 
