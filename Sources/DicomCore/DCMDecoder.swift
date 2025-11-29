@@ -24,6 +24,7 @@
 import Foundation
 import CoreGraphics
 import ImageIO
+import simd
 
 #if DEBUG
 private func debugPerfLog(_ message: String) {
@@ -82,6 +83,8 @@ private enum Tag: Int {
     case seriesDescription     = 0x0008103E
     case numberOfSeriesRelatedInstances = 0x00201209
     case modality              = 0x00080060
+    case imagePositionPatient  = 0x00200032
+    case imageOrientationPatient = 0x00200037
     // SOP instance
     case sopInstanceUID        = 0x00080018
     case acquisitionDate       = 0x00080022
@@ -279,6 +282,10 @@ public final class DCMDecoder {
     public private(set) var pixelDepth: Double = 1.0
     public private(set) var pixelWidth: Double = 1.0
     public private(set) var pixelHeight: Double = 1.0
+    /// Direction cosines for the image rows/columns (0020,0037)
+    public private(set) var imageOrientation: (row: SIMD3<Double>, column: SIMD3<Double>)?
+    /// Patient-space origin for the top-left voxel (0020,0032)
+    public private(set) var imagePosition: SIMD3<Double>?
 
     /// Default window centre and width for display.  These come
     /// from the ``WINDOW_CENTER`` and ``WINDOW_WIDTH`` tags when
@@ -301,6 +308,10 @@ public final class DCMDecoder {
     public private(set) var compressedImage: Bool = false
     private(set) var dicomDir: Bool = false
     public private(set) var signedImage: Bool = false
+    /// Raw pixel representation flag (0 = unsigned, 1 = two's complement)
+    public var pixelRepresentationTagValue: Int { pixelRepresentation }
+    /// Convenience accessor for signed pixel representation
+    public var isSignedPixelRepresentation: Bool { pixelRepresentation == 1 }
 
     // MARK: - Public API
 
@@ -334,12 +345,16 @@ public final class DCMDecoder {
                 defer { try? handle.close() }
                 do {
                     try handle.seek(toOffset: 128)
-                    if let bytes = try handle.read(upToCount: 4) {
-                        if bytes.count == 4 && bytes != Data([0x44, 0x49, 0x43, 0x4D]) {
-                            warnings.append("Missing DICM signature at offset 128 (preamble optional)")
-                        }
+                    let bytes: Data
+                    if #available(iOS 13.4, macOS 10.15.4, *) {
+                        bytes = try handle.read(upToCount: 4) ?? Data()
                     } else {
-                        warnings.append("Could not read DICM signature (preamble optional)")
+                        bytes = try handle.readData(ofLength: 4)
+                    }
+                    if bytes.count == 4 && bytes != Data([0x44, 0x49, 0x43, 0x4D]) {
+                        warnings.append("Missing DICM signature at offset 128 (preamble optional)")
+                    } else if bytes.count < 4 {
+                        warnings.append("Could not read full DICM signature (preamble optional)")
                     }
                 } catch {
                     warnings.append("Could not read DICM signature (preamble optional)")
@@ -400,7 +415,7 @@ public final class DCMDecoder {
                 dicomData = try Data(contentsOf: fileURL)
                 mappedData = nil
                 let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-                debugPerfLog("[PERF] Regular DICOM load: \(String(format: "%.2f", elapsed))ms | size: \(fileSize/1024)KB")
+                // debugPerfLog("[PERF] Regular DICOM load: \(String(format: "%.2f", elapsed))ms | size: \(fileSize/1024)KB")
             }
         } catch {
             print("[DCMDecoder] Error: Failed to load file at \(filename): \(error)")
@@ -1000,6 +1015,19 @@ public final class DCMDecoder {
         pixelWidth = x
     }
 
+    /// Parses a DICOM multi-value string (e.g., "v1\v2\v3") into an array of Doubles.
+    private func parseDoubleValues(_ string: String, expectedCount: Int) -> [Double]? {
+        let parts = string.split(whereSeparator: { $0 == "\\" || $0.isWhitespace })
+        guard parts.count >= expectedCount else { return nil }
+        var values: [Double] = []
+        values.reserveCapacity(expectedCount)
+        for idx in 0..<expectedCount {
+            guard let value = Double(parts[idx]) else { return nil }
+            values.append(value)
+        }
+        return values
+    }
+
     /// Main header parsing loop.  This corresponds to
     /// ``readFileInfo()`` in the original code.  Returns false if
     /// the file is not a valid DICOM file or if an unsupported
@@ -1009,6 +1037,8 @@ public final class DCMDecoder {
         // Reset some state to sane defaults
         bitDepth = 16
         compressedImage = false
+        imageOrientation = nil
+        imagePosition = nil
         // Move to offset 128 where "DICM" marker resides
         location = 128
         // Read the four magic bytes
@@ -1109,6 +1139,23 @@ public final class DCMDecoder {
                 let scale = readString(length: elementLength)
                 applySpatialScale(scale)
                 addInfo(tag: tag, stringValue: scale)
+            case Tag.imageOrientationPatient.rawValue:
+                let orientationString = readString(length: elementLength)
+                addInfo(tag: tag, stringValue: orientationString)
+                if let values = parseDoubleValues(orientationString, expectedCount: 6) {
+                    let row = SIMD3<Double>(values[0], values[1], values[2])
+                    let column = SIMD3<Double>(values[3], values[4], values[5])
+                    // Normalize to avoid drift from rounding
+                    let normalizedRow = simd_normalize(row)
+                    let normalizedCol = simd_normalize(column)
+                    imageOrientation = (row: normalizedRow, column: normalizedCol)
+                }
+            case Tag.imagePositionPatient.rawValue:
+                let positionString = readString(length: elementLength)
+                addInfo(tag: tag, stringValue: positionString)
+                if let values = parseDoubleValues(positionString, expectedCount: 3) {
+                    imagePosition = SIMD3<Double>(values[0], values[1], values[2])
+                }
             case Tag.sliceThickness.rawValue, Tag.sliceSpacing.rawValue:
                 let spacing = readString(length: elementLength)
                 pixelDepth = Double(spacing) ?? pixelDepth
@@ -1160,7 +1207,7 @@ public final class DCMDecoder {
             case Tag.pixelData.rawValue:
                 offset = location
                 addInfo(tag: tag, intValue: location)
-                print("[DCMDecoder] Found pixel data tag at offset \(offset), elementLength=\(elementLength)")
+                // print("[DCMDecoder] Found pixel data tag at offset \(offset), elementLength=\(elementLength)")
                 decodingTags = false  // Stop processing after pixel data
             default:
                 // Unhandled tag; defer to headerInfo which will read
@@ -1240,7 +1287,7 @@ public final class DCMDecoder {
             let numBytes = numPixels * 2
             
             // Debug logging
-            debugPerfLog("[DCMDecoder] Reading 16-bit pixels: width=\(width), height=\(height), numPixels=\(numPixels), offset=\(offset), dataSize=\(dicomData.count)")
+            // debugPerfLog("[DCMDecoder] Reading 16-bit pixels: width=\(width), height=\(height), numPixels=\(numPixels), offset=\(offset), dataSize=\(dicomData.count)")
             
             guard offset > 0 && offset + numBytes <= dicomData.count else {
                 print("[DCMDecoder] Error: Invalid offset or insufficient data. offset=\(offset), needed=\(numBytes), available=\(dicomData.count - offset)")
@@ -1322,7 +1369,7 @@ public final class DCMDecoder {
             
             pixels16 = pixels
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-            debugPerfLog("[PERF] readPixels (16-bit): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height) | pixels: \(numPixels)")
+            // debugPerfLog("[PERF] readPixels (16-bit): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height) | pixels: \(numPixels)")
             return
         }
         // Colour 8‑bit RGB

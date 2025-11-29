@@ -58,6 +58,19 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - Automatic memory mapping for large files (>10MB)
 - Downsampling for fast thumbnail generation
 
+### Geometry & Metadata
+
+- Parses Image Orientation (Patient) (0020,0037) and Image Position (Patient) (0020,0032); exposes normalized row/column vectors and origin.
+- Reads Pixel Spacing (0028,0030) and slice spacing/thickness; exposes spacingX/Y/Z.
+- Exposes width/height, bitsAllocated, pixelRepresentation (signed/unsigned), rescale slope/intercept.
+- Returns Series Description and raw tag access via `info(for:)`.
+
+### Series Loading (new)
+
+- Directory-level loader that scans `.dcm` files, orders slices by IPP projection on the IOP normal (fallback: Instance Number), and computes Z spacing from IPP deltas.
+- Validates single-channel 16-bit geometry consistency and assembles a contiguous volume buffer (signed/unsigned preserved).
+- Progress callback per slice and lightweight `DicomSeriesVolume` with voxels, spacing, orientation matrix, origin, rescale parameters, and description.
+
 ### Image Processing
 
 - Window/Level with medical presets (CT, mammography, PET, and more)
@@ -71,7 +84,6 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - Async/await (iOS 13+, macOS 10.15+)
 - Validation before loading
 - Convenience metadata helpers (patient, study, series)
-- Parallel processing for large datasets
 - Tag caching for frequent lookups
 
 ### Developer Experience
@@ -79,8 +91,7 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - Complete documentation with practical examples
 - DICOM glossary
 - Troubleshooting guide for common issues
-- Extensive tests
-- Step-by-step tutorials
+- Tests covering parsing and series loading
 
 ---
 

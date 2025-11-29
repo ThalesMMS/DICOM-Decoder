@@ -1,17 +1,33 @@
-//
-//  Protocols.swift
-//
-//  Defines lightweight abstraction layers that decouple the core
-//  decoding and window/level logic from concrete UIKit views.
-//
-
 import Foundation
+#if canImport(OSLog)
+import OSLog
+#endif
 
-/// Surface capable of applying window/level settings. Concrete
-/// implementations may be backed by UIKit, AppKit, Metal, or any
-/// other rendering system.
-public protocol DicomWindowingSurface: AnyObject {
-    /// Apply window width/center in pixel space. Implementations are
-    /// responsible for recomputing lookup tables and redrawing.
-    func applyWindowLevel(windowWidth: Int, windowCenter: Int)
+/// Minimal logger wrapper to avoid OSLog availability issues on iOS 13.
+struct AnyLogger {
+    private let _info: (String) -> Void
+    private let _debug: (String) -> Void
+    private let _warning: (String) -> Void
+
+    func info(_ message: String) { _info(message) }
+    func debug(_ message: String) { _debug(message) }
+    func warning(_ message: String) { _warning(message) }
+
+    static func make(subsystem: String, category: String) -> AnyLogger {
+        #if canImport(OSLog)
+        if #available(iOS 14.0, macOS 11.0, *) {
+            let logger = Logger(subsystem: subsystem, category: category)
+            return AnyLogger(
+                _info: { logger.info("\($0, privacy: .public)") },
+                _debug: { logger.debug("\($0, privacy: .public)") },
+                _warning: { logger.warning("\($0, privacy: .public)") }
+            )
+        }
+        #endif
+        return AnyLogger(
+            _info: { print("[INFO] \($0)") },
+            _debug: { print("[DEBUG] \($0)") },
+            _warning: { print("[WARN] \($0)") }
+        )
+    }
 }

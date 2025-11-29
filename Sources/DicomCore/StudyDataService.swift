@@ -36,13 +36,14 @@ public final class StudyDataService: Sendable {
     
     // MARK: - Properties
     
-    private let logger = Logger(subsystem: "com.dicomviewer", category: "StudyData")
+    private let logger: AnyLogger
     private nonisolated(unsafe) let fileManager: FileManager
     
     // MARK: - Initialization
     
     public init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
+        self.logger = AnyLogger.make(subsystem: "com.dicomviewer", category: "StudyData")
         logger.info("🔬 StudyDataService initialized")
     }
     
