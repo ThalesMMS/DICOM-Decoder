@@ -29,9 +29,6 @@ public struct DicomSeriesVolume {
     public let height: Int
     public let depth: Int
     public let spacing: SIMD3<Double>
-    /// Slice thickness from DICOM tags (SliceThickness or SpacingBetweenSlices)
-    /// in millimeters, preserved even when z spacing is recomputed from IPP.
-    public let sliceThickness: Double
     public let orientation: simd_double3x3
     public let origin: SIMD3<Double>
     public let rescaleSlope: Double
@@ -39,7 +36,6 @@ public struct DicomSeriesVolume {
     public let bitsAllocated: Int
     public let isSignedPixel: Bool
     public let seriesDescription: String
-    public let indexToPatient: simd_double4x4
 }
 
 private struct SliceMeta {
@@ -79,7 +75,6 @@ public final class DicomSeriesLoader {
         var height = 0
         var bitsAllocated = 0
         var spacing = SIMD3<Double>(1, 1, 1)
-        var sliceThickness = 1.0
 
         var slices: [SliceMeta] = []
 
@@ -103,10 +98,7 @@ public final class DicomSeriesLoader {
                 height = decoder.height
                 bitsAllocated = decoder.bitDepth
                 spacing = SIMD3<Double>(decoder.pixelWidth, decoder.pixelHeight, decoder.pixelDepth)
-                sliceThickness = decoder.pixelDepth
-                if let ori = decoder.imageOrientation {
-                    orientation = orthonormalize(row: ori.row, column: ori.column)
-                }
+                orientation = decoder.imageOrientation
                 origin = decoder.imagePosition
                 rescaleSlope = decoder.rescaleParameters.slope
                 rescaleIntercept = decoder.rescaleParameters.intercept
@@ -120,8 +112,7 @@ public final class DicomSeriesLoader {
                 guard decoder.width == width, decoder.height == height else {
                     throw DicomSeriesLoaderError.inconsistentDimensions
                 }
-                if let baseline = orientation, let cand = decoder.imageOrientation {
-                    let candidate = orthonormalize(row: cand.row, column: cand.column)
+                if let baseline = orientation, let candidate = decoder.imageOrientation {
                     if !isApproximatelyEqual(baseline.row, candidate.row) ||
                         !isApproximatelyEqual(baseline.column, candidate.column) {
                         throw DicomSeriesLoaderError.inconsistentOrientation
@@ -163,13 +154,22 @@ public final class DicomSeriesLoader {
             return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent) == .orderedAscending
         }
 
-        // Compute spacing Z from IPP deltas projected on the slice normal.
-        // When multiple slices are present,
-        // always prefer the geometric delta over the tag-provided slice thickness.
+        // Compute spacing Z from IPP deltas when available; if the value diverges
+        // significantly from the reported slice spacing/thickness, prefer the tag.
         let computedZ = computeZSpacing(from: slices, normal: normal)
+        let tagZ = spacing.z
+        let zSpacing: Double
         if let computedZ {
-            spacing = SIMD3<Double>(spacing.x, spacing.y, computedZ)
+            let tolerance = 0.2 // mm-level tolerance
+            if tagZ > 0 && abs(computedZ - tagZ) > tolerance {
+                zSpacing = tagZ
+            } else {
+                zSpacing = computedZ
+            }
+        } else {
+            zSpacing = tagZ
         }
+        spacing = SIMD3<Double>(spacing.x, spacing.y, zSpacing)
 
         let depth = slices.count
         let sliceVoxelCount = width * height
@@ -178,18 +178,11 @@ public final class DicomSeriesLoader {
         // Provide a lightweight volume descriptor for progress callbacks.
         let originForVolume = slices.first?.position ?? origin ?? SIMD3<Double>(repeating: 0)
         let orientationMatrix: simd_double3x3
-        let indexToPatient: simd_double4x4
         if let ori = orientation {
             let normalVec = simd_normalize(simd_cross(ori.row, ori.column))
             orientationMatrix = simd_double3x3(columns: (ori.row, ori.column, normalVec))
-            indexToPatient = makeIndexToPatientTransform(row: ori.row,
-                                                         column: ori.column,
-                                                         normal: normalVec,
-                                                         spacing: spacing,
-                                                         origin: originForVolume)
         } else {
             orientationMatrix = matrix_identity_double3x3
-            indexToPatient = matrix_identity_double4x4
         }
 
         let progressVolume = DicomSeriesVolume(voxels: Data(),
@@ -197,15 +190,13 @@ public final class DicomSeriesLoader {
                                                height: height,
                                                depth: depth,
                                                spacing: spacing,
-                                               sliceThickness: sliceThickness,
                                                orientation: orientationMatrix,
                                                origin: originForVolume,
                                                rescaleSlope: rescaleSlope,
                                                rescaleIntercept: rescaleIntercept,
                                                bitsAllocated: bitsAllocated,
                                                isSignedPixel: pixelRepresentation == 1,
-                                               seriesDescription: seriesDescription,
-                                               indexToPatient: indexToPatient)
+                                               seriesDescription: seriesDescription)
 
         var loadError: Error?
         // Allocate voxel buffer and copy slices sequentially for safety.
@@ -239,15 +230,13 @@ public final class DicomSeriesLoader {
                                        height: height,
                                        depth: depth,
                                        spacing: spacing,
-                                       sliceThickness: sliceThickness,
                                        orientation: orientationMatrix,
                                        origin: originForVolume,
                                        rescaleSlope: rescaleSlope,
                                        rescaleIntercept: rescaleIntercept,
                                        bitsAllocated: bitsAllocated,
                                        isSignedPixel: pixelRepresentation == 1,
-                                       seriesDescription: seriesDescription,
-                                       indexToPatient: indexToPatient)
+                                       seriesDescription: seriesDescription)
         return volume
     }
 }
@@ -308,55 +297,28 @@ private extension DicomSeriesLoader {
     func computeZSpacing(from slices: [SliceMeta],
                          normal: SIMD3<Double>) -> Double? {
         guard slices.count > 1 else { return nil }
+        var distances: [Double] = []
+        distances.reserveCapacity(slices.count - 1)
 
-        // Prefer projections if already computed; otherwise fall back to IPP delta.
-        for idx in 1..<slices.count {
-            if let p0 = slices[idx - 1].projection, let p1 = slices[idx].projection {
-                let delta = abs(p1 - p0)
-                if delta > 0 { return delta }
-            }
-        }
-
-        // Use the first adjacent pair with valid IPP:
-        // spacingZ = |dot(IPP1 - IPP0, normal)|
         for idx in 1..<slices.count {
             if let p0 = slices[idx - 1].position, let p1 = slices[idx].position {
-                let delta = abs(simd_dot(p1 - p0, normal))
+                let d0 = simd_dot(p0, normal)
+                let d1 = simd_dot(p1, normal)
+                let delta = abs(d1 - d0)
                 if delta > 0 {
-                    return delta
+                    distances.append(delta)
                 }
             }
         }
-        return nil
+
+        guard !distances.isEmpty else { return nil }
+        let sum = distances.reduce(0, +)
+        return sum / Double(distances.count)
     }
 
     func isApproximatelyEqual(_ lhs: SIMD3<Double>, _ rhs: SIMD3<Double>, tolerance: Double = 1e-4) -> Bool {
         abs(lhs.x - rhs.x) < tolerance &&
         abs(lhs.y - rhs.y) < tolerance &&
         abs(lhs.z - rhs.z) < tolerance
-    }
-
-    func orthonormalize(row: SIMD3<Double>, column: SIMD3<Double>) -> (row: SIMD3<Double>, column: SIMD3<Double>) {
-        let r = simd_normalize(row)
-        let normal = simd_normalize(simd_cross(r, column))
-        // Recompute column to enforce orthogonality and normalization.
-        let c = simd_normalize(simd_cross(normal, r))
-        return (r, c)
-    }
-
-    func makeIndexToPatientTransform(row: SIMD3<Double>,
-                                     column: SIMD3<Double>,
-                                     normal: SIMD3<Double>,
-                                     spacing: SIMD3<Double>,
-                                     origin: SIMD3<Double>) -> simd_double4x4 {
-        let sx = spacing.x
-        let sy = spacing.y
-        let sz = spacing.z
-
-        let c0 = SIMD4<Double>(row * sx, 0.0)
-        let c1 = SIMD4<Double>(column * sy, 0.0)
-        let c2 = SIMD4<Double>(normal * sz, 0.0)
-        let c3 = SIMD4<Double>(origin, 1.0)
-        return simd_double4x4(columns: (c0, c1, c2, c3))
     }
 }
