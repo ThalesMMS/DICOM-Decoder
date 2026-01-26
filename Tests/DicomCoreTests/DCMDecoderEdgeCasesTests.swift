@@ -65,6 +65,64 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
         XCTAssertTrue(invalidPixelData.errorDescription!.contains("Buffer size mismatch"))
     }
 
+    func testBoundsCheckingErrors() {
+        // Buffer overflow error
+        let bufferOverflow = DICOMError.bufferOverflow(operation: "readString", offset: 1024, available: 512)
+        XCTAssertNotNil(bufferOverflow.errorDescription)
+        XCTAssertNotNil(bufferOverflow.recoverySuggestion)
+        XCTAssertEqual(bufferOverflow.category, .dicom)
+        XCTAssertEqual(bufferOverflow.severity, .critical, "Buffer overflow should be critical")
+        XCTAssertTrue(bufferOverflow.errorDescription!.contains("readString"))
+        XCTAssertTrue(bufferOverflow.errorDescription!.contains("1024"))
+        XCTAssertTrue(bufferOverflow.errorDescription!.contains("512"))
+
+        // Invalid offset error
+        let invalidOffset = DICOMError.invalidOffset(offset: 99999, fileSize: 50000, context: "tag parsing")
+        XCTAssertNotNil(invalidOffset.errorDescription)
+        XCTAssertNotNil(invalidOffset.recoverySuggestion)
+        XCTAssertEqual(invalidOffset.category, .dicom)
+        XCTAssertEqual(invalidOffset.severity, .error)
+        XCTAssertTrue(invalidOffset.errorDescription!.contains("99999"))
+        XCTAssertTrue(invalidOffset.errorDescription!.contains("50000"))
+        XCTAssertTrue(invalidOffset.errorDescription!.contains("tag parsing"))
+
+        // Invalid length error
+        let invalidLength = DICOMError.invalidLength(requested: 10000, available: 100, context: "element data")
+        XCTAssertNotNil(invalidLength.errorDescription)
+        XCTAssertNotNil(invalidLength.recoverySuggestion)
+        XCTAssertEqual(invalidLength.category, .dicom)
+        XCTAssertEqual(invalidLength.severity, .error)
+        XCTAssertTrue(invalidLength.errorDescription!.contains("10000"))
+        XCTAssertTrue(invalidLength.errorDescription!.contains("100"))
+        XCTAssertTrue(invalidLength.errorDescription!.contains("element data"))
+
+        // Excessive allocation error
+        let excessiveAllocation = DICOMError.excessiveAllocation(requested: 2147483648, limit: 1073741824, context: "pixel buffer allocation")
+        XCTAssertNotNil(excessiveAllocation.errorDescription)
+        XCTAssertNotNil(excessiveAllocation.recoverySuggestion)
+        XCTAssertEqual(excessiveAllocation.category, .dicom)
+        XCTAssertEqual(excessiveAllocation.severity, .critical, "Excessive allocation should be critical")
+        XCTAssertTrue(excessiveAllocation.errorDescription!.contains("2147483648"))
+        XCTAssertTrue(excessiveAllocation.errorDescription!.contains("1073741824"))
+        XCTAssertTrue(excessiveAllocation.errorDescription!.contains("pixel buffer allocation"))
+    }
+
+    func testInvalidElementLengthError() {
+        // Specific test for invalid element length scenario
+        let error = DICOMError.invalidLength(requested: 4294967295, available: 1024, context: "DICOM element length")
+        XCTAssertNotNil(error.errorDescription, "Should have error description")
+        XCTAssertNotNil(error.recoverySuggestion, "Should have recovery suggestion")
+        XCTAssertEqual(error.category, .dicom, "Should be DICOM category")
+        XCTAssertEqual(error.severity, .error, "Should be error severity")
+
+        // Verify the error message contains relevant details
+        XCTAssertTrue(error.errorDescription!.contains("4294967295"), "Should mention requested length")
+        XCTAssertTrue(error.errorDescription!.contains("1024"), "Should mention available bytes")
+        XCTAssertTrue(error.errorDescription!.contains("DICOM element length"), "Should mention context")
+        XCTAssertTrue(error.recoverySuggestion!.contains("malformed") || error.recoverySuggestion!.contains("corrupted"),
+                      "Recovery suggestion should mention file corruption")
+    }
+
     func testMedicalDataErrors() {
         // Invalid window level
         let invalidWindow = DICOMError.invalidWindowLevel(window: -100, level: 50, reason: "Negative window width")
@@ -169,7 +227,9 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
             .networkUnavailable,
             .invalidDICOMFormat(reason: "test"),
             .unsupportedTransferSyntax(syntax: "test"),
-            .fileReadError(path: "/test", underlyingError: "test")
+            .fileReadError(path: "/test", underlyingError: "test"),
+            .invalidOffset(offset: 100, fileSize: 50, context: "test"),
+            .invalidLength(requested: 100, available: 50, context: "test")
         ]
         for error in regularErrors {
             XCTAssertEqual(error.severity, .error, "\(error) should be error severity")
@@ -177,7 +237,9 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
 
         // Critical severity
         let criticalErrors: [DICOMError] = [
-            .memoryAllocationFailed(requestedSize: 1000000)
+            .memoryAllocationFailed(requestedSize: 1000000),
+            .bufferOverflow(operation: "test", offset: 100, available: 50),
+            .excessiveAllocation(requested: 2000000, limit: 1000000, context: "test")
         ]
         for error in criticalErrors {
             XCTAssertEqual(error.severity, .critical, "\(error) should be critical severity")
@@ -201,7 +263,11 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
             .invalidDICOMFormat(reason: "test"),
             .missingRequiredTag(tag: "0x0010", description: "test"),
             .unsupportedTransferSyntax(syntax: "test"),
-            .invalidPixelData(reason: "test")
+            .invalidPixelData(reason: "test"),
+            .bufferOverflow(operation: "test", offset: 100, available: 50),
+            .invalidOffset(offset: 100, fileSize: 50, context: "test"),
+            .invalidLength(requested: 100, available: 50, context: "test"),
+            .excessiveAllocation(requested: 2000000, limit: 1000000, context: "test")
         ]
         for error in dicomErrors {
             XCTAssertEqual(error.category, .dicom, "\(error) should be DICOM category")

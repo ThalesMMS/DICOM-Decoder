@@ -22,6 +22,10 @@ public enum DICOMError: Error, LocalizedError, Equatable {
     case missingRequiredTag(tag: String, description: String)
     case unsupportedTransferSyntax(syntax: String)
     case invalidPixelData(reason: String)
+    case bufferOverflow(operation: String, offset: Int64, available: Int64)
+    case invalidOffset(offset: Int64, fileSize: Int64, context: String)
+    case invalidLength(requested: Int64, available: Int64, context: String)
+    case excessiveAllocation(requested: Int64, limit: Int64, context: String)
     
     // MARK: - Medical Data Errors
     case invalidWindowLevel(window: Double, level: Double, reason: String)
@@ -59,6 +63,14 @@ public enum DICOMError: Error, LocalizedError, Equatable {
             return "Unsupported transfer syntax: \(syntax)"
         case .invalidPixelData(let reason):
             return "Invalid pixel data: \(reason)"
+        case .bufferOverflow(let operation, let offset, let available):
+            return "Buffer overflow during \(operation): attempted to read at offset \(offset) but only \(available) bytes available"
+        case .invalidOffset(let offset, let fileSize, let context):
+            return "Invalid offset \(offset) in \(context): exceeds file size of \(fileSize) bytes"
+        case .invalidLength(let requested, let available, let context):
+            return "Invalid length in \(context): requested \(requested) bytes but only \(available) bytes available"
+        case .excessiveAllocation(let requested, let limit, let context):
+            return "Excessive memory allocation in \(context): requested \(requested) bytes exceeds safety limit of \(limit) bytes"
         case .invalidWindowLevel(let window, let level, let reason):
             return "Invalid window/level settings (W:\(window) L:\(level)): \(reason)"
         case .invalidPatientData(let field, let value, let reason):
@@ -92,6 +104,8 @@ public enum DICOMError: Error, LocalizedError, Equatable {
             return "Please select a valid DICOM file (.dcm, .dicom)."
         case .invalidDICOMFormat, .missingRequiredTag:
             return "This file may not be a valid DICOM image or may be corrupted."
+        case .bufferOverflow, .invalidOffset, .invalidLength, .excessiveAllocation:
+            return "This file appears to be malformed or corrupted. Try opening a different file."
         case .unsupportedTransferSyntax:
             return "This DICOM file uses an unsupported format. Try converting it first."
         case .invalidWindowLevel:
@@ -139,8 +153,10 @@ extension DICOMError {
             return .warning
         case .networkUnavailable:
             return .error
-        case .memoryAllocationFailed:
+        case .memoryAllocationFailed, .bufferOverflow, .excessiveAllocation:
             return .critical
+        case .invalidOffset, .invalidLength:
+            return .error
         default:
             return .error
         }
@@ -151,7 +167,7 @@ extension DICOMError {
         switch self {
         case .fileNotFound, .fileReadError, .invalidFileFormat, .fileCorrupted:
             return .file
-        case .invalidDICOMFormat, .missingRequiredTag, .unsupportedTransferSyntax, .invalidPixelData:
+        case .invalidDICOMFormat, .missingRequiredTag, .unsupportedTransferSyntax, .invalidPixelData, .bufferOverflow, .invalidOffset, .invalidLength, .excessiveAllocation:
             return .dicom
         case .invalidWindowLevel, .invalidPatientData, .missingStudyInformation, .invalidModality:
             return .medical

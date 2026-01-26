@@ -65,6 +65,16 @@ public final class DCMDecoder {
     
     // MARK: - Properties
 
+    // MARK: - Safety Constants
+
+    /// Maximum allowed image dimension (width or height) in pixels.
+    /// Prevents excessive memory allocation from malformed headers.
+    private static let maxImageDimension: Int = 65536
+
+    /// Maximum allowed size for pixel buffer allocation (2 GB).
+    /// Protects against memory bombs from unrealistic image dimensions.
+    private static let maxPixelBufferSize: Int64 = 2 * 1024 * 1024 * 1024
+
     /// Dictionary used to translate tags to human readable names.  The
     /// original code stored a strong pointer to ``DCMDictionary``.
     private let dict = DCMDictionary.shared
@@ -92,19 +102,16 @@ public final class DCMDecoder {
     /// Cursor into ``dicomData`` used for sequential reading.
     private var location: Int = 0
 
+    /// Binary reader for low-level DICOM data access
+    private var reader: DCMBinaryReader?
+
+    /// Tag parser for DICOM tag parsing and metadata extraction
+    private var tagParser: DCMTagParser?
+
     /// Pixel representation: 0 for unsigned, 1 for two's complement
     /// signed data.  This affects how 16‑bit pixel data are
     /// normalised.
     private var pixelRepresentation: Int = 0
-
-    /// The length of the current element value.  Computed by
-    /// ``getLength()`` during tag parsing.
-    private var elementLength: Int = 0
-
-    /// The current Value Representation.  Represented as the raw
-    /// 16‑bit ASCII code stored in the DICOM header.  A value of
-    /// ``VR.implicitRaw`` indicates implicit VR.
-    private var vr: VR = .unknown
 
     /// Minimum values used for mapping signed pixel data into
     /// unsigned representation.  ``min8`` is unused in this port
@@ -116,8 +123,6 @@ public final class DCMDecoder {
 
     /// Flags controlling how the decoder behaves when encountering
     /// certain structures in the file.
-    private var oddLocations: Bool = false
-    private var inSequence: Bool = false
     private var bigEndianTransferSyntax: Bool = false
     private var littleEndian: Bool = true
 
@@ -367,6 +372,12 @@ public final class DCMDecoder {
             windowWidth = 0
             dicomInfoDict.removeAll()
             cachedInfo.removeAll()
+            // Initialize binary reader with little endian by default
+            reader = DCMBinaryReader(data: dicomData, littleEndian: true)
+            // Initialize tag parser
+            if let reader = reader {
+                tagParser = DCMTagParser(data: dicomData, dict: dict, binaryReader: reader)
+            }
             // Parse the header (readFileInfo is called within synchronized block)
             if readFileInfoUnsafe() {
                 // If compressed transfer syntax, attempt to decode compressed pixel data.
@@ -636,363 +647,39 @@ public final class DCMDecoder {
         }
     }
 
-    /// Reads a string of the specified length from the current
-    /// location, advancing the cursor.  The data is interpreted as
-    /// UTF‑8.  If the bytes do not form valid UTF‑8 the result
-    /// may contain replacement characters.  In the original
-    /// implementation a zero‑terminated C string was created; here
-    /// we simply decode a slice of the Data.
-    /// DICOM strings may contain NUL padding which is removed.
-    private func readString(length: Int) -> String {
-        guard length > 0, location + length <= dicomData.count else {
-            location += length
-            return ""
-        }
-        let slice = dicomData[location..<location + length]
-        location += length
-        
-        // Convert to string
-        var str = String(data: slice, encoding: .utf8) ?? ""
-        
-        // Remove NUL characters and trim whitespace
-        // DICOM strings are often padded with NUL (0x00) or spaces
-        if let nullIndex = str.firstIndex(of: "\0") {
-            str = String(str[..<nullIndex])
-        }
-        
-        // Trim trailing spaces (common in DICOM)
-        str = str.trimmingCharacters(in: .whitespaces)
-        
-        return str
-    }
-
-    /// Reads a single byte from the current location and advances
-    /// the cursor.
-    private func readByte() -> UInt8 {
-        guard location < dicomData.count else { return 0 }
-        let b = dicomData[location]
-        location += 1
-        return b
-    }
-
-    /// Reads a 16‑bit unsigned integer respecting the current
-    /// endianness and advances the cursor.
-    private func readShort() -> UInt16 {
-        guard location + 1 < dicomData.count else { return 0 }
-        let b0 = dicomData[location]
-        let b1 = dicomData[location + 1]
-        location += 2
-        if littleEndian {
-            return UInt16(b1) << 8 | UInt16(b0)
-        } else {
-            return UInt16(b0) << 8 | UInt16(b1)
-        }
-    }
-
-    /// Reads a 32‑bit signed integer respecting the current
-    /// endianness and advances the cursor.
-    private func readInt() -> Int {
-        guard location + 3 < dicomData.count else { return 0 }
-        let b0 = dicomData[location]
-        let b1 = dicomData[location + 1]
-        let b2 = dicomData[location + 2]
-        let b3 = dicomData[location + 3]
-        location += 4
-        let value: Int
-        if littleEndian {
-            value = Int(b3) << 24 | Int(b2) << 16 | Int(b1) << 8 | Int(b0)
-        } else {
-            value = Int(b0) << 24 | Int(b1) << 16 | Int(b2) << 8 | Int(b3)
-        }
-        return value
-    }
-
-    /// Reads a 64‑bit double precision floating point number.  The
-    /// DICOM standard stores doubles as IEEE 754 values.  This
-    /// implementation reconstructs the bit pattern into a UInt64
-    /// then converts it to Double using Swift's bitPattern
-    /// initializer.
-    private func readDouble() -> Double {
-        guard location + 7 < dicomData.count else { return 0.0 }
-        var high: UInt32 = 0
-        var low: UInt32 = 0
-        if littleEndian {
-            // bytes 4..7 become the high word
-            high = UInt32(dicomData[location + 7]) << 24 |
-                   UInt32(dicomData[location + 6]) << 16 |
-                   UInt32(dicomData[location + 5]) << 8  |
-                   UInt32(dicomData[location + 4])
-            low  = UInt32(dicomData[location + 3]) << 24 |
-                   UInt32(dicomData[location + 2]) << 16 |
-                   UInt32(dicomData[location + 1]) << 8  |
-                   UInt32(dicomData[location])
-        } else {
-            high = UInt32(dicomData[location]) << 24 |
-                   UInt32(dicomData[location + 1]) << 16 |
-                   UInt32(dicomData[location + 2]) << 8  |
-                   UInt32(dicomData[location + 3])
-            low  = UInt32(dicomData[location + 4]) << 24 |
-                   UInt32(dicomData[location + 5]) << 16 |
-                   UInt32(dicomData[location + 6]) << 8  |
-                   UInt32(dicomData[location + 7])
-        }
-        location += 8
-        let bits = UInt64(high) << 32 | UInt64(low)
-        return Double(bitPattern: bits)
-    }
-
-    /// Reads a 32‑bit floating point number.  Similar to
-    /// ``readDouble`` but producing a Float.  Because Swift's
-    /// bitPattern initialisers require UInt32, we assemble the
-    /// bytes accordingly then reinterpret the bits.
-    private func readFloat() -> Float {
-        guard location + 3 < dicomData.count else { return 0.0 }
-        let value: UInt32
-        if littleEndian {
-            value = UInt32(dicomData[location + 3]) << 24 |
-                    UInt32(dicomData[location + 2]) << 16 |
-                    UInt32(dicomData[location + 1]) << 8  |
-                    UInt32(dicomData[location])
-        } else {
-            value = UInt32(dicomData[location]) << 24 |
-                    UInt32(dicomData[location + 1]) << 16 |
-                    UInt32(dicomData[location + 2]) << 8  |
-                    UInt32(dicomData[location + 3])
-        }
-        location += 4
-        return Float(bitPattern: value)
-    }
-
-    /// Reads a lookup table stored as a sequence of 16‑bit values
-    /// and converts them to 8‑bit entries by discarding the low
-    /// eight bits.  Returns false if the length is odd, in which
-    /// case the cursor is advanced and the table is skipped.
-    private func readLUT(length: Int) -> [UInt8]? {
-        guard length % 2 == 0 else {
-            // Skip odd length sequences
-            location += length
-            return nil
-        }
-        let count = length / 2
-        var table: [UInt8] = Array(repeating: 0, count: count)
-        for i in 0..<count {
-            let value = readShort()
-            table[i] = UInt8(value >> 8)
-        }
-        return table
-    }
-
-    /// Determines the length of the next element.  Updates the
-    /// current ``vr`` based on the data read.  This logic mirrors
-    /// ``getLength()`` from the original code.  The return value is
-    /// the element length in bytes.  Implicit VR is detected by
-    /// noting cases where the two reserved bytes are non‑zero for
-    /// certain VRs.
-    private func getLength() -> Int {
-        // Read four bytes without advancing the cursor prematurely
-        guard location + 3 < dicomData.count else { return 0 }
-        let b0 = dicomData[location]
-        let b1 = dicomData[location + 1]
-        let b2 = dicomData[location + 2]
-        let b3 = dicomData[location + 3]
-        location += 4
-        // Combine the first two bytes into a VR code; this will be
-        // overwritten later if we detect an implicit VR
-        let rawVR = Int(UInt16(b0) << 8 | UInt16(b1))
-        vr = VR(rawValue: rawVR) ?? .unknown
-        var retValue: Int = 0
-        switch vr {
-        case .OB, .OW, .SQ, .UN, .UT:
-            // Explicit VRs with 32‑bit lengths have two reserved
-            // bytes (b2 and b3).  If those bytes are zero we
-            // interpret the following 4 bytes as the length.
-            if b2 == 0 || b3 == 0 {
-                retValue = readInt()
-            } else {
-                // This is actually an implicit VR; the four bytes
-                // read constitute the length.
-                vr = .implicitRaw
-                if littleEndian {
-                    retValue = Int(b3) << 24 | Int(b2) << 16 | Int(b1) << 8 | Int(b0)
-                } else {
-                    retValue = Int(b0) << 24 | Int(b1) << 16 | Int(b2) << 8 | Int(b3)
-                }
-            }
-        case .AE, .AS, .AT, .CS, .DA, .DS, .DT, .FD, .FL, .IS, .LO,
-             .LT, .PN, .SH, .SL, .SS, .ST, .TM, .UI, .UL, .US, .QQ, .RT:
-            // Explicit VRs with 16‑bit lengths
-            if littleEndian {
-                retValue = Int(b3) << 8 | Int(b2)
-            } else {
-                retValue = Int(b2) << 8 | Int(b3)
-            }
-        default:
-            // Implicit VR with 32‑bit length
-            vr = .implicitRaw
-            if littleEndian {
-                retValue = Int(b3) << 24 | Int(b2) << 16 | Int(b1) << 8 | Int(b0)
-            } else {
-                retValue = Int(b0) << 24 | Int(b1) << 16 | Int(b2) << 8 | Int(b3)
-            }
-        }
-        return retValue
-    }
-
-    /// Reads the next tag from the stream.  Returns the tag value
-    /// (group << 16 | element).  Updates ``elementLength`` and
-    /// ``vr`` internally.  Implicit sequences update the
-    /// ``inSequence`` flag.
+    /// Reads the next tag from the stream using the tag parser.
+    /// Returns the tag value (group << 16 | element).
     private func getNextTag() -> Int {
-        // Check if we have enough data to read a tag
-        guard location + 4 <= dicomData.count else {
-            return 0  // Return 0 to signal end of data
+        guard let parser = tagParser else { return 0 }
+
+        let previousEndianness = littleEndian
+        let tag = parser.getNextTag(
+            location: &location,
+            data: dicomData,
+            littleEndian: &littleEndian,
+            bigEndianTransferSyntax: bigEndianTransferSyntax
+        )
+
+        // Update binary reader and parser if endianness changed
+        if littleEndian != previousEndianness {
+            reader = DCMBinaryReader(data: dicomData, littleEndian: littleEndian)
+            tagParser = DCMTagParser(data: dicomData, dict: dict, binaryReader: reader!)
         }
-        
-        let group = Int(readShort())
-        // Endianness detection: if the group appears as 0x0800 in a
-        // big endian transfer syntax we flip endianness.  This
-        // mirrors the hack in the original implementation.
-        var actualGroup = group
-        if group == 0x0800 && bigEndianTransferSyntax {
-            littleEndian = false
-            actualGroup = 0x0008
-        }
-        let element = Int(readShort())
-        let tag = actualGroup << 16 | element
-        elementLength = getLength()
-        
-        // Handle undefined lengths indicating the start of a sequence
-        if elementLength == -1 || elementLength == 0xFFFFFFFF {
-            elementLength = 0
-            inSequence = true
-        }
-        
-        // Sanity check: element length should not exceed remaining data
-        let remainingBytes = dicomData.count - location
-        if elementLength > remainingBytes {
-            elementLength = min(elementLength, remainingBytes)
-        }
-        
-        // Correct for odd location hack
-        if elementLength == 13 && !oddLocations {
-            elementLength = 10
-        }
+
         return tag
     }
 
-    /// Constructs a human readable header string for the given tag
-    /// and optional value.  This replicates the behaviour of
-    /// ``getHeaderInfo(withValue:)`` in the original code.  If
-    /// ``inSequence`` is true the description is prefixed with
-    /// ``">"``.  Private tags (those with odd group numbers)
-    /// receive the description ``"Private Tag"``.  Unknown tags
-    /// produce nil.
-    private func headerInfo(for tag: Int, value inValue: String?) -> String? {
-        let key = String(format: "%08X", tag)
-        // Handle sequence delimiters
-        if key == "FFFEE000" || key == "FFFEE00D" || key == "FFFEE0DD" {
-            inSequence = false
-            return nil
-        }
-        var description: String? = dict.value(forKey: key)
-        // Determine VR if implicit
-        if let desc = description, vr == .implicitRaw {
-            let rawVRCode = desc.prefix(2)
-            if let ascii = rawVRCode.data(using: .utf8), ascii.count == 2 {
-                let code = Int(UInt16(ascii[0]) << 8 | UInt16(ascii[1]))
-                vr = VR(rawValue: code) ?? .unknown
-            }
-            description = String(desc.dropFirst(2))
-        }
-        // ITEM tags do not have a value
-        if key == "FFFEE000" {
-            description = description ?? ":null"
-            return description
-        }
-        if let provided = inValue {
-            let prefix = description ?? "---"
-            return "\(prefix): \(provided)"
-        }
-        // Determine how to read the value based on VR
-        var value: String? = nil
-        var privateTag = false
-        switch vr {
-        case .FD:
-            // Skip elementLength bytes (8 bytes per double)
-            location += elementLength
-        case .FL:
-            // Skip elementLength bytes (4 bytes per float)
-            location += elementLength
-        case .AE, .AS, .AT, .CS, .DA, .DS, .DT, .IS, .LO, .LT, .PN, .SH, .ST, .TM, .UI:
-            value = readString(length: elementLength)
-        case .US:
-            if elementLength == 2 {
-                let s = readShort()
-                value = String(s)
-            } else {
-                // Multiple unsigned shorts separated by spaces
-                var vals = [String]()
-                let count = elementLength / 2
-                for _ in 0..<count {
-                    vals.append(String(readShort()))
-                }
-                value = vals.joined(separator: " ")
-            }
-        case .implicitRaw:
-            // Interpret as a string unless extremely long
-            let s = readString(length: elementLength)
-            if elementLength <= 44 {
-                value = s
-            } else {
-                value = nil
-            }
-        case .SQ:
-            // Sequences are read elsewhere; here we just skip
-            value = ""
-            privateTag = ((tag >> 16) & 1) != 0
-            if tag != Tag.iconImageSequence.rawValue && !privateTag {
-                break
-            }
-            location += elementLength
-        default:
-            // Unknown VR: skip the bytes
-            location += elementLength
-            value = ""
-        }
-        // Build the return string
-        if value?.isEmpty == false {
-            // If we have no description look up the tag again
-            let desc = description ?? "---"
-            return "\(desc): \(value ?? "")"
-        } else if description == nil {
-            return nil
-        } else {
-            let desc = description ?? "---"
-            return "\(desc): \(value ?? "")"
-        }
-    }
-
-    /// Adds the provided value to ``dicomInfoDict`` keyed by the raw
-    /// tag.  If ``inSequence`` is true the stored string is
-    /// prefixed with ``">"`` to indicate nesting.  Private tag
-    /// markers ``"---"`` are replaced with the literal string
-    /// ``"Private Tag"`` for clarity.
+    /// Adds the provided value to ``dicomInfoDict`` using the tag parser.
+    /// Delegates to DCMTagParser for parsing and formatting.
     private func addInfo(tag: Int, stringValue: String?) {
-        guard let info = headerInfo(for: tag, value: stringValue) else { return }
-        var stored = info
-        if inSequence {
-            stored = ">" + stored
-        }
-        // Replace unknown description marker with "Private Tag"
-        if let range = stored.range(of: "---") {
-            stored.replaceSubrange(range, with: "Private Tag")
-        }
-        dicomInfoDict[tag] = stored
+        guard let parser = tagParser else { return }
+        parser.addInfo(tag: tag, stringValue: stringValue, location: &location, infoDict: &dicomInfoDict)
     }
 
     /// Convenience overload for adding integer values as strings.
     private func addInfo(tag: Int, intValue: Int) {
-        addInfo(tag: tag, stringValue: String(intValue))
+        guard let parser = tagParser else { return }
+        parser.addInfo(tag: tag, intValue: intValue, location: &location, infoDict: &dicomInfoDict)
     }
 
     /// Parses the ``PIXEL_SPACING`` string into separate x and y
@@ -1039,6 +726,8 @@ public final class DCMDecoder {
     /// recorded and available via properties or ``info(for:)``.
     /// NOTE: This is the unsafe version that must be called from within a synchronized block.
     private func readFileInfoUnsafe() -> Bool {
+        guard let initialReader = reader else { return false }
+        var reader = initialReader
         // Reset some state to sane defaults
         bitDepth = 16
         compressedImage = false
@@ -1047,7 +736,7 @@ public final class DCMDecoder {
         // Move to offset 128 where "DICM" marker resides
         location = 128
         // Read the four magic bytes
-        let fileMark = readString(length: 4)
+        let fileMark = reader.readString(length: 4, location: &location)
         guard fileMark == "DICM" else {
             dicomFound = false
             return false
@@ -1071,6 +760,8 @@ public final class DCMDecoder {
             }
             
             let tag = getNextTag()
+            guard let activeReader = self.reader else { return false }
+            reader = activeReader
             
             // Check for end of data or invalid tag
             if tag == 0 || location >= dicomData.count {
@@ -1079,11 +770,7 @@ public final class DCMDecoder {
                 }
                 break
             }
-            // Track odd byte offsets
-            if (location & 1) != 0 {
-                oddLocations = true
-            }
-            if inSequence {
+            if tagParser?.isInSequence == true {
                 // Sequence content is handled inside headerInfo
                 addInfo(tag: tag, stringValue: nil)
                 continue
@@ -1091,7 +778,8 @@ public final class DCMDecoder {
             switch tag {
             case Tag.transferSyntaxUID.rawValue:
                 // Read and store the transfer syntax UID
-                let s = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                let s = reader.readString(length: elementLength, location: &location)
                 transferSyntaxUID = s
                 addInfo(tag: tag, stringValue: s)
                 // Detect compressed syntaxes and byte ordering using DicomTransferSyntax enum
@@ -1104,39 +792,44 @@ public final class DCMDecoder {
                     bigEndianTransferSyntax = false
                 }
             case Tag.modality.rawValue:
-                modality = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                modality = reader.readString(length: elementLength, location: &location)
                 addInfo(tag: tag, stringValue: modality)
             case Tag.numberOfFrames.rawValue:
-                let s = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                let s = reader.readString(length: elementLength, location: &location)
                 addInfo(tag: tag, stringValue: s)
                 if let frames = Double(s), frames > 1.0 {
                     nImages = Int(frames)
                 }
             case Tag.samplesPerPixel.rawValue:
-                let spp = Int(readShort())
+                let spp = Int(reader.readShort(location: &location))
                 samplesPerPixel = spp
                 addInfo(tag: tag, intValue: spp)
             case Tag.photometricInterpretation.rawValue:
-                let s = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                let s = reader.readString(length: elementLength, location: &location)
                 photometricInterpretation = s
                 addInfo(tag: tag, stringValue: s)
             case Tag.planarConfiguration.rawValue:
-                planarConfiguration = Int(readShort())
+                planarConfiguration = Int(reader.readShort(location: &location))
                 addInfo(tag: tag, intValue: planarConfiguration)
             case Tag.rows.rawValue:
-                let h = Int(readShort())
+                let h = Int(reader.readShort(location: &location))
                 height = h
                 addInfo(tag: tag, intValue: h)
             case Tag.columns.rawValue:
-                let w = Int(readShort())
+                let w = Int(reader.readShort(location: &location))
                 width = w
                 addInfo(tag: tag, intValue: w)
             case Tag.pixelSpacing.rawValue:
-                let scale = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                let scale = reader.readString(length: elementLength, location: &location)
                 applySpatialScale(scale)
                 addInfo(tag: tag, stringValue: scale)
             case Tag.imageOrientationPatient.rawValue:
-                let orientationString = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                let orientationString = reader.readString(length: elementLength, location: &location)
                 addInfo(tag: tag, stringValue: orientationString)
                 if let values = parseDoubleValues(orientationString, expectedCount: 6) {
                     let row = SIMD3<Double>(values[0], values[1], values[2])
@@ -1147,56 +840,65 @@ public final class DCMDecoder {
                     imageOrientation = (row: normalizedRow, column: normalizedCol)
                 }
             case Tag.imagePositionPatient.rawValue:
-                let positionString = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                let positionString = reader.readString(length: elementLength, location: &location)
                 addInfo(tag: tag, stringValue: positionString)
                 if let values = parseDoubleValues(positionString, expectedCount: 3) {
                     imagePosition = SIMD3<Double>(values[0], values[1], values[2])
                 }
             case Tag.sliceThickness.rawValue, Tag.sliceSpacing.rawValue:
-                let spacing = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                let spacing = reader.readString(length: elementLength, location: &location)
                 pixelDepth = Double(spacing) ?? pixelDepth
                 addInfo(tag: tag, stringValue: spacing)
             case Tag.bitsAllocated.rawValue:
-                let depth = Int(readShort())
+                let depth = Int(reader.readShort(location: &location))
                 bitDepth = depth
                 addInfo(tag: tag, intValue: depth)
             case Tag.pixelRepresentation.rawValue:
-                pixelRepresentation = Int(readShort())
+                pixelRepresentation = Int(reader.readShort(location: &location))
                 addInfo(tag: tag, intValue: pixelRepresentation)
             case Tag.windowCenter.rawValue:
-                var center = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                var center = reader.readString(length: elementLength, location: &location)
                 if let index = center.firstIndex(of: "\\") {
                     center = String(center[center.index(after: index)...])
                 }
                 windowCenter = Double(center) ?? 0.0
                 addInfo(tag: tag, stringValue: center)
             case Tag.windowWidth.rawValue:
-                var widthS = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                var widthS = reader.readString(length: elementLength, location: &location)
                 if let index = widthS.firstIndex(of: "\\") {
                     widthS = String(widthS[widthS.index(after: index)...])
                 }
                 windowWidth = Double(widthS) ?? 0.0
                 addInfo(tag: tag, stringValue: widthS)
             case Tag.rescaleIntercept.rawValue:
-                let intercept = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                let intercept = reader.readString(length: elementLength, location: &location)
                 rescaleIntercept = Double(intercept) ?? 0.0
                 addInfo(tag: tag, stringValue: intercept)
             case Tag.rescaleSlope.rawValue:
-                let slope = readString(length: elementLength)
+                let elementLength = tagParser?.currentElementLength ?? 0
+                let slope = reader.readString(length: elementLength, location: &location)
                 rescaleSlope = Double(slope) ?? 1.0
                 addInfo(tag: tag, stringValue: slope)
             case Tag.redPalette.rawValue:
-                if let table = readLUT(length: elementLength) {
+                let elementLength = tagParser?.currentElementLength ?? 0
+                if let table = reader.readLUT(length: elementLength, location: &location) {
                     reds = table
                     addInfo(tag: tag, intValue: table.count)
                 }
             case Tag.greenPalette.rawValue:
-                if let table = readLUT(length: elementLength) {
+                let elementLength = tagParser?.currentElementLength ?? 0
+                if let table = reader.readLUT(length: elementLength, location: &location) {
                     greens = table
                     addInfo(tag: tag, intValue: table.count)
                 }
             case Tag.bluePalette.rawValue:
-                if let table = readLUT(length: elementLength) {
+                let elementLength = tagParser?.currentElementLength ?? 0
+                if let table = reader.readLUT(length: elementLength, location: &location) {
                     blues = table
                     addInfo(tag: tag, intValue: table.count)
                 }
@@ -1211,7 +913,34 @@ public final class DCMDecoder {
                 addInfo(tag: tag, stringValue: nil)
             }
         }
-        
+
+        // Validate image dimensions and expected pixel buffer size
+        if width <= 0 || height <= 0 {
+            logger.warning("Invalid image dimensions: width=\(width), height=\(height)")
+            return false
+        }
+        if width > Self.maxImageDimension || height > Self.maxImageDimension {
+            logger.warning("Image dimensions exceed maximum allowed: \(width)x\(height) (max \(Self.maxImageDimension))")
+            return false
+        }
+        let width64 = Int64(width)
+        let height64 = Int64(height)
+        let bytesPerPixel = Int64(max(1, bitDepth / 8)) * Int64(max(1, samplesPerPixel))
+        let (pixelCount64, pixelOverflow) = width64.multipliedReportingOverflow(by: height64)
+        if pixelOverflow {
+            logger.warning("Pixel count overflow for dimensions: \(width)x\(height)")
+            return false
+        }
+        let (totalBytes64, byteOverflow) = pixelCount64.multipliedReportingOverflow(by: bytesPerPixel)
+        if byteOverflow || totalBytes64 <= 0 {
+            logger.warning("Pixel buffer size overflow for dimensions: \(width)x\(height), bytesPerPixel=\(bytesPerPixel)")
+            return false
+        }
+        if totalBytes64 > Self.maxPixelBufferSize {
+            logger.warning("Pixel buffer size \(totalBytes64) bytes exceeds maximum allowed \(Self.maxPixelBufferSize) bytes")
+            return false
+        }
+
         // Ensure we have a valid pixel data offset
         if offset == 0 {
             // If we couldn't find the pixel data tag, try to locate it
@@ -1231,18 +960,6 @@ public final class DCMDecoder {
         return true
     }
 
-    /// Converts a two's complement encoded 16‑bit value into an
-    /// unsigned 16‑bit representation.  This is used when
-    /// ``pixelRepresentation`` equals one to map signed pixel values
-    /// into the positive range expected by rendering code.  The
-    /// algorithm subtracts the minimum short value to shift the
-    /// range appropriately.
-    private func normaliseSigned16(bytes b0: UInt8, b1: UInt8) -> UInt16 {
-        let combined = Int16(bitPattern: UInt16(b1) << 8 | UInt16(b0))
-        // Shift negative values up by min16 to make them positive
-        let shifted = Int(combined) - min16
-        return UInt16(shifted)
-    }
 
     /// Thread-safe wrapper for readPixels
     private func readPixels() {
@@ -1258,133 +975,30 @@ public final class DCMDecoder {
     /// ``samplesPerPixel`` or ``bitDepth`` result in empty buffers.
     /// NOTE: This is the unsafe version that must be called from within a synchronized block.
     private func readPixelsUnsafe() {
-        let startTime = CFAbsoluteTimeGetCurrent()
         // Clear any previously stored buffers
         pixels8 = nil
         pixels16 = nil
         pixels24 = nil
-        // Grayscale 8‑bit
-        if samplesPerPixel == 1 && bitDepth == 8 {
-            let numPixels = width * height
-            guard offset > 0 && offset + numPixels <= dicomData.count else {
-                return
-            }
-            pixels8 = Array(dicomData[offset..<offset + numPixels])
-            
-            // Handle MONOCHROME1 (white is zero) - common for X-rays
-            if photometricInterpretation == "MONOCHROME1" {
-                if var p8 = pixels8 {
-                    for i in 0..<numPixels {
-                        p8[i] = 255 - p8[i]
-                    }
-                    pixels8 = p8
-                }
-            }
-            
-            let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-            debugPerfLog("[PERF] readPixels (8-bit): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height)")
-            return
-        }
-        // Grayscale 16‑bit
-        if samplesPerPixel == 1 && bitDepth == 16 {
-            let numPixels = width * height
-            let numBytes = numPixels * 2
-            
-            // Debug logging
-            // debugPerfLog("[DCMDecoder] Reading 16-bit pixels: width=\(width), height=\(height), numPixels=\(numPixels), offset=\(offset), dataSize=\(dicomData.count)")
-            
-            guard offset > 0 && offset + numBytes <= dicomData.count else {
-                logger.warning("Invalid offset or insufficient data. offset=\(offset), needed=\(numBytes), available=\(dicomData.count - offset)")
-                return
-            }
-            
-            // OPTIMIZATION: Use withUnsafeBytes for much faster pixel reading
-            pixels16 = Array(repeating: 0, count: numPixels)
-            guard var pixels = pixels16 else { return }
-            
-            dicomData.withUnsafeBytes { dataBytes in
-                let basePtr = dataBytes.baseAddress!.advanced(by: offset)
-                
-                if pixelRepresentation == 0 {
-                    // Unsigned pixels - most common for CR/DX
-                    if littleEndian {
-                        // Little endian (most common)
-                        // Check if the pointer is aligned for UInt16 access
-                        if offset % 2 == 0 {
-                            // Aligned - can use fast path
-                            basePtr.withMemoryRebound(to: UInt16.self, capacity: numPixels) { uint16Ptr in
-                                if photometricInterpretation == "MONOCHROME1" {
-                                    // Invert for MONOCHROME1 (white is zero)
-                                    for i in 0..<numPixels {
-                                        pixels[i] = 65535 - uint16Ptr[i]
-                                    }
-                                } else {
-                                    // Direct copy for MONOCHROME2
-                                    pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                                        _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, numBytes)
-                                    }
-                                }
-                            }
-                        } else {
-                            // Unaligned - use byte-by-byte reading
-                            let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
-                            for i in 0..<numPixels {
-                                let byteIndex = i * 2
-                                let b0 = uint8Ptr[byteIndex]
-                                let b1 = uint8Ptr[byteIndex + 1]
-                                var value = UInt16(b0) | (UInt16(b1) << 8)  // Little endian
-                                if photometricInterpretation == "MONOCHROME1" {
-                                    value = 65535 - value
-                                }
-                                pixels[i] = value
-                            }
-                        }
-                    } else {
-                        // Big endian (rare)
-                        let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
-                        for i in 0..<numPixels {
-                            let byteIndex = i * 2
-                            let b0 = uint8Ptr[byteIndex]
-                            let b1 = uint8Ptr[byteIndex + 1]
-                            var value = UInt16(b0) << 8 | UInt16(b1)
-                            if photometricInterpretation == "MONOCHROME1" {
-                                value = 65535 - value
-                            }
-                            pixels[i] = value
-                        }
-                    }
-                    signedImage = false
-                } else {
-                    // Signed pixels (less common)
-                    signedImage = true
-                    let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
-                    for i in 0..<numPixels {
-                        let byteIndex = i * 2
-                        let b0 = uint8Ptr[byteIndex]
-                        let b1 = uint8Ptr[byteIndex + 1]
-                        var value = normaliseSigned16(bytes: b0, b1: b1)
-                        if photometricInterpretation == "MONOCHROME1" {
-                            value = UInt16(32768) - (value - UInt16(32768))
-                        }
-                        pixels[i] = value
-                    }
-                }
-            }
-            
-            pixels16 = pixels
-            return
-        }
-        // Colour 8‑bit RGB
-        if samplesPerPixel == 3 && bitDepth == 8 {
-            signedImage = false
-            let numBytes = width * height * 3
-            guard offset + numBytes <= dicomData.count else { return }
-            pixels24 = Array(dicomData[offset..<offset + numBytes])
-            let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
-            debugPerfLog("[PERF] readPixels (24-bit RGB): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height)")
-            return
-        }
-        // Fallback: leave buffers nil
+
+        // Use DCMPixelReader to read pixel data
+        let result = DCMPixelReader.readPixels(
+            data: dicomData,
+            width: width,
+            height: height,
+            bitDepth: bitDepth,
+            samplesPerPixel: samplesPerPixel,
+            offset: offset,
+            pixelRepresentation: pixelRepresentation,
+            littleEndian: littleEndian,
+            photometricInterpretation: photometricInterpretation,
+            logger: logger
+        )
+
+        // Store the results
+        pixels8 = result.pixels8
+        pixels16 = result.pixels16
+        pixels24 = result.pixels24
+        signedImage = result.signedImage
     }
 
     /// Thread-safe wrapper for decodeCompressedPixelData
@@ -1405,162 +1019,27 @@ public final class DCMDecoder {
     /// false.
     /// NOTE: This is the unsafe version that must be called from within a synchronized block.
     private func decodeCompressedPixelDataUnsafe() {
-        // Extract the encapsulated pixel data from the offset to
-        // the end of the file.  Some DICOM files encapsulate each
-        // frame into separate items; for simplicity we treat the
-        // entire remaining data as one JPEG/JP2 codestream.  For
-        // robust handling you would need to parse the Basic Offset
-        // Table and items (see PS3.5).  This implementation is
-        // designed to handle single–frame images.
-        let compressedData = dicomData.subdata(in: offset..<dicomData.count)
-        // Create an image source from the compressed data.  ImageIO
-        // automatically detects JPEG, JPEG2000 and JPEG‑LS formats.
-        guard let source = CGImageSourceCreateWithData(compressedData as CFData, nil) else {
+        // Use DCMPixelReader to decode compressed pixel data
+        guard let result = DCMPixelReader.decodeCompressedPixelData(
+            data: dicomData,
+            offset: offset,
+            logger: logger
+        ) else {
             dicomFileReadSuccess = false
             return
         }
-        // Decode the first image in the source.
-        guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-            dicomFileReadSuccess = false
-            return
-        }
-        // Retrieve dimensions
-        width = cgImage.width
-        height = cgImage.height
-        bitDepth = cgImage.bitsPerComponent
-        // Determine number of colour samples.  bitsPerPixel may
-        // include alpha; we compute based on bitsPerPixel and
-        // bitsPerComponent.
-        let samples = max(1, cgImage.bitsPerPixel / cgImage.bitsPerComponent)
-        samplesPerPixel = samples >= 3 ? 3 : 1
-        signedImage = false
-        // Prepare a context to extract the pixel data.  For colour
-        // images we render into a BGRA 32‑bit buffer; for grayscale
-        // we render into an 8‑bit buffer.
-        if samplesPerPixel == 1 {
-            // Grayscale output
-            let colorSpace = CGColorSpaceCreateDeviceGray()
-            let bytesPerRow = width
-            guard let ctx = CGContext(data: nil,
-                                      width: width,
-                                      height: height,
-                                      bitsPerComponent: 8,
-                                      bytesPerRow: bytesPerRow,
-                                      space: colorSpace,
-                                      bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
-                dicomFileReadSuccess = false
-                return
-            }
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-            guard let dataPtr = ctx.data else {
-                dicomFileReadSuccess = false
-                return
-            }
-            let buffer = dataPtr.assumingMemoryBound(to: UInt8.self)
-            let count = width * height
-            pixels8 = [UInt8](UnsafeBufferPointer(start: buffer, count: count))
-        } else {
-            // Colour output.  Render into BGRA and then strip alpha.
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
-            let bytesPerPixel = 4
-            let bytesPerRow = width * bytesPerPixel
-            let bitmapInfo = CGImageAlphaInfo.noneSkipLast.rawValue
-            guard let ctx = CGContext(data: nil,
-                                      width: width,
-                                      height: height,
-                                      bitsPerComponent: 8,
-                                      bytesPerRow: bytesPerRow,
-                                      space: colorSpace,
-                                      bitmapInfo: bitmapInfo) else {
-                dicomFileReadSuccess = false
-                return
-            }
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-            guard let dataPtr = ctx.data else {
-                dicomFileReadSuccess = false
-                return
-            }
-            let rawBuffer = dataPtr.assumingMemoryBound(to: UInt8.self)
-            let count = width * height
-            // Allocate pixel24 and fill with RGB triples (BGR in
-            // little endian).  We omit the alpha channel.
-            var output = [UInt8](repeating: 0, count: count * 3)
-            for i in 0..<count {
-                let srcIndex = i * 4
-                let dstIndex = i * 3
-                // CGImage in little endian stores bytes as BGRA
-                let blue  = rawBuffer[srcIndex]
-                let green = rawBuffer[srcIndex + 1]
-                let red   = rawBuffer[srcIndex + 2]
-                output[dstIndex]     = blue
-                output[dstIndex + 1] = green
-                output[dstIndex + 2] = red
-            }
-            pixels24 = output
-        }
-    }
-}
 
-// MARK: - Async/Await Extensions
+        // Update decoder state with decoded image properties
+        width = result.width
+        height = result.height
+        bitDepth = result.bitDepth
+        samplesPerPixel = result.samplesPerPixel
+        signedImage = result.signedImage
 
-extension DCMDecoder {
-
-    /// Loads and decodes a DICOM file asynchronously
-    /// - Parameter filename: Path to the DICOM file
-    /// - Returns: True if the file was successfully loaded and decoded
-    @available(macOS 10.15, iOS 13.0, *)
-    public func loadDICOMFileAsync(_ filename: String) async -> Bool {
-        return await withCheckedContinuation { continuation in
-            Task.detached(priority: .userInitiated) {
-                self.setDicomFilename(filename)
-                continuation.resume(returning: self.dicomFileReadSuccess)
-            }
-        }
-    }
-
-    /// Retrieves 16-bit pixels asynchronously
-    /// - Returns: Array of 16-bit pixel values or nil
-    @available(macOS 10.15, iOS 13.0, *)
-    public func getPixels16Async() async -> [UInt16]? {
-        return await withCheckedContinuation { continuation in
-            Task.detached(priority: .userInitiated) {
-                continuation.resume(returning: self.getPixels16())
-            }
-        }
-    }
-
-    /// Retrieves 8-bit pixels asynchronously
-    /// - Returns: Array of 8-bit pixel values or nil
-    @available(macOS 10.15, iOS 13.0, *)
-    public func getPixels8Async() async -> [UInt8]? {
-        return await withCheckedContinuation { continuation in
-            Task.detached(priority: .userInitiated) {
-                continuation.resume(returning: self.getPixels8())
-            }
-        }
-    }
-
-    /// Retrieves 24-bit RGB pixels asynchronously
-    /// - Returns: Array of 24-bit pixel values or nil
-    @available(macOS 10.15, iOS 13.0, *)
-    public func getPixels24Async() async -> [UInt8]? {
-        return await withCheckedContinuation { continuation in
-            Task.detached(priority: .userInitiated) {
-                continuation.resume(returning: self.getPixels24())
-            }
-        }
-    }
-
-    /// Retrieves downsampled thumbnail pixels asynchronously
-    /// - Parameter maxDimension: Maximum dimension for the thumbnail
-    /// - Returns: Tuple with downsampled pixels and dimensions, or nil
-    @available(macOS 10.15, iOS 13.0, *)
-    public func getDownsampledPixels16Async(maxDimension: Int = 150) async -> (pixels: [UInt16], width: Int, height: Int)? {
-        return await withCheckedContinuation { continuation in
-            Task.detached(priority: .utility) {
-                continuation.resume(returning: self.getDownsampledPixels16(maxDimension: maxDimension))
-            }
-        }
+        // Store pixel buffers
+        pixels8 = result.pixels8
+        pixels16 = result.pixels16
+        pixels24 = result.pixels24
     }
 }
 
