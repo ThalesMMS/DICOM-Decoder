@@ -45,10 +45,25 @@ private struct SliceMeta {
     let projection: Double?
 }
 
-public final class DicomSeriesLoader {
+public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
     public typealias ProgressHandler = (Double, Int, Data?, DicomSeriesVolume) -> Void
 
-    public init() {}
+    // MARK: - Properties
+
+    private let decoderFactory: () -> DicomDecoderProtocol
+
+    // MARK: - Initialization
+
+    /// Required protocol initializer - uses default DCMDecoder.
+    public init() {
+        self.decoderFactory = { DCMDecoder() }
+    }
+
+    /// Dependency injection initializer for testing and customization.
+    /// - Parameter decoderFactory: Factory closure that creates DicomDecoderProtocol instances
+    public init(decoderFactory: @escaping () -> DicomDecoderProtocol) {
+        self.decoderFactory = decoderFactory
+    }
 
     /// Loads a DICOM series from a directory, ordering slices by Image Position (Patient).
     /// - Parameters:
@@ -63,7 +78,7 @@ public final class DicomSeriesLoader {
         }
 
         // First pass: read headers to collect geometry and ordering data.
-        var firstDecoder: DCMDecoder?
+        var firstDecoder: DicomDecoderProtocol?
         var orientation: (row: SIMD3<Double>, column: SIMD3<Double>)?
         var origin: SIMD3<Double>?
         var rescaleSlope: Double = 1.0
@@ -79,7 +94,7 @@ public final class DicomSeriesLoader {
         var slices: [SliceMeta] = []
 
         for url in fileURLs {
-            let decoder = DCMDecoder()
+            let decoder = decoderFactory()
             decoder.setDicomFilename(url.path)
             guard decoder.dicomFileReadSuccess else { continue }
 
@@ -270,7 +285,7 @@ private extension DicomSeriesLoader {
                      expectedWidth: Int,
                      expectedHeight: Int,
                      isSigned: Bool) throws -> [Int16] {
-        let decoder = DCMDecoder()
+        let decoder = decoderFactory()
         decoder.setDicomFilename(url.path)
         guard decoder.dicomFileReadSuccess,
               decoder.width == expectedWidth,

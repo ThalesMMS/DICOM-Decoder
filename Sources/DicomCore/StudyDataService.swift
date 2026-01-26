@@ -11,17 +11,22 @@ import CoreGraphics
 
 // MARK: - Study Data Service
 
-public final class StudyDataService: @unchecked Sendable {
-    
+public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendable {
+
     // MARK: - Properties
-    
+
     private let logger: AnyLogger
     private let fileManager: FileManager
-    
+    private let decoderFactory: () -> DicomDecoderProtocol
+
     // MARK: - Initialization
-    
-    public init(fileManager: FileManager = .default) {
+
+    public init(
+        fileManager: FileManager = .default,
+        decoderFactory: @escaping () -> DicomDecoderProtocol
+    ) {
         self.fileManager = fileManager
+        self.decoderFactory = decoderFactory
         self.logger = AnyLogger.make(subsystem: "com.dicomviewer", category: "StudyData")
         logger.info("🔬 StudyDataService initialized")
     }
@@ -32,7 +37,7 @@ public final class StudyDataService: @unchecked Sendable {
     public func extractStudyMetadata(from filePath: String) async -> StudyMetadata? {
         return await withCheckedContinuation { continuation in
             Task.detached(priority: .utility) {
-                let decoder = DCMDecoder()
+                let decoder = self.decoderFactory()
                 decoder.setDicomFilename(filePath)
                 
                 // Extract DICOM tag values
@@ -169,7 +174,7 @@ public final class StudyDataService: @unchecked Sendable {
                 }
                 
                 // 5. Try to load with decoder
-                let decoder = DCMDecoder()
+                let decoder = self.decoderFactory()
                 decoder.setDicomFilename(filePath)
 
                 let studyUID = decoder.info(for: DicomTag.studyInstanceUID.rawValue)
@@ -224,11 +229,12 @@ public final class StudyDataService: @unchecked Sendable {
     public func extractThumbnail(from filePath: String, maxSize: CGSize = CGSize(width: 120, height: 120)) async -> Data? {
         return await withCheckedContinuation { continuation in
             Task.detached(priority: .utility) {
-                let decoder = DCMDecoder()
+                let decoder = self.decoderFactory()
                 decoder.setDicomFilename(filePath)
                 
                 // Try to get downsampled pixels for thumbnail
-                guard decoder.getDownsampledPixels16() != nil,
+                let maxDimension = Int(max(maxSize.width, maxSize.height))
+                guard decoder.getDownsampledPixels16(maxDimension: maxDimension) != nil,
                       let width = Int(decoder.info(for: DicomTag.columns.rawValue)),
                       let height = Int(decoder.info(for: DicomTag.rows.rawValue)),
                       width > 0, height > 0 else {

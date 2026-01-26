@@ -22,17 +22,24 @@
 
 import Foundation
 
-/// Singleton facade for looking up DICOM tag descriptions from a
+/// Facade for looking up DICOM tag descriptions from a
 /// bundled property list.  Unlike the Objective‑C version,
 /// this implementation does not rely on ``NSObject`` or manual
 /// memory management.  Instead, the dictionary is loaded once
 /// lazily on first access and cached for the lifetime of the
-/// process.
-public final class DCMDictionary: @unchecked Sendable {
+/// instance.
+///
+/// **Migration:** This class now supports dependency injection.
+/// Use the public initializer to create instances instead of
+/// relying on the deprecated singleton.
+public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
+    // MARK: - Legacy Singleton Support (deprecated)
+
     /// Shared global instance.  The dictionary is loaded on demand
     /// using ``lazy`` so that applications which never access
     /// DICOM metadata do not pay the cost of parsing the plist.
-    static let shared = DCMDictionary()
+    @available(*, deprecated, message: "Use dependency injection instead")
+    public static let shared = DCMDictionary()
 
     /// Underlying storage for the tag mappings.  Keys are
     /// hex strings (e.g. ``"00020002"``) and values are
@@ -76,8 +83,16 @@ public final class DCMDictionary: @unchecked Sendable {
         }
     }()
 
-    // MARK: - Public Interface
-    
+    // MARK: - Initialization
+
+    /// Public initializer for dependency injection.
+    /// Creates a new instance that loads the DCMDictionary.plist from the bundle.
+    public init() {
+        print("📖 DCMDictionary initialized with dependency injection")
+    }
+
+    // MARK: - DicomDictionaryProtocol Implementation
+
     /// Returns the raw value associated with the supplied key.  The
     /// caller must split the VR code from the description if
     /// necessary.  Keys are expected to be eight hexadecimal
@@ -86,36 +101,24 @@ public final class DCMDictionary: @unchecked Sendable {
     /// - Parameter key: A hexadecimal string identifying a DICOM tag.
     /// - Returns: The string from the plist if present, otherwise
     ///   ``nil``.
-    func value(forKey key: String) -> String? {
+    public func value(forKey key: String) -> String? {
         dictionary[key]
     }
-    
-    // MARK: - Private Methods
 
-    /// Private initialiser to enforce the singleton pattern.
-    private init() {}
-}
-
-// MARK: - DCMDictionary Extensions
-
-public extension DCMDictionary {
-    
-    // MARK: - Convenience Methods
-    
     /// Returns just the VR code for a given tag
     /// - Parameter key: A hexadecimal string identifying a DICOM tag
     /// - Returns: The VR code (first 2 characters) or nil if not found
-    static func vrCode(forKey key: String) -> String? {
-        guard let value = shared.value(forKey: key),
+    public func vrCode(forKey key: String) -> String? {
+        guard let value = value(forKey: key),
               value.count >= 2 else { return nil }
         return String(value.prefix(2))
     }
-    
+
     /// Returns just the description for a given tag
     /// - Parameter key: A hexadecimal string identifying a DICOM tag
     /// - Returns: The description (after "XX:") or nil if not found
-    static func description(forKey key: String) -> String? {
-        guard let value = shared.value(forKey: key),
+    public func description(forKey key: String) -> String? {
+        guard let value = value(forKey: key),
               !value.isEmpty else { return nil }
         if let colonIndex = value.firstIndex(of: ":") {
             return String(value[value.index(after: colonIndex)...]).trimmingCharacters(in: .whitespaces)
@@ -129,13 +132,44 @@ public extension DCMDictionary {
             }
         }
     }
-    
+
     /// Formats a tag as a standard DICOM tag string
     /// - Parameter tag: The 32-bit tag value
     /// - Returns: Formatted tag string in the format "(XXXX,XXXX)"
-    static func formatTag(_ tag: UInt32) -> String {
+    public func formatTag(_ tag: UInt32) -> String {
         let group = (tag >> 16) & 0xFFFF
         let element = tag & 0xFFFF
         return String(format: "(%04X,%04X)", group, element)
+    }
+}
+
+// MARK: - DCMDictionary Deprecated Static Methods
+
+public extension DCMDictionary {
+
+    // MARK: - Legacy Static Methods (deprecated)
+
+    /// Returns just the VR code for a given tag
+    /// - Parameter key: A hexadecimal string identifying a DICOM tag
+    /// - Returns: The VR code (first 2 characters) or nil if not found
+    @available(*, deprecated, message: "Use instance method instead: dictionary.vrCode(forKey:)")
+    static func vrCode(forKey key: String) -> String? {
+        shared.vrCode(forKey: key)
+    }
+
+    /// Returns just the description for a given tag
+    /// - Parameter key: A hexadecimal string identifying a DICOM tag
+    /// - Returns: The description (after "XX:") or nil if not found
+    @available(*, deprecated, message: "Use instance method instead: dictionary.description(forKey:)")
+    static func description(forKey key: String) -> String? {
+        shared.description(forKey: key)
+    }
+
+    /// Formats a tag as a standard DICOM tag string
+    /// - Parameter tag: The 32-bit tag value
+    /// - Returns: Formatted tag string in the format "(XXXX,XXXX)"
+    @available(*, deprecated, message: "Use instance method instead: dictionary.formatTag(_:)")
+    static func formatTag(_ tag: UInt32) -> String {
+        shared.formatTag(tag)
     }
 }

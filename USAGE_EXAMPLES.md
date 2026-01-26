@@ -12,6 +12,7 @@ This document provides detailed examples of using the Swift DICOM Decoder in var
 - [Metadata Extraction](#metadata-extraction)
 - [Image Quality Metrics](#image-quality-metrics)
 - [Batch Processing](#batch-processing)
+- [Protocol-Based Dependency Injection](#protocol-based-dependency-injection)
 - [Advanced Features](#advanced-features)
 
 ## Basic Usage
@@ -414,6 +415,325 @@ let results = DCMWindowingProcessor.batchApplyWindowLevel(
 for (index, result) in results.enumerated() {
     if let windowed = result {
         print("Image \(index): \(windowed.count) bytes")
+    }
+}
+```
+
+## Protocol-Based Dependency Injection
+
+The library uses protocol-based dependency injection to enable testability, flexibility, and clean architecture. All core services implement protocols that can be mocked or replaced with custom implementations.
+
+### Why Use Dependency Injection?
+
+- **Testability**: Replace real implementations with mocks for unit testing
+- **Flexibility**: Swap implementations without changing client code
+- **Maintainability**: Clear separation of concerns and dependencies
+- **Isolation**: Test components independently without file I/O
+
+### Available Protocols
+
+All core components have protocol abstractions:
+
+- `DicomDecoderProtocol` - Abstracts DICOM file parsing (implemented by `DCMDecoder`, `MockDicomDecoder`)
+- `StudyDataServiceProtocol` - Abstracts study/series processing (implemented by `StudyDataService`)
+- `DicomSeriesLoaderProtocol` - Abstracts series volume loading (implemented by `DicomSeriesLoader`)
+- `DicomDictionaryProtocol` - Abstracts DICOM tag lookups (implemented by `DCMDictionary`)
+- `FileImportServiceProtocol` - Abstracts file import operations (implemented by `FileImportService`)
+
+### Basic Dependency Injection
+
+Services accept decoder factories instead of creating decoders directly:
+
+```swift
+import DicomCore
+
+// Production: Inject real decoder factory
+let studyService = StudyDataService(
+    decoderFactory: { DCMDecoder() }
+)
+
+// Testing: Inject mock decoder factory
+let mockStudyService = StudyDataService(
+    decoderFactory: { MockDicomDecoder() }
+)
+
+// Use the service (same API regardless of implementation)
+let studies = studyService.loadStudiesFromDirectory("/path/to/dicom/files")
+```
+
+### Testing with MockDicomDecoder
+
+The `MockDicomDecoder` provides a fully configurable implementation for testing:
+
+```swift
+import XCTest
+@testable import DicomCore
+
+class MyDicomTests: XCTestCase {
+    func testStudyLoading() {
+        // Create and configure mock decoder
+        let mock = MockDicomDecoder()
+        mock.width = 512
+        mock.height = 512
+        mock.bitDepth = 16
+        mock.dicomFileReadSuccess = true
+
+        // Configure metadata tags
+        mock.setTag(0x00100010, value: "Test^Patient")
+        mock.setTag(0x0020000D, value: "1.2.3.4.5.6.7.8.9")  // Study UID
+        mock.setTag(0x0020000E, value: "1.2.3.4.5.6.7.8.10") // Series UID
+        mock.setTag(0x00080060, value: "CT")                 // Modality
+
+        // Configure pixel data
+        let testPixels = [UInt16](repeating: 1000, count: 512 * 512)
+        mock.setPixels16(testPixels)
+
+        // Inject mock into service
+        let service = StudyDataService(
+            decoderFactory: { mock }
+        )
+
+        // Test the service with mock data
+        let studies = service.loadStudiesFromDirectory("/test/path")
+
+        // Verify results
+        XCTAssertEqual(studies.count, 1)
+        XCTAssertEqual(studies[0].studyInstanceUID, "1.2.3.4.5.6.7.8.9")
+    }
+}
+```
+
+### Factory Pattern for Multiple Files
+
+Services use factories instead of single instances to ensure clean state per file:
+
+```swift
+// ❌ Wrong: Single decoder instance (state leakage)
+let decoder = DCMDecoder()
+let service = StudyDataService(decoder: decoder)  // Not the actual API!
+
+// ✅ Correct: Factory creates fresh decoder per file
+let service = StudyDataService(
+    decoderFactory: { DCMDecoder() }
+)
+
+// Each file gets its own decoder instance
+// Thread-safe for concurrent file processing
+// No state leakage between files
+```
+
+### Custom Protocol Implementations
+
+You can create custom implementations for specialized use cases:
+
+```swift
+// Custom decoder that adds logging
+class LoggingDicomDecoder: DicomDecoderProtocol {
+    private let underlying: DicomDecoderProtocol
+    private let logger: Logger
+
+    init(underlying: DicomDecoderProtocol = DCMDecoder(), logger: Logger) {
+        self.underlying = underlying
+        self.logger = logger
+    }
+
+    func setDicomFilename(_ filename: String) {
+        logger.info("Loading DICOM file: \(filename)")
+        underlying.setDicomFilename(filename)
+
+        if underlying.dicomFileReadSuccess {
+            logger.info("Successfully loaded \(width)x\(height) image")
+        } else {
+            logger.error("Failed to load DICOM file")
+        }
+    }
+
+    // Forward all other protocol methods to underlying
+    var width: Int { underlying.width }
+    var height: Int { underlying.height }
+    // ... implement remaining protocol requirements ...
+}
+
+// Use custom implementation
+let service = StudyDataService(
+    decoderFactory: { LoggingDicomDecoder(logger: myLogger) }
+)
+```
+
+### Injecting Dependencies in DicomSeriesLoader
+
+Load 3D volumes with custom decoders:
+
+```swift
+// Production usage with real decoder
+let seriesLoader = DicomSeriesLoader(
+    decoderFactory: { DCMDecoder() }
+)
+
+// Test usage with mock decoder
+let mockLoader = DicomSeriesLoader(
+    decoderFactory: {
+        let mock = MockDicomDecoder()
+        mock.width = 512
+        mock.height = 512
+        mock.setPixels16([/* test data */])
+        mock.setTag(0x00200032, value: "0\\0\\0")  // Image Position
+        return mock
+    }
+)
+
+// Load series (same API)
+let result = try await seriesLoader.loadSeries(
+    from: seriesMetadata,
+    progressHandler: { progress in
+        print("Loading: \(Int(progress * 100))%")
+    }
+)
+```
+
+### Testing FileImportService
+
+Inject decoders into file import operations:
+
+```swift
+func testZipExtraction() {
+    // Create mock decoder
+    let mock = MockDicomDecoder()
+    mock.dicomFileReadSuccess = true
+    mock.setTag(0x0020000D, value: "1.2.3.4.5")
+
+    // Inject into FileImportService
+    let importService = FileImportService(
+        decoderFactory: { mock }
+    )
+
+    // Test import
+    let result = importService.importFile(at: URL(fileURLWithPath: "/test.zip"))
+
+    XCTAssertEqual(result.success, true)
+}
+```
+
+### Integration Testing with Mixed Implementations
+
+Combine real and mock implementations:
+
+```swift
+func testIntegration() {
+    // Use real dictionary for tag lookups
+    let realDictionary = DCMDictionary()
+
+    // Use mock decoder for file I/O
+    let mockDecoder = MockDicomDecoder()
+    mockDecoder.setTag(0x00100010, value: "Test^Patient")
+
+    // Combine in service
+    let service = StudyDataService(
+        decoderFactory: { mockDecoder }
+    )
+
+    // Dictionary works with real tag database
+    let tagName = realDictionary.description(forKey: "00100010")
+    XCTAssertEqual(tagName, "Patient's Name")
+
+    // Service uses mock for testing
+    let studies = service.loadStudiesFromDirectory("/test")
+    XCTAssertEqual(studies[0].patientName, "Test^Patient")
+}
+```
+
+### Backward Compatibility
+
+The library maintains backward compatibility with default initializers:
+
+```swift
+// Modern DI approach (recommended)
+let service = StudyDataService(
+    decoderFactory: { DCMDecoder() }
+)
+
+// Legacy approach (still works, uses default factory internally)
+let legacyService = StudyDataService()
+
+// Both work identically for production code
+```
+
+### Best Practices
+
+1. **Always use factories in services**: Each file should get a fresh decoder
+2. **Configure mocks completely**: Set all required properties and tags
+3. **Test with protocols**: Write tests against protocol types, not concrete classes
+4. **Use default factories for production**: Only inject custom factories for testing
+5. **Thread safety**: Services using factories are thread-safe for concurrent operations
+
+### Complete Testing Example
+
+```swift
+import XCTest
+@testable import DicomCore
+
+class CompleteDIExample: XCTestCase {
+    func testCompleteWorkflow() async throws {
+        // 1. Setup mock decoder with complete data
+        let mock = MockDicomDecoder()
+
+        // Configure image properties
+        mock.width = 512
+        mock.height = 512
+        mock.bitDepth = 16
+        mock.dicomFileReadSuccess = true
+
+        // Configure spatial properties
+        mock.pixelWidth = 0.5
+        mock.pixelHeight = 0.5
+        mock.pixelDepth = 1.0
+
+        // Configure display properties
+        mock.windowCenter = 40.0
+        mock.windowWidth = 80.0
+
+        // Configure metadata
+        mock.setTag(0x00100010, value: "Doe^John")
+        mock.setTag(0x00100020, value: "12345")
+        mock.setTag(0x0020000D, value: "1.2.840.113619.2.1.1")
+        mock.setTag(0x0020000E, value: "1.2.840.113619.2.1.2")
+        mock.setTag(0x00080060, value: "CT")
+        mock.setTag(0x00200032, value: "0\\0\\0")  // Position
+        mock.setTag(0x00200037, value: "1\\0\\0\\0\\1\\0")  // Orientation
+
+        // Configure pixel data
+        let pixels = [UInt16](repeating: 1000, count: 512 * 512)
+        mock.setPixels16(pixels)
+
+        // 2. Inject into services
+        let studyService = StudyDataService(
+            decoderFactory: { mock }
+        )
+
+        let seriesLoader = DicomSeriesLoader(
+            decoderFactory: { mock }
+        )
+
+        // 3. Test complete workflow
+        let studies = studyService.loadStudiesFromDirectory("/test")
+
+        XCTAssertEqual(studies.count, 1)
+        XCTAssertEqual(studies[0].patientName, "Doe^John")
+        XCTAssertEqual(studies[0].series.count, 1)
+
+        let series = studies[0].series[0]
+        XCTAssertEqual(series.modality, "CT")
+
+        // 4. Test series loading
+        let result = try await seriesLoader.loadSeries(from: series.images)
+
+        XCTAssertEqual(result.width, 512)
+        XCTAssertEqual(result.height, 512)
+        XCTAssertEqual(result.slices.count, 1)
+
+        // 5. Verify pixel data
+        XCTAssertEqual(result.slices[0].count, 512 * 512)
+        XCTAssertEqual(result.slices[0][0], 1000)
     }
 }
 ```

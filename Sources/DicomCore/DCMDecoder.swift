@@ -61,7 +61,7 @@ private typealias VR = DicomVR
 /// protects all mutable state, ensuring safe concurrent operations
 /// without data races.  Performance impact is minimal (<10%) due to
 /// the I/O‑bound nature of DICOM decoding operations.
-public final class DCMDecoder {
+public final class DCMDecoder: DicomDecoderProtocol {
     
     // MARK: - Properties
 
@@ -198,7 +198,7 @@ public final class DCMDecoder {
     /// Byte offset from the start of ``dicomData`` to the
     /// beginning of ``pixelData``.  Useful for debugging.  Not
     /// currently used elsewhere in this class.
-    private(set) var offset: Int = 1
+    public private(set) var offset: Int = 1
 
     /// Number of frames in a multi‑frame image.  Defaults to 1.
     public private(set) var nImages: Int = 1
@@ -242,10 +242,10 @@ public final class DCMDecoder {
     /// `dicomDir` is reserved for future use to distinguish
     /// directory records.  `signedImage` indicates whether the
     /// pixel data originally used two's complement representation.
-    private(set) var dicomFound: Bool = false
+    public private(set) var dicomFound: Bool = false
     public private(set) var dicomFileReadSuccess: Bool = false
     public private(set) var compressedImage: Bool = false
-    private(set) var dicomDir: Bool = false
+    public private(set) var dicomDir: Bool = false
     public private(set) var signedImage: Bool = false
     /// Raw pixel representation flag (0 = unsigned, 1 = two's complement)
     public var pixelRepresentationTagValue: Int { pixelRepresentation }

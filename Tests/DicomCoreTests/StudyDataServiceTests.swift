@@ -3,17 +3,221 @@ import XCTest
 
 final class StudyDataServiceTests: XCTestCase {
 
+    // MARK: - Helpers
+
+    /// Creates a decoder factory for testing
+    private func makeDecoderFactory() -> () -> DicomDecoderProtocol {
+        return { DCMDecoder() }
+    }
+
+    /// Creates a mock decoder factory for testing dependency injection
+    private func makeMockDecoderFactory(mock: MockDicomDecoder) -> () -> DicomDecoderProtocol {
+        return { mock }
+    }
+
     // MARK: - Service Initialization Tests
 
     func testServiceInitialization() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         XCTAssertNotNil(service, "Service should initialize successfully")
     }
 
     func testServiceInitializationWithCustomFileManager() {
         let customFileManager = FileManager.default
-        let service = StudyDataService(fileManager: customFileManager)
+        let service = StudyDataService(fileManager: customFileManager, decoderFactory: makeDecoderFactory())
         XCTAssertNotNil(service, "Service should initialize with custom FileManager")
+    }
+
+    // MARK: - Dependency Injection Tests
+
+    func testServiceUsesInjectedDecoderFactory() async {
+        // Create mock decoder with test data
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.setTag(DicomTag.patientName.rawValue, value: "Mock Patient")
+        mockDecoder.setTag(DicomTag.patientID.rawValue, value: "MOCK123")
+        mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
+        mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
+        mockDecoder.setTag(DicomTag.modality.rawValue, value: "CT")
+        mockDecoder.setTag(DicomTag.instanceNumber.rawValue, value: "1")
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        let metadata = await service.extractStudyMetadata(from: "/test/mock.dcm")
+
+        XCTAssertNotNil(metadata, "Should extract metadata using mock decoder")
+        XCTAssertEqual(metadata?.patientName, "Mock Patient", "Should use mock patient name")
+        XCTAssertEqual(metadata?.patientID, "MOCK123", "Should use mock patient ID")
+        XCTAssertEqual(metadata?.studyInstanceUID, "1.2.3.4.5", "Should use mock study UID")
+        XCTAssertEqual(metadata?.seriesInstanceUID, "1.2.3.4.5.6", "Should use mock series UID")
+    }
+
+    func testServiceUsesInjectedDecoderForValidation() async {
+        // Create mock decoder with valid DICOM data
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
+        mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
+        mockDecoder.dicomFound = true
+        mockDecoder.dicomFileReadSuccess = true
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        // Create a temporary file for validation test
+        let tempPath = NSTemporaryDirectory() + "test_validation_\(UUID().uuidString).dcm"
+        let testData = Data([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x44, 0x49, 0x43, 0x4D  // DICM header at offset 128
+        ])
+
+        try? testData.write(to: URL(fileURLWithPath: tempPath))
+        defer { try? FileManager.default.removeItem(atPath: tempPath) }
+
+        let result = await service.validateDICOMFile(tempPath)
+
+        // Validation should succeed because mock decoder has valid UIDs
+        XCTAssertTrue(result.isValid, "Should validate successfully with mock decoder")
+        XCTAssertTrue(result.issues.isEmpty, "Should have no validation issues")
+    }
+
+    func testServiceUsesInjectedDecoderForThumbnail() async {
+        // Create mock decoder with pixel data
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.width = 512
+        mockDecoder.height = 512
+        mockDecoder.setTag(DicomTag.columns.rawValue, value: "512")
+        mockDecoder.setTag(DicomTag.rows.rawValue, value: "512")
+
+        // Configure downsampled pixels for thumbnail
+        let thumbnailSize = 120
+        let pixels = [UInt16](repeating: 1000, count: thumbnailSize * thumbnailSize)
+        mockDecoder.setDownsampledPixels16(pixels, width: thumbnailSize, height: thumbnailSize)
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        let thumbnail = await service.extractThumbnail(from: "/test/mock.dcm")
+
+        // Thumbnail extraction should use mock decoder
+        XCTAssertNotNil(thumbnail, "Should extract thumbnail using mock decoder")
+    }
+
+    func testServiceHandlesMissingUIDsFromMockDecoder() async {
+        // Create mock decoder with missing UIDs
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.setTag(DicomTag.patientName.rawValue, value: "Test Patient")
+        mockDecoder.setTag(DicomTag.patientID.rawValue, value: "PAT001")
+        // Intentionally omit studyInstanceUID and seriesInstanceUID
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        let metadata = await service.extractStudyMetadata(from: "/test/mock.dcm")
+
+        // Should return nil because required UIDs are missing
+        XCTAssertNil(metadata, "Should return nil when required UIDs are missing")
+    }
+
+    func testServiceHandlesEmptyTagValuesFromMockDecoder() async {
+        // Create mock decoder with empty values that should use fallbacks
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.setTag(DicomTag.patientName.rawValue, value: "")  // Empty - should fallback
+        mockDecoder.setTag(DicomTag.patientID.rawValue, value: "")    // Empty - should fallback
+        mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
+        mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
+        mockDecoder.setTag(DicomTag.modality.rawValue, value: "")     // Empty - should fallback
+        mockDecoder.setTag(DicomTag.studyDate.rawValue, value: "")    // Empty - should fallback
+        mockDecoder.setTag(DicomTag.patientAge.rawValue, value: "")   // Empty - should fallback
+        mockDecoder.setTag(DicomTag.institutionName.rawValue, value: "")  // Empty - should fallback
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        let metadata = await service.extractStudyMetadata(from: "/test/mock.dcm")
+
+        XCTAssertNotNil(metadata, "Should extract metadata with fallback values")
+        XCTAssertEqual(metadata?.patientName, "Unknown Patient", "Should use fallback for empty patient name")
+        XCTAssertEqual(metadata?.patientID, "Unknown ID", "Should use fallback for empty patient ID")
+        XCTAssertEqual(metadata?.modality, "OT", "Should use fallback for empty modality")
+        XCTAssertEqual(metadata?.studyDate, "Unknown Date", "Should use fallback for empty study date")
+        XCTAssertEqual(metadata?.patientAge, "Unknown", "Should use fallback for empty patient age")
+        XCTAssertEqual(metadata?.institutionName, "Unknown Location", "Should use fallback for empty institution")
+    }
+
+    func testBatchMetadataExtractionUsesInjectedDecoder() async {
+        // Create mock decoder with test data
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.setTag(DicomTag.patientName.rawValue, value: "Batch Patient")
+        mockDecoder.setTag(DicomTag.patientID.rawValue, value: "BATCH001")
+        mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
+        mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
+        mockDecoder.setTag(DicomTag.modality.rawValue, value: "MR")
+        mockDecoder.setTag(DicomTag.instanceNumber.rawValue, value: "1")
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        let filePaths = [
+            "/test/file1.dcm",
+            "/test/file2.dcm",
+            "/test/file3.dcm"
+        ]
+
+        let metadata = await service.extractBatchMetadata(from: filePaths)
+
+        XCTAssertEqual(metadata.count, 3, "Should extract metadata for all files")
+        for meta in metadata {
+            XCTAssertEqual(meta.patientName, "Batch Patient", "Should use mock patient name")
+            XCTAssertEqual(meta.patientID, "BATCH001", "Should use mock patient ID")
+            XCTAssertEqual(meta.modality, "MR", "Should use mock modality")
+        }
+    }
+
+    func testServiceWithDifferentModalitiesFromMockDecoder() async {
+        let modalities = ["CT", "MR", "DX", "CR", "US", "MG", "PT", "NM"]
+
+        for modality in modalities {
+            let mockDecoder = MockDicomDecoder()
+            mockDecoder.setTag(DicomTag.patientName.rawValue, value: "Test Patient")
+            mockDecoder.setTag(DicomTag.patientID.rawValue, value: "PAT001")
+            mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
+            mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
+            mockDecoder.setTag(DicomTag.modality.rawValue, value: modality)
+
+            let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+            let metadata = await service.extractStudyMetadata(from: "/test/\(modality).dcm")
+
+            XCTAssertNotNil(metadata, "Should extract metadata for \(modality)")
+            XCTAssertEqual(metadata?.modality, modality, "Should preserve \(modality) modality")
+        }
+    }
+
+    func testServicePreservesInstanceNumberFromMockDecoder() async {
+        let testInstanceNumbers = [1, 5, 10, 42, 100]
+
+        for instanceNumber in testInstanceNumbers {
+            let mockDecoder = MockDicomDecoder()
+            mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
+            mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
+            mockDecoder.setTag(DicomTag.instanceNumber.rawValue, value: "\(instanceNumber)")
+
+            let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+            let metadata = await service.extractStudyMetadata(from: "/test/instance\(instanceNumber).dcm")
+
+            XCTAssertNotNil(metadata, "Should extract metadata for instance \(instanceNumber)")
+            XCTAssertEqual(metadata?.instanceNumber, instanceNumber, "Should preserve instance number \(instanceNumber)")
+        }
     }
 
     // MARK: - StudyMetadata Structure Tests
@@ -102,7 +306,7 @@ final class StudyDataServiceTests: XCTestCase {
     // MARK: - Patient Model Creation Tests
 
     func testCreatePatientModel() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         let metadata = StudyMetadata(
             filePath: "/test/path.dcm",
             patientName: "John Doe",
@@ -124,11 +328,11 @@ final class StudyDataServiceTests: XCTestCase {
         XCTAssertEqual(patientModel.patientName, "John Doe", "Patient name should match")
         XCTAssertEqual(patientModel.patientID, "PAT123", "Patient ID should match")
         XCTAssertEqual(patientModel.studyInstanceUID, "1.2.840.113619.2.1", "Study UID should match")
-        XCTAssertEqual(patientModel.modality, .mr, "Modality should be MR")
+        XCTAssertEqual(patientModel.modality, DICOMModality.mr, "Modality should be MR")
     }
 
     func testCreatePatientModelWithUnknownModality() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         let metadata = StudyMetadata(
             filePath: "/test/path.dcm",
             patientName: "Jane Doe",
@@ -151,7 +355,7 @@ final class StudyDataServiceTests: XCTestCase {
     }
 
     func testCreatePatientModelWithKnownModalities() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         let testCases: [(String, DICOMModality)] = [
             ("CT", .ct),
             ("MR", .mr),
@@ -192,7 +396,7 @@ final class StudyDataServiceTests: XCTestCase {
     // MARK: - Study Grouping Tests
 
     func testGroupStudiesByUID() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
 
         let metadata1 = createTestMetadata(studyUID: "1.2.3", seriesUID: "1.2.3.1", instanceNumber: 1)
         let metadata2 = createTestMetadata(studyUID: "1.2.3", seriesUID: "1.2.3.2", instanceNumber: 2)
@@ -206,14 +410,14 @@ final class StudyDataServiceTests: XCTestCase {
     }
 
     func testGroupStudiesByUIDEmptyArray() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         let grouped = service.groupStudiesByUID([])
 
         XCTAssertTrue(grouped.isEmpty, "Grouping empty array should return empty dictionary")
     }
 
     func testGroupStudiesByUIDSingleStudy() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
 
         let metadata1 = createTestMetadata(studyUID: "1.2.3", seriesUID: "1.2.3.1", instanceNumber: 1)
         let metadata2 = createTestMetadata(studyUID: "1.2.3", seriesUID: "1.2.3.1", instanceNumber: 2)
@@ -226,7 +430,7 @@ final class StudyDataServiceTests: XCTestCase {
     }
 
     func testGroupStudiesByUIDMultipleSeries() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
 
         // Same study, different series
         let metadata1 = createTestMetadata(studyUID: "1.2.3", seriesUID: "1.2.3.1", instanceNumber: 1)
@@ -246,7 +450,7 @@ final class StudyDataServiceTests: XCTestCase {
     // MARK: - Validation Tests
 
     func testValidateDICOMFileNonExistent() async {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         let nonExistentPath = "/tmp/nonexistent_\(UUID().uuidString).dcm"
 
         let result = await service.validateDICOMFile(nonExistentPath)
@@ -261,7 +465,7 @@ final class StudyDataServiceTests: XCTestCase {
     func testExtractStudyMetadataAsync() async {
         // Note: This test requires actual DICOM files to work properly
         // For now, we test the async interface and expected behavior with invalid file
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         let invalidPath = "/tmp/invalid_\(UUID().uuidString).dcm"
 
         let metadata = await service.extractStudyMetadata(from: invalidPath)
@@ -271,7 +475,7 @@ final class StudyDataServiceTests: XCTestCase {
     }
 
     func testExtractBatchMetadataAsync() async {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         let invalidPaths = [
             "/tmp/invalid1_\(UUID().uuidString).dcm",
             "/tmp/invalid2_\(UUID().uuidString).dcm",
@@ -285,7 +489,7 @@ final class StudyDataServiceTests: XCTestCase {
     }
 
     func testExtractBatchMetadataEmptyArray() async {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
 
         let metadata = await service.extractBatchMetadata(from: [])
 
@@ -295,7 +499,7 @@ final class StudyDataServiceTests: XCTestCase {
     // MARK: - Thumbnail Extraction Tests
 
     func testExtractThumbnailAsync() async {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         let invalidPath = "/tmp/invalid_\(UUID().uuidString).dcm"
 
         let thumbnail = await service.extractThumbnail(from: invalidPath)
@@ -305,7 +509,7 @@ final class StudyDataServiceTests: XCTestCase {
     }
 
     func testExtractThumbnailWithCustomSize() async {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         let invalidPath = "/tmp/invalid_\(UUID().uuidString).dcm"
         let customSize = CGSize(width: 256, height: 256)
 
@@ -363,7 +567,7 @@ final class StudyDataServiceTests: XCTestCase {
     }
 
     func testGroupStudiesPreservesInstanceOrdering() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
 
         let metadata1 = createTestMetadata(studyUID: "1.2.3", seriesUID: "1.2.3.1", instanceNumber: 5)
         let metadata2 = createTestMetadata(studyUID: "1.2.3", seriesUID: "1.2.3.1", instanceNumber: 2)
@@ -383,7 +587,7 @@ final class StudyDataServiceTests: XCTestCase {
     // MARK: - Integration Tests
 
     func testCompleteWorkflow() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
 
         // Create sample metadata
         let metadata1 = createTestMetadata(studyUID: "Study1", seriesUID: "Series1", instanceNumber: 1)
@@ -406,7 +610,7 @@ final class StudyDataServiceTests: XCTestCase {
     }
 
     func testPatientModelDisplayProperties() {
-        let service = StudyDataService()
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
         let metadata = createTestMetadata(
             studyUID: "1.2.3.4.5",
             seriesUID: "1.2.3.4.5.6",
@@ -419,7 +623,7 @@ final class StudyDataServiceTests: XCTestCase {
 
         XCTAssertFalse(patientModel.displayName.isEmpty, "Display name should not be empty")
         XCTAssertNotNil(patientModel.modality, "Modality should be set")
-        XCTAssertEqual(patientModel.modality, .ct, "Modality should be CT")
+        XCTAssertEqual(patientModel.modality, DICOMModality.ct, "Modality should be CT")
     }
 
     // MARK: - Helper Methods

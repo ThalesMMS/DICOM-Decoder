@@ -19,19 +19,23 @@ import OSLog
 final class SeriesBusinessLogic: ObservableObject, Sendable {
     
     // MARK: - Properties
-    
-    private let logger = Logger(subsystem: "com.dicomviewer", category: "SeriesBL")
+
+    private let logger: AnyLogger
     private nonisolated(unsafe) let fileManager: FileManager
     private let studyDataService: StudyDataService
-    
+    private let decoderFactory: () -> DicomDecoderProtocol
+
     // MARK: - Initialization
-    
+
     init(
         fileManager: FileManager = .default,
-        studyDataService: StudyDataService = StudyDataService()
+        studyDataService: StudyDataService = StudyDataService(),
+        decoderFactory: @escaping () -> DicomDecoderProtocol
     ) {
         self.fileManager = fileManager
         self.studyDataService = studyDataService
+        self.decoderFactory = decoderFactory
+        self.logger = AnyLogger.make(subsystem: "com.dicomviewer", category: "SeriesBL")
         logger.info("📊 SeriesBusinessLogic initialized - handles Series data processing")
     }
     
@@ -139,11 +143,11 @@ private extension SeriesBusinessLogic {
     func extractSeriesMetadata(from filePaths: [String]) async -> ([String: [String]], [String: SeriesMetadata]) {
         // Validate and normalize paths first
         let validPaths = await validateAndNormalizePaths(filePaths)
-        
+
         var seriesMap: [String: [String]] = [:]
         var seriesMetadata: [String: SeriesMetadata] = [:]
-        
-        let decoder = DCMDecoder()
+
+        let decoder = self.decoderFactory()
         
         for filePath in validPaths {
             decoder.setDicomFilename(filePath)
@@ -205,7 +209,7 @@ private extension SeriesBusinessLogic {
     func sortSeriesFiles(_ paths: [String]) async -> [String] {
         return await withCheckedContinuation { continuation in
             Task.detached(priority: .utility) {
-                let decoder = DCMDecoder()
+                let decoder = self.decoderFactory()
                 var sortableItems: [(path: String, instanceNumber: Int?)] = []
                 
                 for path in paths {

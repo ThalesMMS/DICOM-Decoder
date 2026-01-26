@@ -16,23 +16,33 @@ import Foundation
 
 @MainActor
 public final class FileImportService: FileImportServiceProtocol {
-    
+
     // MARK: - Properties
-    
+
     private let fileManager: FileManager
     private let studyDataService: StudyDataService
-    
+    private let decoderFactory: () -> DicomDecoderProtocol
+    private let logger: AnyLogger
+
     // MARK: - Initialization
-    
-    public init(fileManager: FileManager = .default, studyDataService: StudyDataService = StudyDataService()) {
+
+    public init(
+        fileManager: FileManager = .default,
+        decoderFactory: @escaping () -> DicomDecoderProtocol
+    ) {
         self.fileManager = fileManager
-        self.studyDataService = studyDataService
-        print("📁 FileImportService initialized with dependency injection")
+        self.decoderFactory = decoderFactory
+        self.studyDataService = StudyDataService(
+            fileManager: fileManager,
+            decoderFactory: decoderFactory
+        )
+        self.logger = AnyLogger.make(subsystem: "com.dicomviewer", category: "FileImport")
+        logger.info("📁 FileImportService initialized with dependency injection")
     }
-    
+
     // MARK: - Legacy Singleton Support (deprecated)
     @available(*, deprecated, message: "Use dependency injection instead")
-    public static let shared = FileImportService()
+    public static let shared = FileImportService(decoderFactory: { DCMDecoder() })
     
     // MARK: - Public Methods
     
