@@ -75,7 +75,7 @@ jobs:
       run: |
         set -euo pipefail
         if swift package dump-package > /tmp/package.json 2> /tmp/package_dump.log; then
-          if python3 -c 'import json,sys,itertools; data=json.load(open(sys.argv[1])); pkg=data.get("name"); products=[p.get("name") for p in data.get("products", [])]; targets=[t.get("name") for t in data.get("targets", [])]; cand=list(itertools.chain.from_iterable(([f"{n}-Package", n] for n in ([pkg]+products+targets) if n))); out=list(dict.fromkeys(cand)); print("\\n".join(out))' /tmp/package.json > /tmp/candidates.txt; then
+          if python3 -c 'import json,sys,itertools; data=json.load(open(sys.argv[1])); pkg=data.get("name"); products=[p.get("name") for p in data.get("products", [])]; targets=[t.get("name") for t in data.get("targets", [])]; cand=list(itertools.chain.from_iterable(([f"{n}-Package", n] for n in ([pkg]+products+targets) if n))); out=list(dict.fromkeys(cand)); print("\n".join(out))' /tmp/package.json > /tmp/candidates.txt; then
             CANDIDATES=$(cat /tmp/candidates.txt)
           else
             echo "Failed to parse package metadata, falling back to default scheme list." >&2
@@ -96,6 +96,7 @@ jobs:
         echo "Candidate schemes:"
         echo "$CANDIDATES"
         LAST_LOG=""
+        IFS=$'\n'
         for candidate in $CANDIDATES; do
           if xcrun xcodebuild -showdestinations -scheme "$candidate" > /tmp/xcodebuild_showdestinations.log 2>&1; then
             echo "scheme=$candidate" >> "$GITHUB_OUTPUT"
