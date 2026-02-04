@@ -66,7 +66,7 @@ xcrun llvm-cov report \
 
 # iOS simulator tests
 xcodebuild test \
-  -scheme DicomCore-Package \
+  -scheme SwiftDICOMDecoder-Package \
   -destination 'platform=iOS Simulator,name=iPhone 15 Pro' \
   -enableCodeCoverage YES
 ```
