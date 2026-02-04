@@ -700,8 +700,13 @@ final class DCMDecoderPerformanceTests: XCTestCase {
         if let min = results.map({ $0.avgTime }).min(),
            let max = results.map({ $0.avgTime }).max() {
             let variationFactor = max / min
-            XCTAssertLessThan(variationFactor, 3.0,
-                             "Performance variation across bit depths should be <3x")
+            #if targetEnvironment(simulator)
+            let maxVariation: Double = 5.0 // Simulator timing variance is higher.
+            #else
+            let maxVariation: Double = 3.0
+            #endif
+            XCTAssertLessThan(variationFactor, maxVariation,
+                              "Performance variation across bit depths should be <\(maxVariation)x")
         }
     }
 
