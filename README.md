@@ -54,7 +54,8 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 
 - Little/Big Endian, Explicit/Implicit VR
 - Grayscale 8/16-bit and RGB 24-bit
-- Best-effort single-frame JPEG and JPEG2000 decoding via ImageIO (no JPEG Lossless/RLE)
+- Native JPEG Lossless decoding (Process 14, Selection Value 1) for transfer syntaxes 1.2.840.10008.1.2.4.57 and 1.2.840.10008.1.2.4.70
+- Best-effort single-frame JPEG and JPEG2000 decoding via ImageIO
 - Automatic memory mapping for large files (>10MB)
 - Downsampling for fast thumbnail generation
 
@@ -440,7 +441,7 @@ autoreleasepool {
 
 ### Known Limitations
 
-- Compressed transfer syntaxes: best-effort single-frame JPEG/JPEG2000 via ImageIO only. JPEG Lossless, RLE, and multi-frame encapsulated compression are not supported - convert first if needed.
+- Compressed transfer syntaxes: Native support for JPEG Lossless (Process 14, Selection Value 1). Best-effort single-frame JPEG/JPEG2000 via ImageIO. RLE and multi-frame encapsulated compression are not supported - convert first if needed.
 - Thread safety: The decoder is not thread-safe. Use one instance per thread or synchronize access.
 - Very large files (>1GB): May consume significant memory. Process in chunks or downsample.
 

@@ -3,10 +3,11 @@
 //
 //  This class parses DICOM files
 //  encoded with little or big endian explicit or implicit VR and
-//  extracts metadata and uncompressed pixel data.  The decoder
-//  handles 8‑bit and 16‑bit grayscale images as well as 24‑bit
-//  RGB images (common for ultrasound).  Compressed transfer
-//  syntaxes are detected and rejected gracefully.  See the
+//  extracts metadata and pixel data.  The decoder handles 8‑bit
+//  and 16‑bit grayscale images as well as 24‑bit RGB images
+//  (common for ultrasound).  Compressed transfer syntaxes including
+//  JPEG Lossless, JPEG Baseline, JPEG 2000, and JPEG‑LS are
+//  supported via native decoders and ImageIO fallback.  See the
 //  original Objective‑C code for a one‑to‑one algorithmic
 //  reference; this port emphasises clarity, safety and Swift
 //  idioms while maintaining the same public API.
@@ -435,7 +436,11 @@ public final class DCMDecoder: DicomDecoderProtocol {
     /// Returns a downsampled 16-bit pixel buffer for thumbnail generation.
     /// This method reads only every Nth pixel to dramatically speed up thumbnail creation.
     /// - Parameter maxDimension: Maximum dimension for the thumbnail (default 150)
-    /// - Returns: Tuple with downsampled pixels and dimensions, or nil if not available
+    /// Creates an aspect-preserving downsampled 16-bit grayscale thumbnail from the image pixel data.
+    /// The result preserves the source aspect ratio, produces row-major UInt16 pixel values, and accounts for MONOCHROME1 inversion when present.
+    /// - Parameters:
+    ///   - maxDimension: The maximum width or height for the thumbnail in pixels; the other dimension is scaled to preserve aspect ratio.
+    /// - Returns: A tuple containing `pixels` (row-major downsampled `UInt16` values), `width`, and `height`; returns `nil` if the image is not 16-bit single-channel or pixel data is unavailable.
     public func getDownsampledPixels16(maxDimension: Int = 150) -> (pixels: [UInt16], width: Int, height: Int)? {
         return synchronized {
             guard samplesPerPixel == 1 && bitDepth == 16 else { return nil }
@@ -500,6 +505,170 @@ public final class DCMDecoder: DicomDecoderProtocol {
             debugPerfLog("[PERF] getDownsampledPixels16: \(String(format: "%.2f", elapsed))ms | thumbSize: \(thumbWidth)x\(thumbHeight)")
 
             return (downsampledPixels, thumbWidth, thumbHeight)
+        }
+    }
+
+    // MARK: - Range-Based Pixel Data Access Methods
+
+    /// Returns a subset of 8-bit pixel data specified by a range of pixel indices.
+    /// This method enables streaming access for large images without loading the
+    /// entire pixel buffer into memory.  Pixel indices are in row-major order.
+    /// - Parameter range: Range of pixel indices to retrieve (0..<width*height)
+    /// Reads a contiguous range of 8-bit pixel samples from the decoded DICOM image.
+    /// - Parameters:
+    ///   - range: A 0-based half-open range of pixel indices within the image (upperBound is exclusive).
+    /// - Returns: An array of `UInt8` pixel values for the requested range, or `nil` if the file was not read, the range is out of bounds, or reading failed.
+    public func getPixels8(range: Range<Int>) -> [UInt8]? {
+        return synchronized {
+            let startTime = CFAbsoluteTimeGetCurrent()
+
+            // Validate that file was successfully read
+            guard dicomFileReadSuccess else {
+                return nil
+            }
+
+            // Validate this is an 8-bit grayscale image
+            guard bitDepth == 8, samplesPerPixel == 1 else {
+                logger.warning("getPixels8(range:) called on non-8-bit grayscale image (bitDepth=\(bitDepth), samplesPerPixel=\(samplesPerPixel))")
+                return nil
+            }
+
+            // Validate range against image dimensions
+            let totalPixels = width * height
+            guard range.lowerBound >= 0, range.upperBound <= totalPixels else {
+                logger.warning("Range out of bounds: \(range) (total pixels: \(totalPixels))")
+                return nil
+            }
+
+            // Call DCMPixelReader to read the specified range
+            guard let result = DCMPixelReader.readPixels8(
+                data: dicomData,
+                range: range,
+                width: width,
+                height: height,
+                offset: offset,
+                photometricInterpretation: photometricInterpretation,
+                logger: logger
+            ) else {
+                return nil
+            }
+
+            let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+            if elapsed > 1 {
+                debugPerfLog("[PERF] getPixels8(range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound)")
+            }
+
+            return result.pixels8
+        }
+    }
+
+    /// Returns a subset of 16-bit pixel data specified by a range of pixel indices.
+    /// This method enables streaming access for large images without loading the
+    /// entire pixel buffer into memory.  Pixel indices are in row-major order.
+    /// - Parameter range: Range of pixel indices to retrieve (0..<width*height)
+    /// Retrieve a contiguous subset of 16-bit pixel samples specified by a linear pixel index range.
+    /// - Parameters:
+    ///   - range: A half-open range of linear pixel indices (0..<(width * height)); upper bound is exclusive.
+    /// - Returns: An array of `UInt16` pixel values covering `range`, or `nil` if the file was not read successfully, the range is out of bounds, or pixel reading failed.
+    public func getPixels16(range: Range<Int>) -> [UInt16]? {
+        return synchronized {
+            let startTime = CFAbsoluteTimeGetCurrent()
+
+            // Validate that file was successfully read
+            guard dicomFileReadSuccess else {
+                return nil
+            }
+
+            // Validate this is a 16-bit grayscale image
+            guard bitDepth == 16, samplesPerPixel == 1 else {
+                logger.warning("getPixels16(range:) called on non-16-bit grayscale image (bitDepth=\(bitDepth), samplesPerPixel=\(samplesPerPixel))")
+                return nil
+            }
+
+            // Validate range against image dimensions
+            let totalPixels = width * height
+            guard range.lowerBound >= 0, range.upperBound <= totalPixels else {
+                logger.warning("Range out of bounds: \(range) (total pixels: \(totalPixels))")
+                return nil
+            }
+
+            // Call DCMPixelReader to read the specified range
+            guard let result = DCMPixelReader.readPixels16(
+                data: dicomData,
+                range: range,
+                width: width,
+                height: height,
+                offset: offset,
+                pixelRepresentation: pixelRepresentation,
+                littleEndian: littleEndian,
+                photometricInterpretation: photometricInterpretation,
+                logger: logger
+            ) else {
+                return nil
+            }
+
+            let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+            if elapsed > 1 {
+                debugPerfLog("[PERF] getPixels16(range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound)")
+            }
+
+            return result.pixels16
+        }
+    }
+
+    /// Returns a subset of 24-bit RGB pixel data specified by a range of pixel indices.
+    /// This method enables streaming access for large images without loading the
+    /// entire pixel buffer into memory.  Pixel indices are in row-major order.
+    /// The returned array contains interleaved RGB values (3 bytes per pixel).
+    /// - Parameter range: Range of pixel indices to retrieve (0..<width*height)
+    /// Returns the 24-bit RGB pixel bytes for a contiguous range of pixel indices.
+    /// - Parameters:
+    ///   - range: A range of pixel indices (0-based) within the image; upper bound must be <= width * height.
+    /// - Returns: An array of `UInt8` containing interleaved RGB bytes (`R,G,B` per pixel) for the requested range, or `nil` if the file was not read successfully, the range is invalid, or reading failed.
+    public func getPixels24(range: Range<Int>) -> [UInt8]? {
+        return synchronized {
+            let startTime = CFAbsoluteTimeGetCurrent()
+
+            // Validate that file was successfully read
+            guard dicomFileReadSuccess else {
+                return nil
+            }
+
+            guard samplesPerPixel == 3 else {
+                logger.warning("getPixels24(range:) requires samplesPerPixel == 3 (RGB). Found \(samplesPerPixel)")
+                return nil
+            }
+            if let planarConfiguration = Int(infoUnsafe(for: Tag.planarConfiguration.rawValue)),
+               planarConfiguration != 0 {
+                logger.warning("getPixels24(range:) requires interleaved RGB (planarConfiguration == 0). Found \(planarConfiguration)")
+                return nil
+            }
+
+            // Validate range against image dimensions
+            let totalPixels = width * height
+            guard range.lowerBound >= 0, range.upperBound <= totalPixels else {
+                logger.warning("Range out of bounds: \(range) (total pixels: \(totalPixels))")
+                return nil
+            }
+
+            // Call DCMPixelReader to read the specified range
+            guard let result = DCMPixelReader.readPixels24(
+                data: dicomData,
+                range: range,
+                width: width,
+                height: height,
+                offset: offset,
+                logger: logger
+            ) else {
+                return nil
+            }
+
+            let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+            if elapsed > 1 {
+                debugPerfLog("[PERF] getPixels24(range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound)")
+            }
+
+            return result.pixels24
         }
     }
 
@@ -1008,10 +1177,11 @@ public final class DCMDecoder: DicomDecoderProtocol {
         }
     }
 
-    /// Attempts to decode compressed pixel data using ImageIO.
-    /// This function supports common DICOM transfer syntaxes
-    /// including JPEG Baseline, JPEG Extended, JPEG‑LS and
-    /// JPEG2000.  The compressed data is assumed to begin at
+    /// Attempts to decode compressed pixel data using native decoders
+    /// and ImageIO fallback. This function supports common DICOM
+    /// transfer syntaxes including JPEG Lossless (Process 14,
+    /// Selection Value 1), JPEG Baseline, JPEG Extended, JPEG‑LS
+    /// and JPEG2000.  The compressed data is assumed to begin at
     /// ``offset`` and extend to the end of ``dicomData``.  On
     /// success the ``pixels8``, ``pixels16`` or ``pixels24``
     /// buffers are populated accordingly.  If decoding fails the

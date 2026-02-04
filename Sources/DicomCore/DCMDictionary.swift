@@ -88,7 +88,9 @@ public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
     /// Public initializer for dependency injection.
     /// Creates a new instance that loads the DCMDictionary.plist from the bundle.
     public init() {
-        print("📖 DCMDictionary initialized with dependency injection")
+        #if DEBUG
+        logger.debug("DCMDictionary initialized with dependency injection")
+        #endif
     }
 
     // MARK: - DicomDictionaryProtocol Implementation

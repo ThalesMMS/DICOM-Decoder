@@ -151,6 +151,30 @@ public protocol DicomDecoderProtocol: AnyObject {
     /// - Returns: Tuple with downsampled pixels and dimensions, or nil if not available
     func getDownsampledPixels16(maxDimension: Int) -> (pixels: [UInt16], width: Int, height: Int)?
 
+    // MARK: - Range-Based Pixel Data Access Methods
+
+    /// Returns a subset of 8-bit pixel data specified by a range of pixel indices.
+    /// This method enables streaming access for large images without loading the
+    /// entire pixel buffer into memory.  Pixel indices are in row-major order.
+    /// - Parameter range: Range of pixel indices to retrieve (0..<width*height)
+    /// - Returns: 8-bit pixel buffer for the specified range or nil
+    func getPixels8(range: Range<Int>) -> [UInt8]?
+
+    /// Returns a subset of 16-bit pixel data specified by a range of pixel indices.
+    /// This method enables streaming access for large images without loading the
+    /// entire pixel buffer into memory.  Pixel indices are in row-major order.
+    /// - Parameter range: Range of pixel indices to retrieve (0..<width*height)
+    /// - Returns: 16-bit pixel buffer for the specified range or nil
+    func getPixels16(range: Range<Int>) -> [UInt16]?
+
+    /// Returns a subset of 24-bit RGB pixel data specified by a range of pixel indices.
+    /// This method enables streaming access for large images without loading the
+    /// entire pixel buffer into memory.  Pixel indices are in row-major order.
+    /// The returned array contains interleaved RGB values (3 bytes per pixel).
+    /// - Parameter range: Range of pixel indices to retrieve (0..<width*height)
+    /// - Returns: 24-bit RGB pixel buffer for the specified range or nil
+    func getPixels24(range: Range<Int>) -> [UInt8]?
+
     // MARK: - Metadata Access Methods
 
     /// Retrieves the value of a parsed header as a string.

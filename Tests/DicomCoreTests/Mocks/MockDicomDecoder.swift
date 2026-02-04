@@ -257,11 +257,62 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
         return queue.sync { _pixels24 }
     }
 
+    /// Returns the stored downsampled 16-bit pixel buffer and its dimensions.
+    /// - Parameters:
+    ///   - maxDimension: Ignored by this mock implementation; present for API compatibility.
+    /// - Returns: A tuple `(pixels: [UInt16], width: Int, height: Int)` containing the downsampled pixels and their dimensions, or `nil` if no downsampled data is available.
     public func getDownsampledPixels16(maxDimension: Int) -> (pixels: [UInt16], width: Int, height: Int)? {
         return queue.sync { _downsampledPixels16 }
     }
 
-    // MARK: - Metadata Access Methods
+    /// Returns a subarray of 8-bit pixel values for the specified pixel index range.
+    /// - Parameters:
+    ///   - range: The half-open range of pixel indices to retrieve; must be within valid image bounds.
+    /// - Returns: An array of `UInt8` for the requested pixel indices, or `nil` if no 8-bit pixels are available, the range is empty, or the range is out of bounds.
+    public func getPixels8(range: Range<Int>) -> [UInt8]? {
+        return queue.sync {
+            guard let pixels = _pixels8, !range.isEmpty else { return nil }
+            guard range.lowerBound >= 0, range.upperBound <= pixels.count else { return nil }
+            return Array(pixels[range])
+        }
+    }
+
+    /// Returns a slice of 16-bit pixel samples for the specified pixel index range.
+    /// 
+    /// The provided `range` is interpreted as indices into the pixel array. If no 16-bit pixel data is available, the range is empty, or the range is out of bounds, the method returns `nil`.
+    /// - Parameters:
+    ///   - range: The range of pixel indices to retrieve.
+    /// - Returns: An array of `UInt16` values corresponding to the requested pixels, or `nil` if pixel data is missing, the range is empty, or the range is out of bounds.
+    public func getPixels16(range: Range<Int>) -> [UInt16]? {
+        return queue.sync {
+            guard let pixels = _pixels16, !range.isEmpty else { return nil }
+            guard range.lowerBound >= 0, range.upperBound <= pixels.count else { return nil }
+            return Array(pixels[range])
+        }
+    }
+
+    /// Returns the RGB byte window corresponding to the given pixel index range.
+    /// 
+    /// The provided `range` is interpreted in pixels (each pixel = 3 bytes: R,G,B). If no 24-bit pixel data is present, the range is empty, or the range is out of bounds, the method returns `nil`.
+    /// - Parameters:
+    ///   - range: Pixel index range to extract (0-based, end-exclusive).
+    /// - Returns: An array of bytes `[R, G, B, ...]` for the requested pixel range, or `nil` if pixel data is missing, the range is empty, or the range is out of bounds.
+    public func getPixels24(range: Range<Int>) -> [UInt8]? {
+        return queue.sync {
+            guard let pixels = _pixels24, !range.isEmpty else { return nil }
+            // For RGB, range is in pixels, but array is 3x larger (RGB bytes)
+            let pixelCount = pixels.count / 3
+            guard range.lowerBound >= 0, range.upperBound <= pixelCount else { return nil }
+            let byteStart = range.lowerBound * 3
+            let byteEnd = range.upperBound * 3
+            return Array(pixels[byteStart..<byteEnd])
+        }
+    }
+
+    /// Fetches the stored string value for a DICOM tag.
+    /// - Parameters:
+    ///   - tag: The DICOM tag expressed as an `Int` (group << 16 | element); converted to an 8-character uppercase hexadecimal key.
+    /// - Returns: The tag's string value if present, or an empty string if the tag is missing.
 
     public func info(for tag: Int) -> String {
         return queue.sync {

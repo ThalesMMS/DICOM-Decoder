@@ -157,7 +157,22 @@ internal final class DCMPixelReader {
     ///   - littleEndian: True for little endian byte order
     ///   - photometricInterpretation: MONOCHROME1 or MONOCHROME2
     ///   - logger: Optional logger for performance metrics
-    /// - Returns: Pixel read result with populated buffers
+    /// Reads pixel data from a DICOM data buffer and produces a DCMPixelReadResult containing decoded pixel arrays and metadata.
+    /// - Parameters:
+    ///   - data: Source data containing pixel bytes.
+    ///   - width: Image width in pixels.
+    ///   - height: Image height in pixels.
+    ///   - bitDepth: Bits per sample (e.g., 8 or 16).
+    ///   - samplesPerPixel: Number of samples per pixel (1 for grayscale, 3 for RGB).
+    ///   - offset: Byte offset within `data` where the pixel codestream begins.
+    ///   - pixelRepresentation: Pixel value representation: `0` = unsigned, `1` = two's-complement signed.
+    ///   - littleEndian: `true` if pixel bytes are in little-endian order, `false` for big-endian.
+    ///   - photometricInterpretation: Photometric interpretation string (e.g., "MONOCHROME1" or "MONOCHROME2"); when "MONOCHROME1" grayscale samples are inverted.
+    /// - Returns: A DCMPixelReadResult with one of these populated depending on format:
+    ///            - `pixels8` for 8-bit grayscale,
+    ///            - `pixels16` for 16-bit grayscale (with `signedImage` set when pixelRepresentation == 1),
+    ///            - `pixels24` for 24-bit RGB (3 bytes per pixel).
+    ///          If the input combination is unsupported or validation fails, the result contains nil buffers and the provided metadata.
     internal static func readPixels(
         data: Data,
         width: Int,
@@ -343,6 +358,472 @@ internal final class DCMPixelReader {
         return result
     }
 
+    // MARK: - Range-Based Pixel Reading Methods
+
+    /// Reads a range of 16-bit grayscale pixels from uncompressed DICOM data.
+    /// This method enables streaming access by reading only the requested
+    /// pixel range instead of the entire image buffer.
+    ///
+    /// - Parameters:
+    ///   - data: Raw DICOM file data
+    ///   - range: Range of pixel indices to read (e.g., 0..<100 for first 100 pixels)
+    ///   - width: Image width in pixels
+    ///   - height: Image height in pixels
+    ///   - offset: Byte offset to start of pixel data in file
+    ///   - pixelRepresentation: 0 for unsigned, 1 for two's complement signed
+    ///   - littleEndian: True for little endian byte order
+    ///   - photometricInterpretation: MONOCHROME1 or MONOCHROME2
+    ///   - logger: Optional logger for performance metrics
+    /// Reads a contiguous range of 16-bit grayscale pixels from DICOM pixel data.
+    /// - Parameters:
+    ///   - data: The raw pixel data buffer.
+    ///   - range: The pixel index range (0-based) to read from the image (inclusive lower bound, exclusive upper bound).
+    ///   - width: Image width in pixels.
+    ///   - height: Image height in pixels.
+    ///   - offset: Byte offset in `data` where pixel data starts.
+    ///   - pixelRepresentation: 0 for unsigned pixel samples, 1 for signed pixel samples; used to determine interpretation and normalization.
+    ///   - littleEndian: `true` if stored pixel pairs are little-endian, `false` for big-endian.
+    ///   - photometricInterpretation: Photometric interpretation string (e.g., `"MONOCHROME1"` or `"MONOCHROME2"`); affects value inversion for `MONOCHROME1`.
+    ///   - logger: Optional logger for warnings and performance debug messages (may be omitted).
+    /// - Returns: A `DCMPixelReadResult` whose `pixels16` contains the requested 16-bit pixel values and whose metadata (width, height, bitDepth=16, samplesPerPixel=1, `signedImage`) reflects the read; returns `nil` if dimensions, range, or data bounds are invalid.
+    internal static func readPixels16(
+        data: Data,
+        range: Range<Int>,
+        width: Int,
+        height: Int,
+        offset: Int,
+        pixelRepresentation: Int,
+        littleEndian: Bool,
+        photometricInterpretation: String,
+        logger: AnyLogger? = nil
+    ) -> DCMPixelReadResult? {
+        let startTime = CFAbsoluteTimeGetCurrent()
+
+        guard computePixelMetrics(
+            width: width,
+            height: height,
+            bytesPerPixel: 2,
+            context: "16-bit grayscale (range)",
+            logger: logger
+        ) != nil else {
+            return nil
+        }
+
+        let width64 = Int64(width)
+        let height64 = Int64(height)
+        let (totalPixels64, totalOverflow) = width64.multipliedReportingOverflow(by: height64)
+        guard !totalOverflow && totalPixels64 > 0 else {
+            logger?.warning("Pixel count overflow for range: width=\(width), height=\(height)")
+            return nil
+        }
+        guard totalPixels64 <= Int64(Int.max) else {
+            logger?.warning("Pixel count exceeds addressable range for range: \(totalPixels64)")
+            return nil
+        }
+
+        // Validate range
+        let lower64 = Int64(range.lowerBound)
+        let upper64 = Int64(range.upperBound)
+        guard lower64 >= 0, upper64 <= totalPixels64 else {
+            logger?.warning("Range out of bounds: \(range) (total pixels: \(totalPixels64))")
+            return nil
+        }
+        guard upper64 > lower64 else {
+            logger?.warning("Empty range requested")
+            return nil
+        }
+
+        let rangeCount64 = upper64 - lower64
+        guard rangeCount64 <= Int64(Int.max) else {
+            logger?.warning("Range size exceeds addressable range: \(range)")
+            return nil
+        }
+
+        let bytesPerPixel64: Int64 = 2
+        let (rangeBytes64, rangeBytesOverflow) = rangeCount64.multipliedReportingOverflow(by: bytesPerPixel64)
+        let (pixelOffset64, pixelOffsetOverflow) = lower64.multipliedReportingOverflow(by: bytesPerPixel64)
+        let (rangeByteOffset64, offsetOverflow) = Int64(offset).addingReportingOverflow(pixelOffset64)
+        guard !rangeBytesOverflow && !pixelOffsetOverflow && !offsetOverflow else {
+            logger?.warning("Byte offset overflow for range: \(range)")
+            return nil
+        }
+        guard rangeBytes64 <= Int64(Int.max), rangeByteOffset64 <= Int64(Int.max) else {
+            logger?.warning("Byte offset exceeds addressable range for range: \(range)")
+            return nil
+        }
+
+        // Validate data availability
+        let dataCount64 = Int64(data.count)
+        guard rangeByteOffset64 >= 0,
+              rangeByteOffset64 <= dataCount64,
+              rangeBytes64 <= dataCount64 - rangeByteOffset64 else {
+            let available = max(Int64(0), dataCount64 - rangeByteOffset64)
+            logger?.warning("Invalid range offset or insufficient data. offset=\(rangeByteOffset64), needed=\(rangeBytes64), available=\(available)")
+            return nil
+        }
+
+        let rangeCount = Int(rangeCount64)
+        let rangeBytes = Int(rangeBytes64)
+        let rangeByteOffset = Int(rangeByteOffset64)
+
+        var result = DCMPixelReadResult(
+            pixels8: nil,
+            pixels16: nil,
+            pixels24: nil,
+            signedImage: pixelRepresentation == 1,
+            width: width,
+            height: height,
+            bitDepth: 16,
+            samplesPerPixel: 1
+        )
+
+        // Allocate buffer for requested range
+        var pixels = [UInt16](repeating: 0, count: rangeCount)
+
+        data.withUnsafeBytes { dataBytes in
+            let basePtr = dataBytes.baseAddress!.advanced(by: rangeByteOffset)
+
+            if pixelRepresentation == 0 {
+                // Unsigned pixels - most common for CR/DX
+                if littleEndian {
+                    // Little endian (most common)
+                    if rangeByteOffset % 2 == 0 {
+                        // Aligned - can use fast path
+                        basePtr.withMemoryRebound(to: UInt16.self, capacity: rangeCount) { uint16Ptr in
+                            if photometricInterpretation == "MONOCHROME1" {
+                                // Invert for MONOCHROME1 (white is zero)
+                                for i in 0..<rangeCount {
+                                    pixels[i] = 65535 - uint16Ptr[i]
+                                }
+                            } else {
+                                // Direct copy for MONOCHROME2
+                                pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                                    _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, rangeBytes)
+                                }
+                            }
+                        }
+                    } else {
+                        // Unaligned - use byte-by-byte reading
+                        let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+                        for i in 0..<rangeCount {
+                            let byteIndex = i * 2
+                            let b0 = uint8Ptr[byteIndex]
+                            let b1 = uint8Ptr[byteIndex + 1]
+                            var value = UInt16(b0) | (UInt16(b1) << 8)  // Little endian
+                            if photometricInterpretation == "MONOCHROME1" {
+                                value = 65535 - value
+                            }
+                            pixels[i] = value
+                        }
+                    }
+                } else {
+                    // Big endian (rare)
+                    let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+                    for i in 0..<rangeCount {
+                        let byteIndex = i * 2
+                        let b0 = uint8Ptr[byteIndex]
+                        let b1 = uint8Ptr[byteIndex + 1]
+                        var value = UInt16(b0) << 8 | UInt16(b1)
+                        if photometricInterpretation == "MONOCHROME1" {
+                            value = 65535 - value
+                        }
+                        pixels[i] = value
+                    }
+                }
+            } else {
+                // Signed pixels (less common)
+                let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+                for i in 0..<rangeCount {
+                    let byteIndex = i * 2
+                    let b0 = uint8Ptr[byteIndex]
+                    let b1 = uint8Ptr[byteIndex + 1]
+                    var value = normaliseSigned16(bytes: b0, b1: b1)
+                    if photometricInterpretation == "MONOCHROME1" {
+                        value = UInt16(32768) - (value - UInt16(32768))
+                    }
+                    pixels[i] = value
+                }
+            }
+        }
+
+        result.pixels16 = pixels
+
+        let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+        logger?.debug("[PERF] readPixels16 (range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound) | size: \(width)x\(height)")
+        return result
+    }
+
+    /// Reads a range of 8-bit grayscale pixels from uncompressed DICOM data.
+    /// This method enables streaming access by reading only the requested
+    /// pixel range instead of the entire image buffer.
+    ///
+    /// - Parameters:
+    ///   - data: Raw DICOM file data
+    ///   - range: Range of pixel indices to read (e.g., 0..<100 for first 100 pixels)
+    ///   - width: Image width in pixels
+    ///   - height: Image height in pixels
+    ///   - offset: Byte offset to start of pixel data in file
+    ///   - photometricInterpretation: MONOCHROME1 or MONOCHROME2
+    ///   - logger: Optional logger for performance metrics
+    /// Reads a contiguous range of 8-bit grayscale pixels for a single-frame image and returns them as a DCMPixelReadResult.
+    /// 
+    /// The returned result contains the requested pixels in `pixels8`. If `photometricInterpretation` equals `"MONOCHROME1"`,
+    /// pixel values are inverted (255 - value). The function validates image dimensions, range bounds, and data availability and
+    /// returns `nil` if any validation fails.
+    ///
+    /// - Parameters:
+    ///   - data: The source Data containing pixel bytes (frame codestream) starting at `offset`.
+    ///   - range: The half-open range of pixel indices to read (0-based, upperBound exclusive).
+    ///   - width: Image width in pixels.
+    ///   - height: Image height in pixels.
+    ///   - offset: Byte offset into `data` that corresponds to the first pixel of the frame.
+    ///   - photometricInterpretation: Photometric interpretation string; supports `"MONOCHROME1"` (inverted) and other values (copied as-is).
+    /// - Returns: A `DCMPixelReadResult` with `pixels8` populated with the requested bytes, or `nil` if validation or bounds checks fail.
+    internal static func readPixels8(
+        data: Data,
+        range: Range<Int>,
+        width: Int,
+        height: Int,
+        offset: Int,
+        photometricInterpretation: String,
+        logger: AnyLogger? = nil
+    ) -> DCMPixelReadResult? {
+        let startTime = CFAbsoluteTimeGetCurrent()
+
+        guard computePixelMetrics(
+            width: width,
+            height: height,
+            bytesPerPixel: 1,
+            context: "8-bit grayscale (range)",
+            logger: logger
+        ) != nil else {
+            return nil
+        }
+
+        let width64 = Int64(width)
+        let height64 = Int64(height)
+        let (totalPixels64, totalOverflow) = width64.multipliedReportingOverflow(by: height64)
+        guard !totalOverflow && totalPixels64 > 0 else {
+            logger?.warning("Pixel count overflow for range: width=\(width), height=\(height)")
+            return nil
+        }
+        guard totalPixels64 <= Int64(Int.max) else {
+            logger?.warning("Pixel count exceeds addressable range for range: \(totalPixels64)")
+            return nil
+        }
+
+        // Validate range
+        let lower64 = Int64(range.lowerBound)
+        let upper64 = Int64(range.upperBound)
+        guard lower64 >= 0, upper64 <= totalPixels64 else {
+            logger?.warning("Range out of bounds: \(range) (total pixels: \(totalPixels64))")
+            return nil
+        }
+        guard upper64 > lower64 else {
+            logger?.warning("Empty range requested")
+            return nil
+        }
+
+        let rangeCount64 = upper64 - lower64
+        guard rangeCount64 <= Int64(Int.max) else {
+            logger?.warning("Range size exceeds addressable range: \(range)")
+            return nil
+        }
+
+        let bytesPerPixel64: Int64 = 1
+        let (rangeBytes64, rangeBytesOverflow) = rangeCount64.multipliedReportingOverflow(by: bytesPerPixel64)
+        let (pixelOffset64, pixelOffsetOverflow) = lower64.multipliedReportingOverflow(by: bytesPerPixel64)
+        let (rangeByteOffset64, offsetOverflow) = Int64(offset).addingReportingOverflow(pixelOffset64)
+        guard !rangeBytesOverflow && !pixelOffsetOverflow && !offsetOverflow else {
+            logger?.warning("Byte offset overflow for range: \(range)")
+            return nil
+        }
+        guard rangeBytes64 <= Int64(Int.max), rangeByteOffset64 <= Int64(Int.max) else {
+            logger?.warning("Byte offset exceeds addressable range for range: \(range)")
+            return nil
+        }
+
+        // Validate data availability
+        let dataCount64 = Int64(data.count)
+        guard rangeByteOffset64 >= 0,
+              rangeByteOffset64 <= dataCount64,
+              rangeBytes64 <= dataCount64 - rangeByteOffset64 else {
+            let available = max(Int64(0), dataCount64 - rangeByteOffset64)
+            logger?.warning("Invalid range offset or insufficient data. offset=\(rangeByteOffset64), needed=\(rangeBytes64), available=\(available)")
+            return nil
+        }
+
+        let rangeCount = Int(rangeCount64)
+        let rangeBytes = Int(rangeBytes64)
+        let rangeByteOffset = Int(rangeByteOffset64)
+
+        var result = DCMPixelReadResult(
+            pixels8: nil,
+            pixels16: nil,
+            pixels24: nil,
+            signedImage: false,
+            width: width,
+            height: height,
+            bitDepth: 8,
+            samplesPerPixel: 1
+        )
+
+        // Allocate buffer for requested range
+        var pixels = [UInt8](repeating: 0, count: rangeCount)
+
+        // Use withUnsafeBytes for efficient memory-mapped access
+        data.withUnsafeBytes { dataBytes in
+            let basePtr = dataBytes.baseAddress!.advanced(by: rangeByteOffset)
+            let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+
+            if photometricInterpretation == "MONOCHROME1" {
+                // Invert for MONOCHROME1 (white is zero) - common for X-rays
+                for i in 0..<rangeCount {
+                    pixels[i] = 255 - uint8Ptr[i]
+                }
+            } else {
+                // Direct copy for MONOCHROME2
+                pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                    _ = memcpy(pixelBuffer.baseAddress!, uint8Ptr, rangeBytes)
+                }
+            }
+        }
+
+        result.pixels8 = pixels
+
+        let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+        logger?.debug("[PERF] readPixels8 (range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound) | size: \(width)x\(height)")
+        return result
+    }
+
+    /// Reads a range of 24-bit RGB pixels from uncompressed DICOM data.
+    /// This method enables streaming access by reading only the requested
+    /// pixel range instead of the entire image buffer.
+    ///
+    /// - Parameters:
+    ///   - data: Raw DICOM file data
+    ///   - range: Range of pixel indices to read (e.g., 0..<100 for first 100 pixels)
+    ///   - width: Image width in pixels
+    ///   - height: Image height in pixels
+    ///   - offset: Byte offset to start of pixel data in file
+    ///   - logger: Optional logger for performance metrics
+    /// Reads a contiguous range of 24-bit RGB pixels from raw image data.
+    /// - Parameters:
+    ///   - data: Source byte buffer containing interleaved RGB pixel data.
+    ///   - range: 0-based range of pixel indices to read (each pixel is three bytes).
+    ///   - width: Image width in pixels.
+    ///   - height: Image height in pixels.
+    ///   - offset: Byte offset within `data` where the image pixel data begins.
+    ///   - logger: Optional logger for warnings and performance diagnostics (may be nil).
+    /// - Returns: A `DCMPixelReadResult` whose `pixels24` contains `3 * range.count` bytes (RGB triples) for the requested range, or `nil` if dimensions are invalid, the range is out of bounds, or there is insufficient data.
+    internal static func readPixels24(
+        data: Data,
+        range: Range<Int>,
+        width: Int,
+        height: Int,
+        offset: Int,
+        logger: AnyLogger? = nil
+    ) -> DCMPixelReadResult? {
+        let startTime = CFAbsoluteTimeGetCurrent()
+
+        guard computePixelMetrics(
+            width: width,
+            height: height,
+            bytesPerPixel: 3,
+            context: "24-bit RGB (range)",
+            logger: logger
+        ) != nil else {
+            return nil
+        }
+
+        let width64 = Int64(width)
+        let height64 = Int64(height)
+        let (totalPixels64, totalOverflow) = width64.multipliedReportingOverflow(by: height64)
+        guard !totalOverflow && totalPixels64 > 0 else {
+            logger?.warning("Pixel count overflow for range: width=\(width), height=\(height)")
+            return nil
+        }
+        guard totalPixels64 <= Int64(Int.max) else {
+            logger?.warning("Pixel count exceeds addressable range for range: \(totalPixels64)")
+            return nil
+        }
+
+        // Validate range
+        let lower64 = Int64(range.lowerBound)
+        let upper64 = Int64(range.upperBound)
+        guard lower64 >= 0, upper64 <= totalPixels64 else {
+            logger?.warning("Range out of bounds: \(range) (total pixels: \(totalPixels64))")
+            return nil
+        }
+        guard upper64 > lower64 else {
+            logger?.warning("Empty range requested")
+            return nil
+        }
+
+        let rangeCount64 = upper64 - lower64
+        guard rangeCount64 <= Int64(Int.max) else {
+            logger?.warning("Range size exceeds addressable range: \(range)")
+            return nil
+        }
+
+        let bytesPerPixel64: Int64 = 3
+        let (rangeBytes64, rangeBytesOverflow) = rangeCount64.multipliedReportingOverflow(by: bytesPerPixel64)
+        let (pixelOffset64, pixelOffsetOverflow) = lower64.multipliedReportingOverflow(by: bytesPerPixel64)
+        let (rangeByteOffset64, offsetOverflow) = Int64(offset).addingReportingOverflow(pixelOffset64)
+        guard !rangeBytesOverflow && !pixelOffsetOverflow && !offsetOverflow else {
+            logger?.warning("Byte offset overflow for range: \(range)")
+            return nil
+        }
+        guard rangeBytes64 <= Int64(Int.max), rangeByteOffset64 <= Int64(Int.max) else {
+            logger?.warning("Byte offset exceeds addressable range for range: \(range)")
+            return nil
+        }
+
+        // Validate data availability
+        let dataCount64 = Int64(data.count)
+        guard rangeByteOffset64 >= 0,
+              rangeByteOffset64 <= dataCount64,
+              rangeBytes64 <= dataCount64 - rangeByteOffset64 else {
+            let available = max(Int64(0), dataCount64 - rangeByteOffset64)
+            logger?.warning("Invalid range offset or insufficient data. offset=\(rangeByteOffset64), needed=\(rangeBytes64), available=\(available)")
+            return nil
+        }
+
+        let rangeBytes = Int(rangeBytes64)
+        let rangeByteOffset = Int(rangeByteOffset64)
+
+        var result = DCMPixelReadResult(
+            pixels8: nil,
+            pixels16: nil,
+            pixels24: nil,
+            signedImage: false,
+            width: width,
+            height: height,
+            bitDepth: 8,
+            samplesPerPixel: 3
+        )
+
+        // Allocate buffer for requested range
+        var pixels = [UInt8](repeating: 0, count: rangeBytes)
+
+        // Use withUnsafeBytes for efficient memory-mapped access
+        data.withUnsafeBytes { dataBytes in
+            let basePtr = dataBytes.baseAddress!.advanced(by: rangeByteOffset)
+            let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+
+            // Direct copy of RGB bytes
+            pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                _ = memcpy(pixelBuffer.baseAddress!, uint8Ptr, rangeBytes)
+            }
+        }
+
+        result.pixels24 = pixels
+
+        let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+        logger?.debug("[PERF] readPixels24 (range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound) | size: \(width)x\(height)")
+        return result
+    }
+
     /// Attempts to decode compressed pixel data using ImageIO.
     /// This function supports common DICOM transfer syntaxes
     /// including JPEG Baseline, JPEG Extended, JPEG‑LS and
@@ -368,6 +849,37 @@ internal final class DCMPixelReader {
         // Table and items (see PS3.5).  This implementation is
         // designed to handle single–frame images.
         let compressedData = data.subdata(in: offset..<data.count)
+
+        // Check if this is JPEG Lossless format (SOF3 marker 0xFFC3)
+        // JPEG files start with SOI marker 0xFFD8
+        if compressedData.count >= 2,
+           compressedData[0] == 0xFF,
+           compressedData[1] == 0xD8 {
+            // This is a JPEG file, check for JPEG Lossless (SOF3) marker
+            if isJPEGLossless(data: compressedData) {
+                // JPEG Lossless detected - use dedicated decoder
+                let decoder = JPEGLosslessDecoder()
+                do {
+                    let losslessResult = try decoder.decode(data: compressedData)
+
+                    // Convert JPEGLosslessDecodeResult to DCMPixelReadResult
+                    let result = DCMPixelReadResult(
+                        pixels8: nil,
+                        pixels16: losslessResult.pixels,
+                        pixels24: nil,
+                        signedImage: false,
+                        width: losslessResult.width,
+                        height: losslessResult.height,
+                        bitDepth: losslessResult.bitDepth,
+                        samplesPerPixel: 1
+                    )
+                    return result
+                } catch {
+                    logger?.warning("JPEG Lossless decoding failed: \(error)")
+                    return nil
+                }
+            }
+        }
 
         // Create an image source from the compressed data.  ImageIO
         // automatically detects JPEG, JPEG2000 and JPEG‑LS formats.
@@ -470,5 +982,49 @@ internal final class DCMPixelReader {
         }
 
         return result
+    }
+
+    /// Detects if the compressed data is JPEG Lossless format by scanning for the SOF3 marker (0xFFC3).
+    /// JPEG Lossless uses a different decoding algorithm than standard JPEG and must be handled separately.
+    ///
+    /// - Parameter data: Compressed JPEG data starting with SOI marker (0xFFD8)
+    /// - Returns: True if SOF3 marker is found, indicating JPEG Lossless format
+    private static func isJPEGLossless(data: Data) -> Bool {
+        var index = 2  // Skip SOI marker (0xFFD8)
+
+        while index + 1 < data.count {
+            // Find next marker (all JPEG markers start with 0xFF)
+            if data[index] != 0xFF {
+                index += 1
+                continue
+            }
+
+            let markerCode = data[index + 1]
+
+            // Check for SOF3 marker (0xC3) - indicates JPEG Lossless (Process 14)
+            if markerCode == 0xC3 {
+                return true
+            }
+
+            // Check for SOS marker (0xDA) - if we reach this without SOF3, it's not lossless
+            if markerCode == 0xDA {
+                return false
+            }
+
+            // Skip over marker segment
+            if markerCode == 0xD8 || markerCode == 0xD9 {
+                // SOI/EOI markers have no length field
+                index += 2
+            } else if index + 3 < data.count {
+                // Read segment length (big endian, includes length field itself)
+                let length = Int(data[index + 2]) << 8 | Int(data[index + 3])
+                index += 2 + length
+            } else {
+                // Not enough data for length field
+                break
+            }
+        }
+
+        return false
     }
 }
