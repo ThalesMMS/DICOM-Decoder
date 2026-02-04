@@ -70,13 +70,50 @@ jobs:
     - name: Select Xcode
       run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
 
+    - name: Resolve Xcode scheme
+      id: resolve_scheme
+      run: |
+        set -euo pipefail
+        SCHEMES=$(xcrun xcodebuild -list -json 2>&1 | python3 - <<'PY'
+        import json, sys
+        text = sys.stdin.read()
+        start = text.find('{')
+        end = text.rfind('}')
+        if start == -1 or end == -1:
+            sys.stderr.write("xcodebuild -list -json did not return JSON. Output:\n")
+            sys.stderr.write(text + "\n")
+            raise SystemExit(1)
+        data = json.loads(text[start:end + 1])
+        workspace = data.get("workspace") or {}
+        project = data.get("project") or {}
+        schemes = workspace.get("schemes") or project.get("schemes") or []
+        print("\n".join(schemes))
+        PY
+        )
+        echo "Available schemes:"
+        echo "$SCHEMES"
+        for candidate in "DicomCore-Package" "DicomCore" "SwiftDICOMDecoder" "SwiftDICOMDecoder-Package"; do
+          if echo "$SCHEMES" | grep -Fxq "$candidate"; then
+            echo "scheme=$candidate" >> "$GITHUB_OUTPUT"
+            echo "Using scheme: $candidate"
+            exit 0
+          fi
+        done
+        SCHEME=$(echo "$SCHEMES" | head -n1)
+        if [ -z "$SCHEME" ]; then
+          echo "No Xcode schemes found." >&2
+          exit 1
+        fi
+        echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+        echo "Using fallback scheme: $SCHEME"
+
     - name: Show available simulators
-      run: xcrun xcodebuild -showdestinations -scheme SwiftDICOMDecoder-Package
+      run: xcrun xcodebuild -showdestinations -scheme "${{ steps.resolve_scheme.outputs.scheme }}"
 
     - name: Build for iOS
       run: |
         xcodebuild build-for-testing \
-          -scheme SwiftDICOMDecoder-Package \
+          -scheme "${{ steps.resolve_scheme.outputs.scheme }}" \
           -destination "${{ matrix.destination }}" \
           -enableCodeCoverage YES \
           -derivedDataPath .build/ios
@@ -84,7 +121,7 @@ jobs:
     - name: Run iOS tests
       run: |
         xcodebuild test-without-building \
-          -scheme SwiftDICOMDecoder-Package \
+          -scheme "${{ steps.resolve_scheme.outputs.scheme }}" \
           -destination "${{ matrix.destination }}" \
           -enableCodeCoverage YES \
           -derivedDataPath .build/ios
