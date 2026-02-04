@@ -75,36 +75,33 @@ jobs:
       run: |
         set -euo pipefail
         if swift package dump-package > /tmp/package.json 2> /tmp/package_dump.log; then
-          if python3 - /tmp/package.json > /tmp/candidates.txt <<'PY'
-import json, sys
-with open(sys.argv[1], "r") as f:
-    text = f.read().strip()
+          if python3 -c 'import json,sys
+text=open(sys.argv[1]).read().strip()
 if not text:
     raise SystemExit(1)
-data = json.loads(text)
-seen = set()
-ordered = []
+data=json.loads(text)
+seen=set()
+ordered=[]
 def add(name):
     if name and name not in seen:
         seen.add(name)
         ordered.append(name)
-pkg = data.get("name")
+pkg=data.get("name")
 if pkg:
     add(f"{pkg}-Package")
     add(pkg)
 for product in data.get("products", []):
-    name = product.get("name")
+    name=product.get("name")
     if name:
         add(f"{name}-Package")
         add(name)
 for target in data.get("targets", []):
-    name = target.get("name")
+    name=target.get("name")
     if name:
         add(f"{name}-Package")
         add(name)
-print("\n".join(ordered))
-PY
-          then
+print("\\n".join(ordered))
+' /tmp/package.json > /tmp/candidates.txt; then
             CANDIDATES=$(cat /tmp/candidates.txt)
           else
             echo "Failed to parse package metadata, falling back to default scheme list." >&2
