@@ -74,38 +74,49 @@ jobs:
       id: resolve_scheme
       run: |
         set -euo pipefail
-        SCHEMES=$(xcrun xcodebuild -list -json 2>&1 | python3 - <<'PY'
+        CANDIDATES=$(swift package dump-package | python3 - <<'PY'
         import json, sys
-        text = sys.stdin.read()
-        start = text.find('{')
-        end = text.rfind('}')
-        if start == -1 or end == -1:
-            sys.stderr.write("xcodebuild -list -json did not return JSON. Output:\n")
-            sys.stderr.write(text + "\n")
-            raise SystemExit(1)
-        data = json.loads(text[start:end + 1])
-        workspace = data.get("workspace") or {}
-        project = data.get("project") or {}
-        schemes = workspace.get("schemes") or project.get("schemes") or []
-        print("\n".join(schemes))
+        data = json.load(sys.stdin)
+        seen = set()
+        ordered = []
+        def add(name):
+            if name and name not in seen:
+                seen.add(name)
+                ordered.append(name)
+        pkg = data.get("name")
+        if pkg:
+            add(f"{pkg}-Package")
+            add(pkg)
+        for product in data.get("products", []):
+            name = product.get("name")
+            if name:
+                add(f"{name}-Package")
+                add(name)
+        for target in data.get("targets", []):
+            name = target.get("name")
+            if name:
+                add(f"{name}-Package")
+                add(name)
+        print("\n".join(ordered))
         PY
         )
-        echo "Available schemes:"
-        echo "$SCHEMES"
-        for candidate in "DicomCore-Package" "DicomCore" "SwiftDICOMDecoder" "SwiftDICOMDecoder-Package"; do
-          if echo "$SCHEMES" | grep -Fxq "$candidate"; then
+        echo "Candidate schemes:"
+        echo "$CANDIDATES"
+        LAST_LOG=""
+        for candidate in $CANDIDATES; do
+          if xcrun xcodebuild -showdestinations -scheme "$candidate" > /tmp/xcodebuild_showdestinations.log 2>&1; then
             echo "scheme=$candidate" >> "$GITHUB_OUTPUT"
             echo "Using scheme: $candidate"
             exit 0
           fi
+          LAST_LOG=$(cat /tmp/xcodebuild_showdestinations.log || true)
         done
-        SCHEME=$(echo "$SCHEMES" | head -n1)
-        if [ -z "$SCHEME" ]; then
-          echo "No Xcode schemes found." >&2
-          exit 1
+        echo "No usable scheme found." >&2
+        if [ -n "$LAST_LOG" ]; then
+          echo "Last xcodebuild output:" >&2
+          echo "$LAST_LOG" >&2
         fi
-        echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
-        echo "Using fallback scheme: $SCHEME"
+        exit 1
 
     - name: Show available simulators
       run: xcrun xcodebuild -showdestinations -scheme "${{ steps.resolve_scheme.outputs.scheme }}"
