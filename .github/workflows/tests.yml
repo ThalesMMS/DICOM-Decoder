@@ -74,32 +74,56 @@ jobs:
       id: resolve_scheme
       run: |
         set -euo pipefail
-        CANDIDATES=$(swift package dump-package | python3 - <<'PY'
-        import json, sys
-        data = json.load(sys.stdin)
-        seen = set()
-        ordered = []
-        def add(name):
-            if name and name not in seen:
-                seen.add(name)
-                ordered.append(name)
-        pkg = data.get("name")
-        if pkg:
-            add(f"{pkg}-Package")
-            add(pkg)
-        for product in data.get("products", []):
-            name = product.get("name")
-            if name:
-                add(f"{name}-Package")
-                add(name)
-        for target in data.get("targets", []):
-            name = target.get("name")
-            if name:
-                add(f"{name}-Package")
-                add(name)
-        print("\n".join(ordered))
-        PY
-        )
+        if swift package dump-package > /tmp/package.json 2> /tmp/package_dump.log; then
+          if python3 - /tmp/package.json > /tmp/candidates.txt <<'PY'
+import json, sys
+with open(sys.argv[1], "r") as f:
+    text = f.read().strip()
+if not text:
+    raise SystemExit(1)
+data = json.loads(text)
+seen = set()
+ordered = []
+def add(name):
+    if name and name not in seen:
+        seen.add(name)
+        ordered.append(name)
+pkg = data.get("name")
+if pkg:
+    add(f"{pkg}-Package")
+    add(pkg)
+for product in data.get("products", []):
+    name = product.get("name")
+    if name:
+        add(f"{name}-Package")
+        add(name)
+for target in data.get("targets", []):
+    name = target.get("name")
+    if name:
+        add(f"{name}-Package")
+        add(name)
+print("\n".join(ordered))
+PY
+          then
+            CANDIDATES=$(cat /tmp/candidates.txt)
+          else
+            echo "Failed to parse package metadata, falling back to default scheme list." >&2
+            CANDIDATES=""
+          fi
+        else
+          echo "swift package dump-package failed, falling back to default scheme list." >&2
+          cat /tmp/package_dump.log >&2 || true
+          CANDIDATES=""
+        fi
+        if [ -z "${CANDIDATES:-}" ]; then
+          CANDIDATES=$(cat <<'EOF'
+DicomCore-Package
+DicomCore
+SwiftDICOMDecoder
+SwiftDICOMDecoder-Package
+EOF
+          )
+        fi
         echo "Candidate schemes:"
         echo "$CANDIDATES"
         LAST_LOG=""
