@@ -23,7 +23,10 @@ let package = Package(
             name: "DicomCoreTests",
             dependencies: ["DicomCore"],
             path: "Tests/DicomCoreTests",
-            exclude: ["Fixtures"]
+            exclude: ["Fixtures"],
+            resources: [
+                .process("Resources")
+            ]
         )
     ]
 )

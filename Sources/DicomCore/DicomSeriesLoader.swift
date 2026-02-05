@@ -51,6 +51,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
     // MARK: - Properties
 
     private let decoderFactory: () -> DicomDecoderProtocol
+    private var decoderCache: [URL: DicomDecoderProtocol] = [:]
 
     // MARK: - Initialization
 
@@ -105,6 +106,9 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
             guard decoder.bitDepth == 16 else {
                 throw DicomSeriesLoaderError.unsupportedBitDepth(decoder.bitDepth)
             }
+
+            // Cache the validated decoder for reuse in second pass
+            decoderCache[url] = decoder
 
             // Capture baseline geometry from the first valid slice.
             if firstDecoder == nil {
@@ -252,6 +256,10 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                        bitsAllocated: bitsAllocated,
                                        isSignedPixel: pixelRepresentation == 1,
                                        seriesDescription: seriesDescription)
+
+        // Clear decoder cache to free memory
+        decoderCache.removeAll()
+
         return volume
     }
 }
@@ -285,8 +293,15 @@ private extension DicomSeriesLoader {
                      expectedWidth: Int,
                      expectedHeight: Int,
                      isSigned: Bool) throws -> [Int16] {
-        let decoder = decoderFactory()
-        decoder.setDicomFilename(url.path)
+        // Try to use cached decoder first, fallback to creating new one
+        let decoder: DicomDecoderProtocol
+        if let cachedDecoder = decoderCache[url] {
+            decoder = cachedDecoder
+        } else {
+            decoder = decoderFactory()
+            decoder.setDicomFilename(url.path)
+        }
+
         guard decoder.dicomFileReadSuccess,
               decoder.width == expectedWidth,
               decoder.height == expectedHeight,

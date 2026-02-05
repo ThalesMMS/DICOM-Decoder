@@ -27,6 +27,7 @@
 //
 
 import Foundation
+import Accelerate
 import CoreGraphics
 import ImageIO
 
@@ -92,6 +93,142 @@ internal final class DCMPixelReader {
         // Shift negative values up by min16 to make them positive
         let shifted = Int(combined) - min16
         return UInt16(shifted)
+    }
+
+    /// Vectorized conversion of signed 16‑bit pixels to unsigned
+    /// representation using Accelerate vDSP operations.  This
+    /// function reads signed Int16 values from raw bytes and shifts
+    /// them into the unsigned UInt16 range by subtracting Int16.min
+    /// (i.e., adding 32768).  The conversion is performed using SIMD
+    /// operations for optimal performance.
+    ///
+    /// - Parameters:
+    ///   - sourcePtr: Pointer to raw byte data containing signed 16‑bit pixels
+    ///   - outputBuffer: Destination buffer for normalized UInt16 pixels
+    ///   - count: Number of pixels to convert
+    ///   - littleEndian: True if source data is little endian
+    private static func normaliseSigned16Vectorized(
+        sourcePtr: UnsafeRawPointer,
+        outputBuffer: inout [UInt16],
+        count: Int,
+        littleEndian: Bool
+    ) {
+        // Allocate temporary buffer for signed Int16 values
+        var signedPixels = [Int16](repeating: 0, count: count)
+
+        // Copy raw bytes into Int16 buffer with appropriate endianness
+        signedPixels.withUnsafeMutableBytes { signedBytes in
+            let signedPtr = signedBytes.baseAddress!
+            _ = memcpy(signedPtr, sourcePtr, count * 2)
+
+            // Handle big endian byte swapping if needed
+            if !littleEndian {
+                let int16Ptr = signedPtr.assumingMemoryBound(to: Int16.self)
+                for i in 0..<count {
+                    int16Ptr[i] = Int16(bigEndian: int16Ptr[i])
+                }
+            }
+        }
+
+        // Convert signed Int16 to Float for vDSP processing
+        var floatPixels = [Float](repeating: 0, count: count)
+        signedPixels.withUnsafeBufferPointer { signedBuffer in
+            vDSP_vflt16(signedBuffer.baseAddress!, 1, &floatPixels, 1, vDSP_Length(count))
+        }
+
+        // Add offset to shift signed range [-32768, 32767] to unsigned [0, 65535]
+        var offset: Float = 32768.0
+        vDSP_vsadd(floatPixels, 1, &offset, &floatPixels, 1, vDSP_Length(count))
+
+        // Clamp to valid range [0, 65535] to handle any edge cases
+        var lowerBound: Float = 0.0
+        var upperBound: Float = 65535.0
+        vDSP_vclip(floatPixels, 1, &lowerBound, &upperBound, &floatPixels, 1, vDSP_Length(count))
+
+        // Convert back to UInt16
+        floatPixels.withUnsafeBufferPointer { floatBuffer in
+            outputBuffer.withUnsafeMutableBufferPointer { uint16Buffer in
+                vDSP_vfixu16(floatBuffer.baseAddress!, 1, uint16Buffer.baseAddress!, 1, vDSP_Length(count))
+            }
+        }
+    }
+
+    /// Vectorized inversion of 16‑bit pixels for MONOCHROME1 photometric
+    /// interpretation using Accelerate vDSP operations.  This function
+    /// performs the operation: output[i] = 65535 - input[i] using SIMD
+    /// operations for optimal performance on large pixel buffers.
+    ///
+    /// - Parameters:
+    ///   - buffer: Buffer of UInt16 pixels to invert in-place
+    ///   - count: Number of pixels to invert
+    private static func invertMonochrome1Vectorized(
+        buffer: inout [UInt16],
+        count: Int
+    ) {
+        // Convert UInt16 to Float for vDSP processing
+        var floatPixels = [Float](repeating: 0, count: count)
+        buffer.withUnsafeBufferPointer { uint16Buffer in
+            vDSP_vfltu16(uint16Buffer.baseAddress!, 1, &floatPixels, 1, vDSP_Length(count))
+        }
+
+        // Negate values: -input
+        vDSP_vneg(floatPixels, 1, &floatPixels, 1, vDSP_Length(count))
+
+        // Add 65535: 65535 + (-input) = 65535 - input
+        var offset: Float = 65535.0
+        vDSP_vsadd(floatPixels, 1, &offset, &floatPixels, 1, vDSP_Length(count))
+
+        // Clamp to valid range [0, 65535] to handle any edge cases
+        var lowerBound: Float = 0.0
+        var upperBound: Float = 65535.0
+        vDSP_vclip(floatPixels, 1, &lowerBound, &upperBound, &floatPixels, 1, vDSP_Length(count))
+
+        // Convert back to UInt16
+        floatPixels.withUnsafeBufferPointer { floatBuffer in
+            buffer.withUnsafeMutableBufferPointer { uint16Buffer in
+                vDSP_vfixu16(floatBuffer.baseAddress!, 1, uint16Buffer.baseAddress!, 1, vDSP_Length(count))
+            }
+        }
+    }
+
+    /// Vectorized inversion of signed 16‑bit pixels for MONOCHROME1
+    /// photometric interpretation using Accelerate vDSP operations.
+    /// This function performs the operation:
+    /// output[i] = 32768 - (input[i] - 32768) = 65536 - input[i]
+    /// which inverts pixel values around the midpoint 32768 for
+    /// normalized signed pixels.
+    ///
+    /// - Parameters:
+    ///   - buffer: Buffer of UInt16 pixels to invert in-place
+    ///   - count: Number of pixels to invert
+    private static func invertMonochrome1SignedVectorized(
+        buffer: inout [UInt16],
+        count: Int
+    ) {
+        // Convert UInt16 to Float for vDSP processing
+        var floatPixels = [Float](repeating: 0, count: count)
+        buffer.withUnsafeBufferPointer { uint16Buffer in
+            vDSP_vfltu16(uint16Buffer.baseAddress!, 1, &floatPixels, 1, vDSP_Length(count))
+        }
+
+        // Negate values: -input
+        vDSP_vneg(floatPixels, 1, &floatPixels, 1, vDSP_Length(count))
+
+        // Add 65536: 65536 + (-input) = 65536 - input
+        var offset: Float = 65536.0
+        vDSP_vsadd(floatPixels, 1, &offset, &floatPixels, 1, vDSP_Length(count))
+
+        // Clamp to valid range [0, 65535] to handle wrapping
+        var lowerBound: Float = 0.0
+        var upperBound: Float = 65535.0
+        vDSP_vclip(floatPixels, 1, &lowerBound, &upperBound, &floatPixels, 1, vDSP_Length(count))
+
+        // Convert back to UInt16
+        floatPixels.withUnsafeBufferPointer { floatBuffer in
+            buffer.withUnsafeMutableBufferPointer { uint16Buffer in
+                vDSP_vfixu16(floatBuffer.baseAddress!, 1, uint16Buffer.baseAddress!, 1, vDSP_Length(count))
+            }
+        }
     }
 
     /// Validates dimensions and computes pixel counts and byte sizes safely.
@@ -265,60 +402,64 @@ internal final class DCMPixelReader {
                         if offset % 2 == 0 {
                             // Aligned - can use fast path
                             basePtr.withMemoryRebound(to: UInt16.self, capacity: numPixels) { uint16Ptr in
+                                // Direct copy for aligned data
+                                pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                                    _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, numBytes)
+                                }
+
+                                // Handle MONOCHROME1 inversion if needed using vectorized operations
                                 if photometricInterpretation == "MONOCHROME1" {
-                                    // Invert for MONOCHROME1 (white is zero)
-                                    for i in 0..<numPixels {
-                                        pixels[i] = 65535 - uint16Ptr[i]
-                                    }
-                                } else {
-                                    // Direct copy for MONOCHROME2
-                                    pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                                        _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, numBytes)
-                                    }
+                                    invertMonochrome1Vectorized(buffer: &pixels, count: numPixels)
                                 }
                             }
                         } else {
-                            // Unaligned - use byte-by-byte reading
-                            let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
-                            for i in 0..<numPixels {
-                                let byteIndex = i * 2
-                                let b0 = uint8Ptr[byteIndex]
-                                let b1 = uint8Ptr[byteIndex + 1]
-                                var value = UInt16(b0) | (UInt16(b1) << 8)  // Little endian
-                                if photometricInterpretation == "MONOCHROME1" {
-                                    value = 65535 - value
-                                }
-                                pixels[i] = value
+                            // Unaligned - use optimized vectorized copy
+                            // Even though source is unaligned, memcpy handles this efficiently
+                            // and the destination buffer is always aligned
+                            pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                                _ = memcpy(pixelBuffer.baseAddress!, basePtr, numBytes)
+                            }
+
+                            // Handle MONOCHROME1 inversion if needed using vectorized operations
+                            if photometricInterpretation == "MONOCHROME1" {
+                                invertMonochrome1Vectorized(buffer: &pixels, count: numPixels)
                             }
                         }
                     } else {
-                        // Big endian (rare)
-                        let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
-                        for i in 0..<numPixels {
-                            let byteIndex = i * 2
-                            let b0 = uint8Ptr[byteIndex]
-                            let b1 = uint8Ptr[byteIndex + 1]
-                            var value = UInt16(b0) << 8 | UInt16(b1)
-                            if photometricInterpretation == "MONOCHROME1" {
-                                value = 65535 - value
+                        // Big endian (rare) - use optimized vectorized byte swapping
+                        pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                            // First copy data to output buffer (vectorized by system)
+                            _ = memcpy(pixelBuffer.baseAddress!, basePtr, numBytes)
+
+                            // Perform in-place byte swapping
+                            // Swift's byteSwapped is optimized to use hardware instructions
+                            let pixelPtr = pixelBuffer.baseAddress!
+                            for i in 0..<numPixels {
+                                pixelPtr[i] = pixelPtr[i].byteSwapped
                             }
-                            pixels[i] = value
+                        }
+
+                        // Handle MONOCHROME1 inversion if needed using vectorized operations
+                        if photometricInterpretation == "MONOCHROME1" {
+                            invertMonochrome1Vectorized(buffer: &pixels, count: numPixels)
                         }
                     }
                     result.signedImage = false
                 } else {
-                    // Signed pixels (less common)
+                    // Signed pixels (less common) - use vectorized conversion
                     result.signedImage = true
-                    let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
-                    for i in 0..<numPixels {
-                        let byteIndex = i * 2
-                        let b0 = uint8Ptr[byteIndex]
-                        let b1 = uint8Ptr[byteIndex + 1]
-                        var value = normaliseSigned16(bytes: b0, b1: b1)
-                        if photometricInterpretation == "MONOCHROME1" {
-                            value = UInt16(32768) - (value - UInt16(32768))
-                        }
-                        pixels[i] = value
+
+                    // Use vectorized normalization for signed pixels
+                    normaliseSigned16Vectorized(
+                        sourcePtr: basePtr,
+                        outputBuffer: &pixels,
+                        count: numPixels,
+                        littleEndian: littleEndian
+                    )
+
+                    // Handle MONOCHROME1 inversion if needed using vectorized operations
+                    if photometricInterpretation == "MONOCHROME1" {
+                        invertMonochrome1SignedVectorized(buffer: &pixels, count: numPixels)
                     }
                 }
             }
@@ -490,58 +631,60 @@ internal final class DCMPixelReader {
                     if rangeByteOffset % 2 == 0 {
                         // Aligned - can use fast path
                         basePtr.withMemoryRebound(to: UInt16.self, capacity: rangeCount) { uint16Ptr in
+                            // Direct copy for aligned data
+                            pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                                _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, rangeBytes)
+                            }
+
+                            // Handle MONOCHROME1 inversion if needed using vectorized operations
                             if photometricInterpretation == "MONOCHROME1" {
-                                // Invert for MONOCHROME1 (white is zero)
-                                for i in 0..<rangeCount {
-                                    pixels[i] = 65535 - uint16Ptr[i]
-                                }
-                            } else {
-                                // Direct copy for MONOCHROME2
-                                pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                                    _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, rangeBytes)
-                                }
+                                invertMonochrome1Vectorized(buffer: &pixels, count: rangeCount)
                             }
                         }
                     } else {
-                        // Unaligned - use byte-by-byte reading
-                        let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
-                        for i in 0..<rangeCount {
-                            let byteIndex = i * 2
-                            let b0 = uint8Ptr[byteIndex]
-                            let b1 = uint8Ptr[byteIndex + 1]
-                            var value = UInt16(b0) | (UInt16(b1) << 8)  // Little endian
-                            if photometricInterpretation == "MONOCHROME1" {
-                                value = 65535 - value
-                            }
-                            pixels[i] = value
+                        // Unaligned - use optimized vectorized copy
+                        // Even though source is unaligned, memcpy handles this efficiently
+                        // and the destination buffer is always aligned
+                        pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                            _ = memcpy(pixelBuffer.baseAddress!, basePtr, rangeBytes)
+                        }
+
+                        // Handle MONOCHROME1 inversion if needed using vectorized operations
+                        if photometricInterpretation == "MONOCHROME1" {
+                            invertMonochrome1Vectorized(buffer: &pixels, count: rangeCount)
                         }
                     }
                 } else {
-                    // Big endian (rare)
-                    let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
-                    for i in 0..<rangeCount {
-                        let byteIndex = i * 2
-                        let b0 = uint8Ptr[byteIndex]
-                        let b1 = uint8Ptr[byteIndex + 1]
-                        var value = UInt16(b0) << 8 | UInt16(b1)
-                        if photometricInterpretation == "MONOCHROME1" {
-                            value = 65535 - value
+                    // Big endian (rare) - use optimized vectorized byte swapping
+                    pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                        // First copy data to output buffer (vectorized by system)
+                        _ = memcpy(pixelBuffer.baseAddress!, basePtr, rangeBytes)
+
+                        // Perform in-place byte swapping
+                        // Swift's byteSwapped is optimized to use hardware instructions
+                        let pixelPtr = pixelBuffer.baseAddress!
+                        for i in 0..<rangeCount {
+                            pixelPtr[i] = pixelPtr[i].byteSwapped
                         }
-                        pixels[i] = value
+                    }
+
+                    // Handle MONOCHROME1 inversion if needed using vectorized operations
+                    if photometricInterpretation == "MONOCHROME1" {
+                        invertMonochrome1Vectorized(buffer: &pixels, count: rangeCount)
                     }
                 }
             } else {
-                // Signed pixels (less common)
-                let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
-                for i in 0..<rangeCount {
-                    let byteIndex = i * 2
-                    let b0 = uint8Ptr[byteIndex]
-                    let b1 = uint8Ptr[byteIndex + 1]
-                    var value = normaliseSigned16(bytes: b0, b1: b1)
-                    if photometricInterpretation == "MONOCHROME1" {
-                        value = UInt16(32768) - (value - UInt16(32768))
-                    }
-                    pixels[i] = value
+                // Signed pixels (less common) - use vectorized conversion
+                normaliseSigned16Vectorized(
+                    sourcePtr: basePtr,
+                    outputBuffer: &pixels,
+                    count: rangeCount,
+                    littleEndian: littleEndian
+                )
+
+                // Handle MONOCHROME1 inversion if needed using vectorized operations
+                if photometricInterpretation == "MONOCHROME1" {
+                    invertMonochrome1SignedVectorized(buffer: &pixels, count: rangeCount)
                 }
             }
         }
