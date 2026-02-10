@@ -60,6 +60,689 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertFalse(status.isCompressed, "Initial status should not be compressed")
     }
 
+    // MARK: - Throwing Initializer Tests
+
+    /// Get path to fixtures directory
+    private func getFixturesPath() -> URL {
+        return URL(fileURLWithPath: #file)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures")
+    }
+
+    /// Get any available DICOM file from fixtures
+    private func getAnyDICOMFile() throws -> URL {
+        let fixturesPath = getFixturesPath()
+
+        // Skip if fixtures directory doesn't exist
+        guard FileManager.default.fileExists(atPath: fixturesPath.path) else {
+            throw XCTSkip("Fixtures directory not found. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+        }
+
+        // Search recursively for any .dcm or .dicom file
+        let enumerator = FileManager.default.enumerator(at: fixturesPath, includingPropertiesForKeys: nil)
+
+        while let fileURL = enumerator?.nextObject() as? URL {
+            let ext = fileURL.pathExtension.lowercased()
+            if ext == "dcm" || ext == "dicom" {
+                return fileURL
+            }
+        }
+
+        throw XCTSkip("No DICOM files found in Fixtures. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+    }
+
+    func testThrowingInitializerWithURLAndValidFile() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+
+        // Test that initializer succeeds with valid file
+        let decoder = try DCMDecoder(contentsOf: fileURL)
+
+        // Verify decoder loaded successfully
+        XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should have read success with valid file")
+        XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
+
+        // Verify decoder has valid dimensions
+        XCTAssertGreaterThan(decoder.width, 0, "Width should be greater than 0")
+        XCTAssertGreaterThan(decoder.height, 0, "Height should be greater than 0")
+
+        // Verify decoder is valid
+        XCTAssertTrue(decoder.isValid(), "Decoder should be valid after loading")
+
+        // Verify validation status
+        let status = decoder.getValidationStatus()
+        XCTAssertTrue(status.isValid, "Validation status should be true")
+        XCTAssertGreaterThan(status.width, 0, "Status width should be greater than 0")
+        XCTAssertGreaterThan(status.height, 0, "Status height should be greater than 0")
+    }
+
+    func testThrowingInitializerWithPathAndValidFile() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+        let filePath = fileURL.path
+
+        // Test that initializer succeeds with valid file path
+        let decoder = try DCMDecoder(contentsOfFile: filePath)
+
+        // Verify decoder loaded successfully
+        XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should have read success with valid file")
+        XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
+
+        // Verify decoder has valid dimensions
+        XCTAssertGreaterThan(decoder.width, 0, "Width should be greater than 0")
+        XCTAssertGreaterThan(decoder.height, 0, "Height should be greater than 0")
+
+        // Verify decoder is valid
+        XCTAssertTrue(decoder.isValid(), "Decoder should be valid after loading")
+
+        // Verify validation status
+        let status = decoder.getValidationStatus()
+        XCTAssertTrue(status.isValid, "Validation status should be true")
+        XCTAssertGreaterThan(status.width, 0, "Status width should be greater than 0")
+        XCTAssertGreaterThan(status.height, 0, "Status height should be greater than 0")
+    }
+
+    func testThrowingInitializerLoadsMetadata() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+
+        // Test that initializer loads metadata
+        let decoder = try DCMDecoder(contentsOf: fileURL)
+
+        // Verify some basic metadata is accessible
+        // We can't test specific values since we don't know which test file was loaded,
+        // but we can verify the decoder can retrieve tag information
+        XCTAssertNotNil(decoder.getAllTags(), "Should be able to get all tags")
+
+        // Verify dimensions are accessible through convenience properties
+        let dimensions = decoder.imageDimensions
+        XCTAssertEqual(dimensions.width, decoder.width, "imageDimensions should match width")
+        XCTAssertEqual(dimensions.height, decoder.height, "imageDimensions should match height")
+
+        // Verify pixel spacing is accessible
+        let spacing = decoder.pixelSpacing
+        XCTAssertGreaterThan(spacing.width, 0, "Pixel spacing width should be positive")
+        XCTAssertGreaterThan(spacing.height, 0, "Pixel spacing height should be positive")
+    }
+
+    func testThrowingInitializerEquivalentToSetDicomFilename() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+        let filePath = fileURL.path
+
+        // Load with throwing initializer
+        let decoder1 = try DCMDecoder(contentsOf: fileURL)
+
+        // Load with traditional method
+        let decoder2 = DCMDecoder()
+        decoder2.setDicomFilename(filePath)
+
+        // Verify both methods produce equivalent results
+        XCTAssertEqual(decoder1.width, decoder2.width, "Both decoders should have same width")
+        XCTAssertEqual(decoder1.height, decoder2.height, "Both decoders should have same height")
+        XCTAssertEqual(decoder1.bitDepth, decoder2.bitDepth, "Both decoders should have same bit depth")
+        XCTAssertEqual(decoder1.samplesPerPixel, decoder2.samplesPerPixel, "Both decoders should have same samples per pixel")
+        XCTAssertEqual(decoder1.dicomFileReadSuccess, decoder2.dicomFileReadSuccess, "Both decoders should have same read success")
+        XCTAssertEqual(decoder1.dicomFound, decoder2.dicomFound, "Both decoders should have same DICM marker status")
+    }
+
+    // MARK: - Throwing Initializer Error Tests
+
+    func testThrowingInitializerWithURLThrowsForNonExistentFile() {
+        // Create URL for non-existent file
+        let nonExistentURL = URL(fileURLWithPath: "/nonexistent/file.dcm")
+
+        // Test that initializer throws fileNotFound error
+        XCTAssertThrowsError(try DCMDecoder(contentsOf: nonExistentURL)) { error in
+            guard let dicomError = error as? DICOMError else {
+                XCTFail("Error should be of type DICOMError")
+                return
+            }
+
+            // Verify it's the correct error type
+            if case .fileNotFound(let path) = dicomError {
+                XCTAssertTrue(path.contains("nonexistent"), "Error should reference the non-existent path")
+            } else {
+                XCTFail("Error should be .fileNotFound, got \(dicomError)")
+            }
+        }
+    }
+
+    func testThrowingInitializerWithPathThrowsForNonExistentFile() {
+        // Test that initializer throws fileNotFound error for non-existent file
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "/nonexistent/file.dcm")) { error in
+            guard let dicomError = error as? DICOMError else {
+                XCTFail("Error should be of type DICOMError")
+                return
+            }
+
+            // Verify it's the correct error type
+            if case .fileNotFound(let path) = dicomError {
+                XCTAssertTrue(path.contains("nonexistent"), "Error should reference the non-existent path")
+            } else {
+                XCTFail("Error should be .fileNotFound, got \(dicomError)")
+            }
+        }
+    }
+
+    func testThrowingInitializerWithPathThrowsForEmptyPath() {
+        // Test that initializer throws error for empty path
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "")) { error in
+            guard let dicomError = error as? DICOMError else {
+                XCTFail("Error should be of type DICOMError")
+                return
+            }
+
+            // Should be fileNotFound or invalidFileFormat
+            switch dicomError {
+            case .fileNotFound:
+                break // Valid error for empty path
+            case .invalidFileFormat:
+                break // Also valid for empty path
+            default:
+                XCTFail("Error should be .fileNotFound or .invalidFileFormat, got \(dicomError)")
+            }
+        }
+    }
+
+    func testThrowingInitializerWithURLThrowsForInvalidDICOMFile() throws {
+        // Create a temporary file that is not a valid DICOM file
+        let tempDir = FileManager.default.temporaryDirectory
+        let invalidFileURL = tempDir.appendingPathComponent("invalid_dicom_\(UUID().uuidString).dcm")
+
+        // Write some non-DICOM data to the file
+        let invalidData = "This is not a DICOM file".data(using: .utf8)!
+        try invalidData.write(to: invalidFileURL)
+
+        // Ensure cleanup
+        defer {
+            try? FileManager.default.removeItem(at: invalidFileURL)
+        }
+
+        // Test that initializer throws error for invalid DICOM file
+        XCTAssertThrowsError(try DCMDecoder(contentsOf: invalidFileURL)) { error in
+            guard let dicomError = error as? DICOMError else {
+                XCTFail("Error should be of type DICOMError")
+                return
+            }
+
+            // Should be invalidDICOMFormat or similar
+            switch dicomError {
+            case .invalidDICOMFormat:
+                break // Expected error
+            case .invalidFileFormat:
+                break // Also acceptable
+            case .fileCorrupted:
+                break // Also acceptable
+            default:
+                XCTFail("Error should be .invalidDICOMFormat, .invalidFileFormat, or .fileCorrupted, got \(dicomError)")
+            }
+        }
+    }
+
+    func testThrowingInitializerWithPathThrowsForInvalidDICOMFile() throws {
+        // Create a temporary file that is not a valid DICOM file
+        let tempDir = FileManager.default.temporaryDirectory
+        let invalidFileURL = tempDir.appendingPathComponent("invalid_dicom_\(UUID().uuidString).dcm")
+
+        // Write some non-DICOM data to the file
+        let invalidData = "This is not a DICOM file".data(using: .utf8)!
+        try invalidData.write(to: invalidFileURL)
+
+        // Ensure cleanup
+        defer {
+            try? FileManager.default.removeItem(at: invalidFileURL)
+        }
+
+        // Test that initializer throws error for invalid DICOM file
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: invalidFileURL.path)) { error in
+            guard let dicomError = error as? DICOMError else {
+                XCTFail("Error should be of type DICOMError")
+                return
+            }
+
+            // Should be invalidDICOMFormat or similar
+            switch dicomError {
+            case .invalidDICOMFormat:
+                break // Expected error
+            case .invalidFileFormat:
+                break // Also acceptable
+            case .fileCorrupted:
+                break // Also acceptable
+            default:
+                XCTFail("Error should be .invalidDICOMFormat, .invalidFileFormat, or .fileCorrupted, got \(dicomError)")
+            }
+        }
+    }
+
+    func testThrowingInitializerWithURLThrowsForDirectory() {
+        // Test that initializer throws error when given a directory path
+        let directoryURL = FileManager.default.temporaryDirectory
+
+        XCTAssertThrowsError(try DCMDecoder(contentsOf: directoryURL)) { error in
+            guard let dicomError = error as? DICOMError else {
+                XCTFail("Error should be of type DICOMError")
+                return
+            }
+
+            // Should throw some kind of error for directory
+            // Could be fileReadError, invalidFileFormat, etc.
+            XCTAssertNotNil(dicomError.errorDescription, "Error should have a description")
+        }
+    }
+
+    func testThrowingInitializerErrorMessagesAreDescriptive() {
+        // Test that error messages contain useful information
+        do {
+            _ = try DCMDecoder(contentsOfFile: "/nonexistent/test.dcm")
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            let errorMessage = error.errorDescription ?? ""
+            XCTAssertFalse(errorMessage.isEmpty, "Error should have a description")
+            XCTAssertTrue(errorMessage.contains("test.dcm") || errorMessage.contains("nonexistent"),
+                         "Error message should mention the file path")
+
+            // Verify recovery suggestion exists
+            XCTAssertNotNil(error.recoverySuggestion, "Error should have recovery suggestion")
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
+    }
+
+    func testThrowingInitializerDoesNotLeavePartialState() {
+        // Verify that a failed throwing initializer doesn't leave a partially initialized object
+        // This is guaranteed by Swift's error handling - the object is never returned if init throws
+
+        let nonExistentURL = URL(fileURLWithPath: "/nonexistent/file.dcm")
+
+        do {
+            _ = try DCMDecoder(contentsOf: nonExistentURL)
+            XCTFail("Should have thrown an error")
+        } catch {
+            // Expected - no decoder instance should exist
+            // If we got here, the throwing init worked correctly
+            XCTAssertTrue(true, "Throwing initializer correctly prevented object creation")
+        }
+    }
+
+    // MARK: - Async Throwing Initializer Tests
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerWithURLAndValidFile() async throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+
+        // Test that async initializer succeeds with valid file
+        let decoder = try await DCMDecoder(contentsOf: fileURL)
+
+        // Verify decoder loaded successfully
+        XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should have read success with valid file")
+        XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
+
+        // Verify decoder has valid dimensions
+        XCTAssertGreaterThan(decoder.width, 0, "Width should be greater than 0")
+        XCTAssertGreaterThan(decoder.height, 0, "Height should be greater than 0")
+
+        // Verify decoder is valid
+        XCTAssertTrue(decoder.isValid(), "Decoder should be valid after loading")
+
+        // Verify validation status
+        let status = decoder.getValidationStatus()
+        XCTAssertTrue(status.isValid, "Validation status should be true")
+        XCTAssertGreaterThan(status.width, 0, "Status width should be greater than 0")
+        XCTAssertGreaterThan(status.height, 0, "Status height should be greater than 0")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerWithPathAndValidFile() async throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+        let filePath = fileURL.path
+
+        // Test that async initializer succeeds with valid file path
+        let decoder = try await DCMDecoder(contentsOfFile: filePath)
+
+        // Verify decoder loaded successfully
+        XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should have read success with valid file")
+        XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
+
+        // Verify decoder has valid dimensions
+        XCTAssertGreaterThan(decoder.width, 0, "Width should be greater than 0")
+        XCTAssertGreaterThan(decoder.height, 0, "Height should be greater than 0")
+
+        // Verify decoder is valid
+        XCTAssertTrue(decoder.isValid(), "Decoder should be valid after loading")
+
+        // Verify validation status
+        let status = decoder.getValidationStatus()
+        XCTAssertTrue(status.isValid, "Validation status should be true")
+        XCTAssertGreaterThan(status.width, 0, "Status width should be greater than 0")
+        XCTAssertGreaterThan(status.height, 0, "Status height should be greater than 0")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerLoadsMetadata() async throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+
+        // Test that async initializer loads metadata
+        let decoder = try await DCMDecoder(contentsOf: fileURL)
+
+        // Verify some basic metadata is accessible
+        // We can't test specific values since we don't know which test file was loaded,
+        // but we can verify the decoder can retrieve tag information
+        XCTAssertNotNil(decoder.getAllTags(), "Should be able to get all tags")
+
+        // Verify dimensions are accessible through convenience properties
+        let dimensions = decoder.imageDimensions
+        XCTAssertEqual(dimensions.width, decoder.width, "imageDimensions should match width")
+        XCTAssertEqual(dimensions.height, decoder.height, "imageDimensions should match height")
+
+        // Verify pixel spacing is accessible
+        let spacing = decoder.pixelSpacing
+        XCTAssertGreaterThan(spacing.width, 0, "Pixel spacing width should be positive")
+        XCTAssertGreaterThan(spacing.height, 0, "Pixel spacing height should be positive")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerEquivalentToSyncVersion() async throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+        let filePath = fileURL.path
+
+        // Load with async throwing initializer
+        let decoder1 = try await DCMDecoder(contentsOf: fileURL)
+
+        // Load with sync throwing initializer (need await in async context)
+        let decoder2 = try await DCMDecoder(contentsOfFile: filePath)
+
+        // Verify both methods produce equivalent results
+        XCTAssertEqual(decoder1.width, decoder2.width, "Both decoders should have same width")
+        XCTAssertEqual(decoder1.height, decoder2.height, "Both decoders should have same height")
+        XCTAssertEqual(decoder1.bitDepth, decoder2.bitDepth, "Both decoders should have same bit depth")
+        XCTAssertEqual(decoder1.samplesPerPixel, decoder2.samplesPerPixel, "Both decoders should have same samples per pixel")
+        XCTAssertEqual(decoder1.dicomFileReadSuccess, decoder2.dicomFileReadSuccess, "Both decoders should have same read success")
+        XCTAssertEqual(decoder1.dicomFound, decoder2.dicomFound, "Both decoders should have same DICM marker status")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerEquivalentToLoadDICOMFileAsync() async throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+        let filePath = fileURL.path
+
+        // Load with async throwing initializer
+        let decoder1 = try await DCMDecoder(contentsOf: fileURL)
+
+        // Load with loadDICOMFileAsync method
+        let decoder2 = DCMDecoder()
+        let success = await decoder2.loadDICOMFileAsync(filePath)
+        XCTAssertTrue(success, "loadDICOMFileAsync should succeed")
+
+        // Verify both methods produce equivalent results
+        XCTAssertEqual(decoder1.width, decoder2.width, "Both decoders should have same width")
+        XCTAssertEqual(decoder1.height, decoder2.height, "Both decoders should have same height")
+        XCTAssertEqual(decoder1.bitDepth, decoder2.bitDepth, "Both decoders should have same bit depth")
+        XCTAssertEqual(decoder1.samplesPerPixel, decoder2.samplesPerPixel, "Both decoders should have same samples per pixel")
+        XCTAssertEqual(decoder1.dicomFileReadSuccess, decoder2.dicomFileReadSuccess, "Both decoders should have same read success")
+        XCTAssertEqual(decoder1.dicomFound, decoder2.dicomFound, "Both decoders should have same DICM marker status")
+    }
+
+    // MARK: - Async Throwing Initializer Error Tests
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerWithURLThrowsForNonExistentFile() async {
+        // Create URL for non-existent file
+        let nonExistentURL = URL(fileURLWithPath: "/nonexistent/file.dcm")
+
+        // Test that async initializer throws fileNotFound error
+        do {
+            _ = try await DCMDecoder(contentsOf: nonExistentURL)
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            // Verify it's the correct error type
+            if case .fileNotFound(let path) = error {
+                XCTAssertTrue(path.contains("nonexistent"), "Error should reference the non-existent path")
+            } else {
+                XCTFail("Error should be .fileNotFound, got \(error)")
+            }
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerWithPathThrowsForNonExistentFile() async {
+        // Test that async initializer throws fileNotFound error for non-existent file
+        do {
+            _ = try await DCMDecoder(contentsOfFile: "/nonexistent/file.dcm")
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            // Verify it's the correct error type
+            if case .fileNotFound(let path) = error {
+                XCTAssertTrue(path.contains("nonexistent"), "Error should reference the non-existent path")
+            } else {
+                XCTFail("Error should be .fileNotFound, got \(error)")
+            }
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerWithPathThrowsForEmptyPath() async {
+        // Test that async initializer throws error for empty path
+        do {
+            _ = try await DCMDecoder(contentsOfFile: "")
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            // Should be fileNotFound or invalidFileFormat
+            switch error {
+            case .fileNotFound:
+                break // Valid error for empty path
+            case .invalidFileFormat:
+                break // Also valid for empty path
+            default:
+                XCTFail("Error should be .fileNotFound or .invalidFileFormat, got \(error)")
+            }
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerWithURLThrowsForInvalidDICOMFile() async throws {
+        // Create a temporary file that is not a valid DICOM file
+        let tempDir = FileManager.default.temporaryDirectory
+        let invalidFileURL = tempDir.appendingPathComponent("invalid_dicom_async_\(UUID().uuidString).dcm")
+
+        // Write some non-DICOM data to the file
+        let invalidData = "This is not a DICOM file".data(using: .utf8)!
+        try invalidData.write(to: invalidFileURL)
+
+        // Ensure cleanup
+        defer {
+            try? FileManager.default.removeItem(at: invalidFileURL)
+        }
+
+        // Test that async initializer throws error for invalid DICOM file
+        do {
+            _ = try await DCMDecoder(contentsOf: invalidFileURL)
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            // Should be invalidDICOMFormat or similar
+            switch error {
+            case .invalidDICOMFormat:
+                break // Expected error
+            case .invalidFileFormat:
+                break // Also acceptable
+            case .fileCorrupted:
+                break // Also acceptable
+            default:
+                XCTFail("Error should be .invalidDICOMFormat, .invalidFileFormat, or .fileCorrupted, got \(error)")
+            }
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerWithPathThrowsForInvalidDICOMFile() async throws {
+        // Create a temporary file that is not a valid DICOM file
+        let tempDir = FileManager.default.temporaryDirectory
+        let invalidFileURL = tempDir.appendingPathComponent("invalid_dicom_async_path_\(UUID().uuidString).dcm")
+
+        // Write some non-DICOM data to the file
+        let invalidData = "This is not a DICOM file".data(using: .utf8)!
+        try invalidData.write(to: invalidFileURL)
+
+        // Ensure cleanup
+        defer {
+            try? FileManager.default.removeItem(at: invalidFileURL)
+        }
+
+        // Test that async initializer throws error for invalid DICOM file
+        do {
+            _ = try await DCMDecoder(contentsOfFile: invalidFileURL.path)
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            // Should be invalidDICOMFormat or similar
+            switch error {
+            case .invalidDICOMFormat:
+                break // Expected error
+            case .invalidFileFormat:
+                break // Also acceptable
+            case .fileCorrupted:
+                break // Also acceptable
+            default:
+                XCTFail("Error should be .invalidDICOMFormat, .invalidFileFormat, or .fileCorrupted, got \(error)")
+            }
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerWithURLThrowsForDirectory() async {
+        // Test that async initializer throws error when given a directory path
+        let directoryURL = FileManager.default.temporaryDirectory
+
+        do {
+            _ = try await DCMDecoder(contentsOf: directoryURL)
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            // Should throw some kind of error for directory
+            // Could be fileReadError, invalidFileFormat, etc.
+            XCTAssertNotNil(error.errorDescription, "Error should have a description")
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerErrorMessagesAreDescriptive() async {
+        // Test that async initializer error messages contain useful information
+        do {
+            _ = try await DCMDecoder(contentsOfFile: "/nonexistent/test.dcm")
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            let errorMessage = error.errorDescription ?? ""
+            XCTAssertFalse(errorMessage.isEmpty, "Error should have a description")
+            XCTAssertTrue(errorMessage.contains("test.dcm") || errorMessage.contains("nonexistent"),
+                         "Error message should mention the file path")
+
+            // Verify recovery suggestion exists
+            XCTAssertNotNil(error.recoverySuggestion, "Error should have recovery suggestion")
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerDoesNotLeavePartialState() async {
+        // Verify that a failed async throwing initializer doesn't leave a partially initialized object
+        // This is guaranteed by Swift's error handling - the object is never returned if init throws
+
+        let nonExistentURL = URL(fileURLWithPath: "/nonexistent/file.dcm")
+
+        do {
+            _ = try await DCMDecoder(contentsOf: nonExistentURL)
+            XCTFail("Should have thrown an error")
+        } catch {
+            // Expected - no decoder instance should exist
+            // If we got here, the async throwing init worked correctly
+            XCTAssertTrue(true, "Async throwing initializer correctly prevented object creation")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerConcurrentCalls() async throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+
+        // Test concurrent async initializer calls with the same file
+        async let decoder1 = try DCMDecoder(contentsOf: fileURL)
+        async let decoder2 = try DCMDecoder(contentsOf: fileURL)
+        async let decoder3 = try DCMDecoder(contentsOf: fileURL)
+
+        let decoders = try await [decoder1, decoder2, decoder3]
+
+        // All decoders should have loaded successfully and have same properties
+        for decoder in decoders {
+            XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should have read success")
+            XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
+            XCTAssertTrue(decoder.isValid(), "Decoder should be valid")
+        }
+
+        // Verify all decoders have same dimensions
+        let firstDecoder = decoders[0]
+        for decoder in decoders.dropFirst() {
+            XCTAssertEqual(decoder.width, firstDecoder.width, "All decoders should have same width")
+            XCTAssertEqual(decoder.height, firstDecoder.height, "All decoders should have same height")
+            XCTAssertEqual(decoder.bitDepth, firstDecoder.bitDepth, "All decoders should have same bit depth")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerConcurrentCallsWithErrors() async {
+        // Test concurrent async initializer calls with non-existent files
+        async let result1 = try? DCMDecoder(contentsOfFile: "/nonexistent/file1.dcm")
+        async let result2 = try? DCMDecoder(contentsOfFile: "/nonexistent/file2.dcm")
+        async let result3 = try? DCMDecoder(contentsOfFile: "/nonexistent/file3.dcm")
+
+        let results = await [result1, result2, result3]
+
+        // All should be nil (failed to initialize)
+        for result in results {
+            XCTAssertNil(result, "Decoder should be nil for non-existent file")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncThrowingInitializerPreservesErrorInformation() async {
+        // Test that async initializer preserves detailed error information
+        let nonExistentPath = "/nonexistent/deeply/nested/path/file.dcm"
+
+        do {
+            _ = try await DCMDecoder(contentsOfFile: nonExistentPath)
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            // Verify error preserves path information
+            let errorDescription = error.errorDescription ?? ""
+            let failureReason = error.failureReason ?? ""
+            let recoverySuggestion = error.recoverySuggestion ?? ""
+
+            // At least one of these should contain path information
+            let containsPath = errorDescription.contains("file.dcm") ||
+                              failureReason.contains("file.dcm") ||
+                              recoverySuggestion.contains("exist")
+
+            XCTAssertTrue(containsPath, "Error should preserve path information in description, reason, or suggestion")
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
+    }
+
     // MARK: - Validation Tests
 
     func testValidateDICOMFileWithNonExistentFile() {
@@ -615,6 +1298,113 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertNotNil(seriesInfo["Modality"], "Series info should have Modality key")
 
         // All values should be strings (dictionary values are typed as String)
+    }
+
+    // MARK: - DicomTag Enum Tests
+
+    func testDicomTagEnumUsage() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+
+        // Load the file using throwing initializer
+        let decoder = try DCMDecoder(contentsOf: fileURL)
+
+        // Test info(for: DicomTag) method
+        let patientName = decoder.info(for: .patientName)
+        XCTAssertNotNil(patientName, "Should be able to retrieve patient name using DicomTag enum")
+        // Patient name may be empty in some test files, so we just verify it returns a string
+
+        // Test intValue(for: DicomTag) method
+        let rows = decoder.intValue(for: .rows)
+        XCTAssertNotNil(rows, "Should be able to retrieve rows using DicomTag enum")
+        if let rowsValue = rows {
+            XCTAssertGreaterThan(rowsValue, 0, "Rows value should be greater than 0")
+            XCTAssertEqual(rowsValue, decoder.height, "Rows value should match decoder.height")
+        }
+
+        let columns = decoder.intValue(for: .columns)
+        XCTAssertNotNil(columns, "Should be able to retrieve columns using DicomTag enum")
+        if let columnsValue = columns {
+            XCTAssertGreaterThan(columnsValue, 0, "Columns value should be greater than 0")
+            XCTAssertEqual(columnsValue, decoder.width, "Columns value should match decoder.width")
+        }
+
+        // Test doubleValue(for: DicomTag) method
+        // Note: windowCenter may not be present in all DICOM files, so we test with pixelWidth instead
+        let pixelSpacingStr = decoder.info(for: .pixelSpacing)
+        if !pixelSpacingStr.isEmpty {
+            // Pixel spacing is typically stored as "row\\column" string
+            // We can verify the method works even if we don't validate the exact value
+            let spacing = decoder.doubleValue(for: .pixelSpacing)
+            // The doubleValue method may not parse multi-value strings correctly,
+            // so we just verify it returns a value or nil without crashing
+            _ = spacing
+        }
+
+        // Test rescale slope and intercept if available
+        let rescaleSlope = decoder.doubleValue(for: .rescaleSlope)
+        let rescaleIntercept = decoder.doubleValue(for: .rescaleIntercept)
+        // These may be nil in some files, just verify the methods don't crash
+        _ = rescaleSlope
+        _ = rescaleIntercept
+    }
+
+    func testDicomTagVsRawValueEquivalence() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+
+        // Load the file using throwing initializer
+        let decoder = try DCMDecoder(contentsOf: fileURL)
+
+        // Test that DicomTag enum and raw hex values return identical results
+
+        // Test info(for:) equivalence
+        let patientNameEnum = decoder.info(for: .patientName)
+        let patientNameHex = decoder.info(for: 0x00100010)
+        XCTAssertEqual(patientNameEnum, patientNameHex,
+                       "info(for: .patientName) should equal info(for: 0x00100010)")
+
+        let modalityEnum = decoder.info(for: .modality)
+        let modalityHex = decoder.info(for: 0x00080060)
+        XCTAssertEqual(modalityEnum, modalityHex,
+                       "info(for: .modality) should equal info(for: 0x00080060)")
+
+        // Test intValue(for:) equivalence
+        let rowsEnum = decoder.intValue(for: .rows)
+        let rowsHex = decoder.intValue(for: 0x00280010)
+        XCTAssertEqual(rowsEnum, rowsHex,
+                       "intValue(for: .rows) should equal intValue(for: 0x00280010)")
+
+        let columnsEnum = decoder.intValue(for: .columns)
+        let columnsHex = decoder.intValue(for: 0x00280011)
+        XCTAssertEqual(columnsEnum, columnsHex,
+                       "intValue(for: .columns) should equal intValue(for: 0x00280011)")
+
+        let bitsAllocatedEnum = decoder.intValue(for: .bitsAllocated)
+        let bitsAllocatedHex = decoder.intValue(for: 0x00280100)
+        XCTAssertEqual(bitsAllocatedEnum, bitsAllocatedHex,
+                       "intValue(for: .bitsAllocated) should equal intValue(for: 0x00280100)")
+
+        // Test doubleValue(for:) equivalence
+        let rescaleSlopeEnum = decoder.doubleValue(for: .rescaleSlope)
+        let rescaleSlopeHex = decoder.doubleValue(for: 0x00281053)
+        XCTAssertEqual(rescaleSlopeEnum, rescaleSlopeHex,
+                       "doubleValue(for: .rescaleSlope) should equal doubleValue(for: 0x00281053)")
+
+        let rescaleInterceptEnum = decoder.doubleValue(for: .rescaleIntercept)
+        let rescaleInterceptHex = decoder.doubleValue(for: 0x00281052)
+        XCTAssertEqual(rescaleInterceptEnum, rescaleInterceptHex,
+                       "doubleValue(for: .rescaleIntercept) should equal doubleValue(for: 0x00281052)")
+
+        let windowCenterEnum = decoder.doubleValue(for: .windowCenter)
+        let windowCenterHex = decoder.doubleValue(for: 0x00281050)
+        XCTAssertEqual(windowCenterEnum, windowCenterHex,
+                       "doubleValue(for: .windowCenter) should equal doubleValue(for: 0x00281050)")
+
+        let windowWidthEnum = decoder.doubleValue(for: .windowWidth)
+        let windowWidthHex = decoder.doubleValue(for: 0x00281051)
+        XCTAssertEqual(windowWidthEnum, windowWidthHex,
+                       "doubleValue(for: .windowWidth) should equal doubleValue(for: 0x00281051)")
     }
 
     // MARK: - File Loading Tests

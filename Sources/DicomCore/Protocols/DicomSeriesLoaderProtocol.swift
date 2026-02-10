@@ -56,4 +56,41 @@ public protocol DicomSeriesLoaderProtocol: AnyObject {
     /// - Throws: `DicomSeriesLoaderError` on validation or decoding failures
     func loadSeries(in directory: URL,
                     progress: ProgressHandler?) throws -> DicomSeriesVolume
+
+    /// Asynchronously loads a DICOM series from a directory, ordering slices by Image Position (Patient).
+    ///
+    /// This async method performs the same operations as the synchronous version but allows
+    /// non-blocking execution on background threads. Recommended for UI contexts to avoid
+    /// blocking the main thread during long-running series loading operations.
+    ///
+    /// This method:
+    /// - Scans the directory for DICOM files (.dcm or extensionless)
+    /// - Validates that all slices have consistent dimensions and orientation
+    /// - Orders slices by their projection onto the normal vector
+    /// - Computes spatial geometry (spacing, orientation, origin)
+    /// - Assembles a contiguous 16-bit volume buffer
+    /// - Invokes progress callbacks during loading
+    ///
+    /// - Parameters:
+    ///   - directory: Directory containing DICOM slices
+    ///   - progress: Optional callback invoked with (fractionComplete, slicesCopied, sliceData, volume)
+    /// - Returns: `DicomSeriesVolume` with voxel buffer and geometry metadata
+    /// - Throws: `DicomSeriesLoaderError` on validation or decoding failures
+    ///
+    /// - Example:
+    /// ```swift
+    /// Task {
+    ///     do {
+    ///         let loader = DicomSeriesLoader()
+    ///         let volume = try await loader.loadSeries(in: directoryURL) { fraction, slices, data, vol in
+    ///             print("Loading: \(Int(fraction * 100))% (\(slices) slices)")
+    ///         }
+    ///         print("Loaded volume: \(volume.width) x \(volume.height) x \(volume.depth)")
+    ///     } catch {
+    ///         print("Failed to load series: \(error)")
+    ///     }
+    /// }
+    /// ```
+    func loadSeries(in directory: URL,
+                    progress: ProgressHandler?) async throws -> DicomSeriesVolume
 }

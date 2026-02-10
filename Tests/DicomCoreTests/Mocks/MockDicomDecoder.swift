@@ -166,10 +166,73 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     private var _tags: [String: String] = [:]
     private var _validationResult: (isValid: Bool, issues: [String]) = (true, [])
 
+    // MARK: - Error Simulation
+
+    private var _shouldThrowFileNotFound: Bool = false
+    private var _shouldThrowInvalidFormat: Bool = false
+
     // MARK: - Initialization
 
     public init() {
         // Default initialization with typical DICOM values
+    }
+
+    // MARK: - Throwing Initializers
+
+    /// Creates a new decoder instance and loads a DICOM file from a URL.
+    ///
+    /// - Parameter url: URL pointing to the DICOM file
+    /// - Throws: `DICOMError.fileNotFound` if configured to simulate missing file
+    /// - Throws: `DICOMError.invalidDICOMFormat` if configured to simulate invalid DICOM
+    public convenience init(contentsOf url: URL) throws {
+        self.init()
+        try queue.sync {
+            if _shouldThrowFileNotFound {
+                throw DICOMError.fileNotFound(path: url.path)
+            }
+            if _shouldThrowInvalidFormat {
+                throw DICOMError.invalidDICOMFormat(reason: "Mock configured to simulate invalid format")
+            }
+        }
+    }
+
+    /// Creates a new decoder instance and loads a DICOM file from a file path.
+    ///
+    /// - Parameter path: File system path to the DICOM file
+    /// - Throws: `DICOMError.fileNotFound` if configured to simulate missing file
+    /// - Throws: `DICOMError.invalidDICOMFormat` if configured to simulate invalid DICOM
+    public convenience init(contentsOfFile path: String) throws {
+        self.init()
+        try queue.sync {
+            if _shouldThrowFileNotFound {
+                throw DICOMError.fileNotFound(path: path)
+            }
+            if _shouldThrowInvalidFormat {
+                throw DICOMError.invalidDICOMFormat(reason: "Mock configured to simulate invalid format")
+            }
+        }
+    }
+
+    // MARK: - Static Factory Methods
+
+    /// Loads a DICOM file from a URL and returns a decoder instance.
+    ///
+    /// - Parameter url: URL pointing to the DICOM file
+    /// - Returns: A fully initialized decoder instance
+    /// - Throws: `DICOMError.fileNotFound` if configured to simulate missing file
+    /// - Throws: `DICOMError.invalidDICOMFormat` if configured to simulate invalid DICOM
+    public static func load(from url: URL) throws -> Self {
+        return try self.init(contentsOf: url)
+    }
+
+    /// Loads a DICOM file from a file path and returns a decoder instance.
+    ///
+    /// - Parameter path: File system path to the DICOM file
+    /// - Returns: A fully initialized decoder instance
+    /// - Throws: `DICOMError.fileNotFound` if configured to simulate missing file
+    /// - Throws: `DICOMError.invalidDICOMFormat` if configured to simulate invalid DICOM
+    public static func load(fromFile path: String) throws -> Self {
+        return try self.init(contentsOfFile: path)
     }
 
     // MARK: - Configuration Methods
@@ -214,6 +277,20 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     public func setValidationResult(isValid: Bool, issues: [String] = []) {
         queue.sync {
             _validationResult = (isValid, issues)
+        }
+    }
+
+    /// Configure the mock to throw DICOMError.fileNotFound on initialization
+    public func setShouldThrowFileNotFound(_ value: Bool) {
+        queue.sync {
+            _shouldThrowFileNotFound = value
+        }
+    }
+
+    /// Configure the mock to throw DICOMError.invalidDICOMFormat on initialization
+    public func setShouldThrowInvalidFormat(_ value: Bool) {
+        queue.sync {
+            _shouldThrowInvalidFormat = value
         }
     }
 
@@ -329,6 +406,53 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     public func doubleValue(for tag: Int) -> Double? {
         let value = info(for: tag)
         return Double(value)
+    }
+
+    // MARK: - DicomTag Convenience Methods
+
+    /// Retrieves the value of a parsed header as a string using a DicomTag enum.
+    ///
+    /// - Parameter tag: DICOM tag from DicomTag enum (e.g., .patientName, .studyDate)
+    /// - Returns: Tag value as string, or empty string if not found
+    ///
+    /// Example:
+    /// ```swift
+    /// let name = decoder.info(for: .patientName)  // Preferred
+    /// // vs
+    /// let name = decoder.info(for: 0x00100010)    // Legacy
+    /// ```
+    public func info(for tag: DicomTag) -> String {
+        return info(for: tag.rawValue)
+    }
+
+    /// Retrieves an integer value for a DICOM tag using DicomTag enum.
+    ///
+    /// - Parameter tag: The DICOM tag enum case (e.g., .rows, .columns)
+    /// - Returns: Integer value or nil if not found or cannot be parsed
+    ///
+    /// Example:
+    /// ```swift
+    /// let height = decoder.intValue(for: .rows)  // Preferred
+    /// // vs
+    /// let height = decoder.intValue(for: 0x00280010)  // Legacy
+    /// ```
+    public func intValue(for tag: DicomTag) -> Int? {
+        return intValue(for: tag.rawValue)
+    }
+
+    /// Retrieves a double value for a DICOM tag using DicomTag enum.
+    ///
+    /// - Parameter tag: The DICOM tag enum case (e.g., .windowCenter, .windowWidth)
+    /// - Returns: Double value or nil if not found or cannot be parsed
+    ///
+    /// Example:
+    /// ```swift
+    /// let center = decoder.doubleValue(for: .windowCenter)  // Preferred
+    /// // vs
+    /// let center = decoder.doubleValue(for: 0x00281050)  // Legacy
+    /// ```
+    public func doubleValue(for tag: DicomTag) -> Double? {
+        return doubleValue(for: tag.rawValue)
     }
 
     public func getAllTags() -> [String: String] {

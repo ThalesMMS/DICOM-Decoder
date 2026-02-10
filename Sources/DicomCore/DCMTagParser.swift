@@ -315,6 +315,31 @@ internal final class DCMTagParser {
         }
     }
 
+    /// Extracts raw tag metadata without formatting to a string.
+    /// Returns TagMetadata containing the tag's location, VR, and element length.
+    /// This is used for lazy parsing where the tag value is not immediately needed.
+    ///
+    /// - Parameters:
+    ///   - tag: The DICOM tag
+    ///   - location: Current read position (pointing to tag value start)
+    /// - Returns: TagMetadata if the tag should be stored, nil if it should be skipped
+    internal func getTagMetadata(tag: Int, location: Int) -> TagMetadata? {
+        let key = String(format: "%08X", tag)
+
+        // Handle sequence delimiters - these are not stored
+        if key == "FFFEE000" || key == "FFFEE00D" || key == "FFFEE0DD" {
+            return nil
+        }
+
+        // Return metadata capturing current parser state
+        return TagMetadata(
+            tag: tag,
+            offset: location,
+            vr: vr,
+            elementLength: elementLength
+        )
+    }
+
     /// Adds the provided value to the DICOM info dictionary keyed by the raw
     /// tag.  If ``inSequence`` is true the stored string is
     /// prefixed with ``">"`` to indicate nesting.  Private tag

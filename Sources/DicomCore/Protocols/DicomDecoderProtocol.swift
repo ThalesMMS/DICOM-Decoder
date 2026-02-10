@@ -84,6 +84,11 @@ public protocol DicomDecoderProtocol: AnyObject {
     var dicomFound: Bool { get }
 
     /// True if file was successfully parsed and pixel data is available.
+    ///
+    /// **Note:** This property is part of the legacy API. When using the new throwing
+    /// initializers (`init(contentsOf:)` or `init(contentsOfFile:)`), successful
+    /// initialization guarantees this will be `true`, and failure throws an error instead.
+    @available(*, deprecated, message: "When using throwing initializers (init(contentsOf:) or init(contentsOfFile:)), successful initialization guarantees validity. Check for thrown errors instead of this property.")
     var dicomFileReadSuccess: Bool { get }
 
     /// True if file uses a compressed transfer syntax.
@@ -118,10 +123,114 @@ public protocol DicomDecoderProtocol: AnyObject {
 
     // MARK: - File Loading Methods
 
+    // MARK: Throwing Initializers (Recommended)
+
+    /// Creates a new decoder instance and loads a DICOM file from a URL.
+    /// This is the recommended initialization method for Swift code.
+    ///
+    /// - Parameter url: URL pointing to the DICOM file
+    /// - Throws: `DICOMError.fileNotFound` if the file does not exist
+    /// - Throws: `DICOMError.invalidDICOMFormat` if the file is not a valid DICOM file
+    ///
+    /// - Example:
+    /// ```swift
+    /// do {
+    ///     let decoder = try DCMDecoder(contentsOf: fileURL)
+    ///     let width = decoder.width
+    ///     let height = decoder.height
+    /// } catch {
+    ///     print("Failed to load DICOM file: \(error)")
+    /// }
+    /// ```
+    init(contentsOf url: URL) throws
+
+    /// Creates a new decoder instance and loads a DICOM file from a file path.
+    /// This is the recommended initialization method for String path workflows.
+    ///
+    /// - Parameter path: File system path to the DICOM file
+    /// - Throws: `DICOMError.fileNotFound` if the file does not exist
+    /// - Throws: `DICOMError.invalidDICOMFormat` if the file is not a valid DICOM file
+    ///
+    /// - Example:
+    /// ```swift
+    /// do {
+    ///     let decoder = try DCMDecoder(contentsOfFile: "/path/to/file.dcm")
+    ///     let pixels = decoder.getPixels16()
+    /// } catch {
+    ///     print("Failed to load DICOM file: \(error)")
+    /// }
+    /// ```
+    init(contentsOfFile path: String) throws
+
+    // MARK: Static Factory Methods
+
+    /// Loads a DICOM file from a URL and returns a decoder instance.
+    /// This static factory method is an alternative to the throwing initializer.
+    ///
+    /// - Parameter url: URL pointing to the DICOM file
+    /// - Returns: A fully initialized decoder instance
+    /// - Throws: `DICOMError.fileNotFound` if the file does not exist
+    /// - Throws: `DICOMError.invalidDICOMFormat` if the file is not a valid DICOM file
+    ///
+    /// - Example:
+    /// ```swift
+    /// do {
+    ///     let decoder = try DCMDecoder.load(from: fileURL)
+    ///     let modality = decoder.info(for: 0x00080060)
+    /// } catch {
+    ///     print("Failed to load DICOM file: \(error)")
+    /// }
+    /// ```
+    static func load(from url: URL) throws -> Self
+
+    /// Loads a DICOM file from a file path and returns a decoder instance.
+    /// This static factory method is an alternative to the throwing initializer.
+    ///
+    /// - Parameter path: File system path to the DICOM file
+    /// - Returns: A fully initialized decoder instance
+    /// - Throws: `DICOMError.fileNotFound` if the file does not exist
+    /// - Throws: `DICOMError.invalidDICOMFormat` if the file is not a valid DICOM file
+    ///
+    /// - Example:
+    /// ```swift
+    /// do {
+    ///     let decoder = try DCMDecoder.load(fromFile: "/path/to/file.dcm")
+    ///     let patientName = decoder.info(for: 0x00100010)
+    /// } catch {
+    ///     print("Failed to load DICOM file: \(error)")
+    /// }
+    /// ```
+    static func load(fromFile path: String) throws -> Self
+
+    // MARK: Legacy API
+
     /// Assigns a file to decode.  The file is read and parsed immediately.
     /// On failure, `dicomFileReadSuccess` will be false.  Calling this
     /// method resets any previous state.
+    ///
+    /// **Note:** This is the legacy API. Prefer using the throwing initializers
+    /// `init(contentsOf:)` or `init(contentsOfFile:)` for better error handling.
+    ///
     /// - Parameter filename: Path to the DICOM file on disk
+    ///
+    /// **Migration Example:**
+    /// ```swift
+    /// // Old API:
+    /// let decoder = DCMDecoder()
+    /// decoder.setDicomFilename("/path/to/file.dcm")
+    /// if decoder.dicomFileReadSuccess {
+    ///     // use decoder
+    /// }
+    ///
+    /// // New API (recommended):
+    /// do {
+    ///     let decoder = try DCMDecoder(contentsOfFile: "/path/to/file.dcm")
+    ///     // use decoder
+    /// } catch {
+    ///     print("Failed to load DICOM: \(error)")
+    /// }
+    /// ```
+    @available(*, deprecated, message: "Use init(contentsOf:) throws or init(contentsOfFile:) throws instead. See documentation for migration examples.")
     func setDicomFilename(_ filename: String)
 
     // MARK: - Pixel Data Access Methods
@@ -246,4 +355,54 @@ public protocol DicomDecoderProtocol: AnyObject {
     /// Returns image quality metrics.
     /// - Returns: Dictionary with quality metrics or nil if no pixel data
     func getQualityMetrics() -> [String: Double]?
+}
+
+// MARK: - DicomTag Convenience Methods
+
+/// Protocol extension providing type-safe DicomTag overloads for metadata access.
+/// These methods delegate to the existing Int-based methods for backward compatibility.
+public extension DicomDecoderProtocol {
+
+    /// Retrieves the value of a parsed header as a string using a DicomTag enum.
+    /// Returns an empty string if the tag was not found.
+    ///
+    /// This is the recommended approach for accessing standard DICOM tags:
+    /// ```swift
+    /// let patientName = decoder.info(for: .patientName)  // Preferred
+    /// let patientName = decoder.info(for: 0x00100010)    // Legacy approach
+    /// ```
+    ///
+    /// - Parameter tag: DICOM tag from DicomTag enum (e.g., .patientName, .studyDate)
+    /// - Returns: Tag value as string, or empty string if not found
+    func info(for tag: DicomTag) -> String {
+        return info(for: tag.rawValue)
+    }
+
+    /// Retrieves an integer value for a DICOM tag using a DicomTag enum.
+    ///
+    /// This is the recommended approach for accessing standard DICOM integer tags:
+    /// ```swift
+    /// let rows = decoder.intValue(for: .rows)       // Preferred
+    /// let rows = decoder.intValue(for: 0x00280010)  // Legacy approach
+    /// ```
+    ///
+    /// - Parameter tag: DICOM tag from DicomTag enum (e.g., .rows, .columns)
+    /// - Returns: Integer value or nil if not found or cannot be parsed
+    func intValue(for tag: DicomTag) -> Int? {
+        return intValue(for: tag.rawValue)
+    }
+
+    /// Retrieves a double value for a DICOM tag using a DicomTag enum.
+    ///
+    /// This is the recommended approach for accessing standard DICOM floating-point tags:
+    /// ```swift
+    /// let windowCenter = decoder.doubleValue(for: .windowCenter)  // Preferred
+    /// let windowCenter = decoder.doubleValue(for: 0x00281050)     // Legacy approach
+    /// ```
+    ///
+    /// - Parameter tag: DICOM tag from DicomTag enum (e.g., .windowCenter, .windowWidth)
+    /// - Returns: Double value or nil if not found or cannot be parsed
+    func doubleValue(for tag: DicomTag) -> Double? {
+        return doubleValue(for: tag.rawValue)
+    }
 }

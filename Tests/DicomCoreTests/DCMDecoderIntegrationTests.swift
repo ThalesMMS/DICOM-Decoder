@@ -682,4 +682,306 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         XCTAssertTrue(widths.allSatisfy { $0 == widths[0] }, "All decoders should have same width")
         XCTAssertTrue(heights.allSatisfy { $0 == heights[0] }, "All decoders should have same height")
     }
+
+    // MARK: - New API Integration Tests
+
+    func testCompleteWorkflowWithNewThrowingAPI() throws {
+        let file = try getAnyDICOMFile()
+
+        // Complete workflow: load → extract metadata → get pixels
+        do {
+            // Load file using new throwing initializer
+            let decoder = try DCMDecoder(contentsOf: file)
+
+            // Verify decoder is in valid state
+            XCTAssertTrue(decoder.isValid(), "Decoder should be valid after initialization")
+            XCTAssertGreaterThan(decoder.width, 0, "Should have valid width")
+            XCTAssertGreaterThan(decoder.height, 0, "Should have valid height")
+
+            // Extract metadata
+            _ = decoder.info(for: 0x00100010)  // Patient Name
+            _ = decoder.info(for: 0x00080060)  // Modality
+            let rows = decoder.intValue(for: 0x00280010)
+            let columns = decoder.intValue(for: 0x00280011)
+
+            // Verify metadata extraction works
+            XCTAssertNotNil(rows, "Should extract Rows tag")
+            XCTAssertNotNil(columns, "Should extract Columns tag")
+            if let r = rows, let c = columns {
+                XCTAssertEqual(r, decoder.height, "Rows should match height")
+                XCTAssertEqual(c, decoder.width, "Columns should match width")
+            }
+
+            // Extract pixel data based on bit depth
+            let validationStatus = decoder.getValidationStatus()
+            if validationStatus.hasPixels {
+                if decoder.bitDepth == 8 {
+                    let pixels = decoder.getPixels8()
+                    XCTAssertNotNil(pixels, "Should extract 8-bit pixels")
+                    if let pixels = pixels {
+                        let expectedSize = decoder.width * decoder.height * decoder.samplesPerPixel
+                        XCTAssertEqual(pixels.count, expectedSize, "Pixel count should match dimensions")
+                    }
+                } else if decoder.bitDepth == 16 {
+                    let pixels = decoder.getPixels16()
+                    XCTAssertNotNil(pixels, "Should extract 16-bit pixels")
+                    if let pixels = pixels {
+                        let expectedSize = decoder.width * decoder.height * decoder.samplesPerPixel
+                        XCTAssertEqual(pixels.count, expectedSize, "Pixel count should match dimensions")
+                    }
+                } else if decoder.bitDepth == 24 {
+                    let pixels = decoder.getPixels24()
+                    XCTAssertNotNil(pixels, "Should extract 24-bit pixels")
+                    if let pixels = pixels {
+                        let expectedSize = decoder.width * decoder.height
+                        XCTAssertEqual(pixels.count, expectedSize, "Pixel count should match dimensions")
+                    }
+                }
+            }
+
+            // Complete workflow succeeded without manual success checks
+            XCTAssertTrue(true, "Complete workflow succeeded using new throwing API")
+
+        } catch {
+            XCTFail("New throwing API should succeed with valid file: \(error)")
+        }
+    }
+
+    func testCompleteWorkflowWithStaticFactoryMethod() throws {
+        let file = try getAnyDICOMFile()
+
+        // Complete workflow using static factory method
+        do {
+            let decoder = try DCMDecoder.load(from: file)
+
+            // Verify decoder is valid
+            XCTAssertTrue(decoder.isValid(), "Decoder from static factory should be valid")
+            XCTAssertGreaterThan(decoder.width, 0, "Should have valid width")
+            XCTAssertGreaterThan(decoder.height, 0, "Should have valid height")
+
+            // Extract and verify metadata
+            let allTags = decoder.getAllTags()
+            XCTAssertFalse(allTags.isEmpty, "Should have metadata tags")
+
+            // Static factory method workflow succeeded
+            XCTAssertTrue(true, "Static factory method workflow succeeded")
+
+        } catch {
+            XCTFail("Static factory method should succeed with valid file: \(error)")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testCompleteWorkflowWithAsyncThrowingAPI() async throws {
+        let file = try getAnyDICOMFile()
+
+        // Complete async workflow
+        do {
+            // Load file asynchronously using new throwing initializer
+            let decoder = try await DCMDecoder(contentsOf: file)
+
+            // Verify decoder is valid
+            XCTAssertTrue(decoder.isValid(), "Async decoder should be valid")
+            XCTAssertGreaterThan(decoder.width, 0, "Should have valid width")
+            XCTAssertGreaterThan(decoder.height, 0, "Should have valid height")
+
+            // Extract metadata
+            let modality = decoder.info(for: 0x00080060)
+            XCTAssertFalse(modality.isEmpty, "Should extract modality")
+
+            // Async workflow succeeded
+            XCTAssertTrue(true, "Async throwing API workflow succeeded")
+
+        } catch {
+            XCTFail("Async throwing API should succeed with valid file: \(error)")
+        }
+    }
+
+    func testErrorRecoveryPatternsWithNewAPI() throws {
+        let fixturesPath = getFixturesPath()
+
+        // Test error recovery with non-existent file
+        var caughtFileNotFound = false
+        do {
+            let nonExistentPath = fixturesPath.appendingPathComponent("nonexistent.dcm")
+            _ = try DCMDecoder(contentsOf: nonExistentPath)
+            XCTFail("Should throw error for non-existent file")
+        } catch let error as DICOMError {
+            // Proper error recovery - can handle specific error type
+            switch error {
+            case .fileNotFound:
+                caughtFileNotFound = true
+            default:
+                XCTFail("Should throw fileNotFound error, got: \(error)")
+            }
+        } catch {
+            XCTFail("Should throw DICOMError type, got: \(error)")
+        }
+        XCTAssertTrue(caughtFileNotFound, "Should have caught fileNotFound error")
+
+        // Test error recovery with invalid file
+        var caughtInvalidFormat = false
+        do {
+            // Create temporary invalid file
+            let tempDir = FileManager.default.temporaryDirectory
+            let invalidFile = tempDir.appendingPathComponent("invalid-\(UUID().uuidString).dcm")
+            try "Not a DICOM file".write(to: invalidFile, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: invalidFile) }
+
+            _ = try DCMDecoder(contentsOf: invalidFile)
+            XCTFail("Should throw error for invalid DICOM file")
+        } catch let error as DICOMError {
+            // Proper error recovery - can handle specific error type
+            switch error {
+            case .invalidDICOMFormat:
+                caughtInvalidFormat = true
+            default:
+                XCTFail("Should throw invalidDICOMFormat error, got: \(error)")
+            }
+        } catch {
+            XCTFail("Should throw DICOMError type, got: \(error)")
+        }
+        XCTAssertTrue(caughtInvalidFormat, "Should have caught invalidDICOMFormat error")
+
+        // Error recovery patterns work correctly
+        XCTAssertTrue(true, "Error recovery patterns work with new API")
+    }
+
+    func testMigrationFromOldAPIToNewAPI() throws {
+        let file = try getAnyDICOMFile()
+
+        // OLD API pattern (imperative)
+        let oldDecoder = DCMDecoder()
+        oldDecoder.setDicomFilename(file.path)
+        guard oldDecoder.dicomFileReadSuccess else {
+            XCTFail("Old API should succeed")
+            return
+        }
+
+        // NEW API pattern (declarative)
+        let newDecoder: DCMDecoder
+        do {
+            newDecoder = try DCMDecoder(contentsOf: file)
+        } catch {
+            XCTFail("New API should succeed: \(error)")
+            return
+        }
+
+        // Both should produce identical results
+        XCTAssertEqual(oldDecoder.width, newDecoder.width, "Width should match between old and new API")
+        XCTAssertEqual(oldDecoder.height, newDecoder.height, "Height should match between old and new API")
+        XCTAssertEqual(oldDecoder.bitDepth, newDecoder.bitDepth, "Bit depth should match")
+        XCTAssertEqual(oldDecoder.samplesPerPixel, newDecoder.samplesPerPixel, "Samples per pixel should match")
+
+        // Compare metadata extraction
+        let oldModality = oldDecoder.info(for: 0x00080060)
+        let newModality = newDecoder.info(for: 0x00080060)
+        XCTAssertEqual(oldModality, newModality, "Modality should match between APIs")
+
+        let oldPatientName = oldDecoder.info(for: 0x00100010)
+        let newPatientName = newDecoder.info(for: 0x00100010)
+        XCTAssertEqual(oldPatientName, newPatientName, "Patient name should match between APIs")
+
+        // Both APIs produce equivalent results
+        XCTAssertTrue(true, "Migration from old API to new API produces equivalent results")
+    }
+
+    func testNewAPIWithPathStringVariant() throws {
+        let file = try getAnyDICOMFile()
+
+        // Test String path variant
+        do {
+            let decoder = try DCMDecoder(contentsOfFile: file.path)
+
+            XCTAssertTrue(decoder.isValid(), "String path variant should work")
+            XCTAssertGreaterThan(decoder.width, 0, "Should have valid width")
+            XCTAssertGreaterThan(decoder.height, 0, "Should have valid height")
+
+        } catch {
+            XCTFail("String path variant should succeed: \(error)")
+        }
+
+        // Test static factory with String path
+        do {
+            let decoder = try DCMDecoder.load(fromFile: file.path)
+
+            XCTAssertTrue(decoder.isValid(), "Static factory with String path should work")
+            XCTAssertGreaterThan(decoder.width, 0, "Should have valid width")
+
+        } catch {
+            XCTFail("Static factory with String path should succeed: \(error)")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testNewAPIWithMultipleFilesAsync() async throws {
+        // Test loading multiple files concurrently with new async API
+        let file = try getAnyDICOMFile()
+
+        // Load multiple decoders concurrently using new async API
+        async let decoder1 = try DCMDecoder(contentsOf: file)
+        async let decoder2 = try DCMDecoder(contentsOfFile: file.path)
+        async let decoder3 = try DCMDecoder.load(from: file)
+        async let decoder4 = try DCMDecoder.load(fromFile: file.path)
+
+        let decoders = try await [decoder1, decoder2, decoder3, decoder4]
+
+        // All should be valid
+        for decoder in decoders {
+            XCTAssertTrue(decoder.isValid(), "All async decoders should be valid")
+            XCTAssertGreaterThan(decoder.width, 0, "All should have valid width")
+            XCTAssertGreaterThan(decoder.height, 0, "All should have valid height")
+        }
+
+        // All should have identical dimensions (same file)
+        let widths = decoders.map { $0.width }
+        let heights = decoders.map { $0.height }
+        XCTAssertTrue(widths.allSatisfy { $0 == widths[0] }, "All widths should match")
+        XCTAssertTrue(heights.allSatisfy { $0 == heights[0] }, "All heights should match")
+    }
+
+    func testNewAPIWithDecoderFactory() throws {
+        let file = try getAnyDICOMFile()
+
+        // Test using decoder factory pattern (common in services)
+        let decoderFactory: () throws -> DCMDecoder = {
+            try DCMDecoder(contentsOf: file)
+        }
+
+        // Create multiple decoders from factory
+        do {
+            let decoder1 = try decoderFactory()
+            let decoder2 = try decoderFactory()
+
+            XCTAssertTrue(decoder1.isValid(), "First decoder from factory should be valid")
+            XCTAssertTrue(decoder2.isValid(), "Second decoder from factory should be valid")
+
+            // Each decoder should be independent
+            XCTAssertEqual(decoder1.width, decoder2.width, "Both should read same file")
+
+        } catch {
+            XCTFail("Decoder factory should succeed: \(error)")
+        }
+    }
+
+    func testNewAPIProtocolConformance() throws {
+        let file = try getAnyDICOMFile()
+
+        // Test that new API works through protocol abstraction
+        func loadDicomFile(from url: URL, using factory: () -> DicomDecoderProtocol) throws -> DicomDecoderProtocol {
+            let decoder = factory()
+            // Use new throwing API through protocol
+            return try type(of: decoder).init(contentsOf: url)
+        }
+
+        do {
+            let decoder = try loadDicomFile(from: file) { DCMDecoder() }
+
+            XCTAssertTrue(decoder.isValid(), "Protocol-based initialization should work")
+            XCTAssertGreaterThan(decoder.width, 0, "Should have valid width")
+
+        } catch {
+            XCTFail("Protocol-based new API should succeed: \(error)")
+        }
+    }
 }

@@ -83,10 +83,13 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 
 ### Modern APIs
 
-- Async/await (iOS 13+, macOS 10.15+)
-- Validation before loading
-- Convenience metadata helpers (patient, study, series)
-- Tag caching for frequent lookups
+- **Swift-idiomatic throwing initializers** for type-safe error handling
+- **Type-safe DicomTag enum** for metadata access (preferred over raw hex values)
+- **Async/await** support (iOS 13+, macOS 10.15+) with async throwing initializers
+- **Static factory methods** for alternative initialization patterns
+- **Validation** before loading
+- **Convenience metadata helpers** (patient, study, series)
+- **Tag caching** for frequent lookups
 
 ### Developer Experience
 
@@ -120,9 +123,38 @@ For applications requiring higher throughput, **Metal GPU acceleration** deliver
 - **vDSP baseline is optimal** - Uses ARM NEON assembly; further CPU SIMD optimizations yield negligible gains
 - **Metal GPU shines on larger images** - 3.94× speedup on 1024×1024 images (typical CT/MRI size)
 - **Small images favor CPU** - 512×512 images show 1.84× speedup due to GPU setup overhead
-- **Production recommendation** - Use vDSP for small images (<800×800), Metal for large medical datasets
+- **Production recommendation** - Use `.auto` mode for automatic backend selection, or choose `.metal`/`.vdsp` explicitly
 
-> **Note:** Metal GPU acceleration is currently available in the standalone [`MetalBenchmark`](./MetalBenchmark/) validation tool. Integration into the main library is planned for a future release.
+**Usage:**
+
+Metal GPU acceleration is integrated into `DCMWindowingProcessor.applyWindowLevel()` via the `processingMode` parameter:
+
+```swift
+// Default behavior (backward compatible) - uses vDSP
+let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
+    pixels16: pixels16,
+    center: 50.0,
+    width: 400.0
+)
+
+// Explicit Metal GPU acceleration
+let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
+    pixels16: pixels16,
+    center: 50.0,
+    width: 400.0,
+    processingMode: .metal  // Force GPU (falls back to vDSP if unavailable)
+)
+
+// Automatic selection (recommended)
+let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
+    pixels16: pixels16,
+    center: 50.0,
+    width: 400.0,
+    processingMode: .auto  // Auto-selects Metal for ≥800×800 images
+)
+```
+
+See [CLAUDE.md](CLAUDE.md#gpu-acceleration) for detailed usage examples and performance characteristics.
 
 ---
 
@@ -138,29 +170,75 @@ dependencies: [
 ]
 ```
 
-### First Example
+### First Example (Modern API)
 
 ```swift
 import DicomCore
 
-let decoder = DCMDecoder()
-decoder.setDicomFilename("/path/to/image.dcm")
+do {
+    // Load DICOM file with throwing initializer (recommended)
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
 
-guard decoder.dicomFileReadSuccess else {
-    print("Failed to load file")
-    return
-}
+    print("Dimensions: \(decoder.width) x \(decoder.height)")
 
-print("Dimensions: \(decoder.width) x \(decoder.height)")
-print("Modality: \(decoder.info(for: 0x00080060))")
-print("Patient: \(decoder.info(for: 0x00100010))")
+    // ✅ Recommended: Use type-safe DicomTag enum
+    print("Modality: \(decoder.info(for: .modality))")
+    print("Patient: \(decoder.info(for: .patientName))")
 
-if let pixels = decoder.getPixels16() {
-    print("\(pixels.count) pixels loaded")
+    // ⚠️ Legacy: Raw hex values (still supported for custom/private tags)
+    // print("Modality: \(decoder.info(for: 0x00080060))")
+
+    if let pixels = decoder.getPixels16() {
+        print("\(pixels.count) pixels loaded")
+    }
+} catch DICOMError.fileNotFound(let path) {
+    print("File not found: \(path)")
+} catch DICOMError.invalidDICOMFormat(let path, let reason) {
+    print("Invalid DICOM file: \(reason)")
+} catch {
+    print("Error: \(error)")
 }
 ```
 
-For a detailed walkthrough, see [GETTING_STARTED.md](GETTING_STARTED.md).
+**Alternative patterns:**
+
+```swift
+// Static factory method
+let decoder = try DCMDecoder.load(fromFile: "/path/to/image.dcm")
+
+// Async for non-blocking load
+let decoder = try await DCMDecoder(contentsOfFile: "/path/to/image.dcm")
+
+// URL-based initialization
+let url = URL(fileURLWithPath: "/path/to/image.dcm")
+let decoder = try DCMDecoder(contentsOf: url)
+```
+
+For a detailed walkthrough, see [GETTING_STARTED.md](GETTING_STARTED.md) and [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md).
+
+### Type-Safe Metadata Access
+
+The library provides a **type-safe `DicomTag` enum** for accessing DICOM metadata, eliminating the need for raw hex values:
+
+```swift
+// ✅ Recommended: Type-safe and discoverable via autocomplete
+let patientName = decoder.info(for: .patientName)
+let modality = decoder.info(for: .modality)
+let studyUID = decoder.info(for: .studyInstanceUID)
+let rows = decoder.intValue(for: .rows) ?? 0
+let windowCenter = decoder.doubleValue(for: .windowCenter)
+
+// ⚠️ Legacy: Raw hex values (still supported for custom/private tags)
+let customTag = decoder.info(for: 0x00091001)  // Private tag
+```
+
+**Benefits:**
+- **Type safety** - Compiler-checked tag names
+- **Discoverability** - Autocomplete shows all available tags
+- **Readability** - Semantic names instead of hex codes
+- **Backward compatible** - Raw hex values still work for custom/private tags
+
+See [Common DICOM Tags](#common-dicom-tags) for a full list of supported tags.
 
 ---
 
@@ -205,20 +283,20 @@ targets: [
 ```swift
 import DicomCore
 
-let decoder = DCMDecoder()
-decoder.setDicomFilename("/path/to/ct_scan.dcm")
+do {
+    // ✅ Recommended: Use throwing initializer
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
 
-guard decoder.dicomFileReadSuccess else {
-    print("Load error")
-    return
-}
+    // ✅ Use type-safe DicomTag enum for metadata access
+    print("Patient: \(decoder.info(for: .patientName))")
+    print("Modality: \(decoder.info(for: .modality))")
+    print("Dimensions: \(decoder.width) x \(decoder.height)")
 
-print("Patient: \(decoder.info(for: 0x00100010))")
-print("Modality: \(decoder.info(for: 0x00080060))")
-print("Dimensions: \(decoder.width) x \(decoder.height)")
-
-if let pixels = decoder.getPixels16() {
-    // Process image...
+    if let pixels = decoder.getPixels16() {
+        // Process image...
+    }
+} catch {
+    print("Load error: \(error)")
 }
 ```
 
@@ -242,7 +320,8 @@ func loadDICOM() async {
 ```swift
 guard let pixels = decoder.getPixels16() else { return }
 
-let modality = decoder.info(for: 0x00080060)
+// ✅ Use type-safe DicomTag enum
+let modality = decoder.info(for: .modality)
 let suggestions = DCMWindowingProcessor.suggestPresets(for: modality)
 
 let lungPreset = DCMWindowingProcessor.getPresetValues(preset: .lung)
@@ -378,6 +457,58 @@ DICOM-Decoder/
 `-- ViewerReference/
 ```
 
+### Common DICOM Tags
+
+Use the type-safe `DicomTag` enum for accessing standard DICOM tags:
+
+**Patient Information:**
+```swift
+.patientName                 // (0010,0010) - Patient Name
+.patientID                   // (0010,0020) - Patient ID
+.patientBirthDate            // (0010,0030) - Patient Birth Date
+.patientSex                  // (0010,0040) - Patient Sex
+.patientAge                  // (0010,1010) - Patient Age
+```
+
+**Study/Series Information:**
+```swift
+.studyInstanceUID            // (0020,000D) - Study Instance UID
+.seriesInstanceUID           // (0020,000E) - Series Instance UID
+.modality                    // (0008,0060) - Modality (CT, MR, XR, etc.)
+.studyDescription            // (0008,1030) - Study Description
+.seriesDescription           // (0008,103E) - Series Description
+```
+
+**Image Properties:**
+```swift
+.rows                        // (0028,0010) - Rows (height)
+.columns                     // (0028,0011) - Columns (width)
+.bitsAllocated               // (0028,0100) - Bits Allocated
+.bitsStored                  // (0028,0101) - Bits Stored
+.pixelRepresentation         // (0028,0103) - Pixel Representation
+```
+
+**Spatial Information:**
+```swift
+.imagePositionPatient        // (0020,0032) - Image Position (Patient)
+.imageOrientationPatient     // (0020,0037) - Image Orientation (Patient)
+.pixelSpacing                // (0028,0030) - Pixel Spacing
+.sliceThickness              // (0018,0050) - Slice Thickness
+```
+
+**Window/Level:**
+```swift
+.windowCenter                // (0028,1050) - Window Center
+.windowWidth                 // (0028,1051) - Window Width
+.rescaleSlope                // (0028,1053) - Rescale Slope
+.rescaleIntercept            // (0028,1052) - Rescale Intercept
+```
+
+For custom or private tags not in the enum, use raw hex values:
+```swift
+let privateTag = decoder.info(for: 0x00091001)  // Private manufacturer tag
+```
+
 ---
 
 ## Documentation
@@ -413,12 +544,20 @@ Controls brightness and contrast of DICOM images:
 
 #### DICOM Tags
 
-Numeric identifiers for metadata:
+The library provides a type-safe `DicomTag` enum for accessing metadata:
 
 ```swift
-0x00100010  // Patient Name
-0x00080060  // Modality (CT, MR, etc.)
-0x00280010  // Image height
+// ✅ Recommended: Type-safe DicomTag enum
+decoder.info(for: .patientName)       // Patient Name
+decoder.info(for: .modality)          // Modality (CT, MR, etc.)
+decoder.info(for: .rows)              // Image height
+decoder.intValue(for: .columns)       // Image width (as Int)
+decoder.doubleValue(for: .windowCenter)  // Window center (as Double)
+
+// ⚠️ Legacy: Raw hex values (still supported for custom/private tags)
+decoder.info(for: 0x00100010)  // Patient Name
+decoder.info(for: 0x00080060)  // Modality
+decoder.info(for: 0x00280010)  // Rows
 ```
 
 #### Hounsfield Units (CT)

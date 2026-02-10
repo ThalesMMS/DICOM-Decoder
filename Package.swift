@@ -17,6 +17,9 @@ let package = Package(
             path: "Sources/DicomCore",
             resources: [
                 .process("Resources")
+            ],
+            linkerSettings: [
+                .linkedFramework("Metal", .when(platforms: [.iOS, .macOS]))
             ]
         ),
         .testTarget(

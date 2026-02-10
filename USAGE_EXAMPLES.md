@@ -4,6 +4,9 @@ This document provides detailed examples of using the Swift DICOM Decoder in var
 
 ## Table of Contents
 
+- [Recommended API (Throwing Initializers)](#recommended-api-throwing-initializers)
+- [Migration from Legacy API](#migration-from-legacy-api)
+- [Type-Safe DicomTag Enum](#type-safe-dicomtag-enum)
 - [Basic Usage](#basic-usage)
 - [Async/Await Usage](#asyncawait-usage)
 - [Validation and Error Handling](#validation-and-error-handling)
@@ -15,20 +18,401 @@ This document provides detailed examples of using the Swift DICOM Decoder in var
 - [Protocol-Based Dependency Injection](#protocol-based-dependency-injection)
 - [Advanced Features](#advanced-features)
 
-## Basic Usage
+## Recommended API (Throwing Initializers)
 
-### Loading a DICOM File (Synchronous)
+The library provides Swift-idiomatic throwing initializers for error handling. This is the **recommended approach** for new code.
+
+### Loading with Throwing Initializer (Recommended)
 
 ```swift
 import DicomCore
 
-// Create decoder instance
-let decoder = DCMDecoder()
+do {
+    // Load DICOM file with throwing initializer (URL variant)
+    let url = URL(fileURLWithPath: "/path/to/image.dcm")
+    let decoder = try DCMDecoder(contentsOf: url)
 
-// Load DICOM file
+    // Access image properties immediately - no need to check success boolean
+    print("Image dimensions: \(decoder.width) x \(decoder.height)")
+    print("Bit depth: \(decoder.bitDepth)")
+
+    // ✅ Recommended: Use type-safe DicomTag enum
+    print("Modality: \(decoder.info(for: .modality))")
+    print("Patient: \(decoder.info(for: .patientName))")
+
+    // ⚠️ Legacy: Raw hex values (still supported for custom/private tags)
+    // print("Modality: \(decoder.info(for: 0x00080060))")
+
+    // Get pixels
+    if let pixels16 = decoder.getPixels16() {
+        print("Loaded \(pixels16.count) 16-bit pixels")
+    }
+} catch DICOMError.fileNotFound(let path) {
+    print("File not found: \(path)")
+} catch DICOMError.invalidDICOMFormat(let path, let reason) {
+    print("Invalid DICOM file at \(path): \(reason)")
+} catch {
+    print("Unexpected error: \(error)")
+}
+```
+
+### Loading with String Path
+
+```swift
+do {
+    // Load DICOM file from String path
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
+
+    print("Image dimensions: \(decoder.width) x \(decoder.height)")
+} catch DICOMError.fileNotFound(let path) {
+    print("File not found: \(path)")
+} catch DICOMError.invalidDICOMFormat(let path, let reason) {
+    print("Invalid DICOM file: \(reason)")
+} catch {
+    print("Unexpected error: \(error)")
+}
+```
+
+### Static Factory Methods
+
+```swift
+do {
+    // Alternative: Use static factory method
+    let url = URL(fileURLWithPath: "/path/to/image.dcm")
+    let decoder = try DCMDecoder.load(from: url)
+
+    // Or with String path
+    let decoder2 = try DCMDecoder.load(fromFile: "/path/to/image.dcm")
+
+    print("Successfully loaded: \(decoder.width) x \(decoder.height)")
+} catch {
+    print("Failed to load: \(error)")
+}
+```
+
+### Async Throwing Initializers (Non-Blocking)
+
+```swift
+import DicomCore
+
+func loadDICOMAsync() async {
+    do {
+        // Load asynchronously without blocking the main thread
+        let url = URL(fileURLWithPath: "/path/to/image.dcm")
+        let decoder = try await DCMDecoder(contentsOf: url)
+
+        print("Loaded asynchronously: \(decoder.width) x \(decoder.height)")
+
+        // Get pixels
+        if let pixels = decoder.getPixels16() {
+            print("Pixel count: \(pixels.count)")
+        }
+    } catch DICOMError.fileNotFound(let path) {
+        print("File not found: \(path)")
+    } catch DICOMError.invalidDICOMFormat(let path, let reason) {
+        print("Invalid DICOM: \(reason)")
+    } catch {
+        print("Error: \(error)")
+    }
+}
+
+// Usage in SwiftUI or async context
+Task {
+    await loadDICOMAsync()
+}
+```
+
+### Async Static Factory Methods
+
+```swift
+do {
+    // Async factory methods for non-blocking load
+    let url = URL(fileURLWithPath: "/path/to/image.dcm")
+    let decoder = try await DCMDecoder.load(from: url)
+
+    // Or with String path
+    let decoder2 = try await DCMDecoder.load(fromFile: "/path/to/image.dcm")
+
+    print("Loaded in background: \(decoder.width) x \(decoder.height)")
+} catch {
+    print("Failed: \(error)")
+}
+```
+
+## Migration from Legacy API
+
+The legacy `setDicomFilename()` + `dicomFileReadSuccess` pattern is deprecated. Here's how to migrate:
+
+### Old Pattern (Deprecated)
+
+```swift
+// ❌ Old pattern - deprecated
+let decoder = DCMDecoder()
 decoder.setDicomFilename("/path/to/image.dcm")
 
-// Check if loading was successful
+guard decoder.dicomFileReadSuccess else {
+    print("Failed to load DICOM file")
+    return
+}
+
+print("Dimensions: \(decoder.width) x \(decoder.height)")
+```
+
+### New Pattern (Recommended)
+
+```swift
+// ✅ New pattern - recommended
+do {
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
+    print("Dimensions: \(decoder.width) x \(decoder.height)")
+} catch DICOMError.fileNotFound(let path) {
+    print("File not found: \(path)")
+} catch DICOMError.invalidDICOMFormat(let path, let reason) {
+    print("Invalid DICOM: \(reason)")
+} catch {
+    print("Unexpected error: \(error)")
+}
+```
+
+### Migration Benefits
+
+1. **Type-safe error handling**: Catch specific `DICOMError` cases instead of checking boolean flags
+2. **Compiler-enforced error handling**: Swift requires `try` or `try?` - no forgotten error checks
+3. **Immediate validity**: If initialization succeeds, the decoder is guaranteed to be valid
+4. **Clearer intent**: Throwing initializers signal fallible operations at the API level
+5. **Better async support**: Async throwing initializers integrate seamlessly with Swift Concurrency
+
+## Type-Safe DicomTag Enum
+
+The library provides a **type-safe `DicomTag` enum** for accessing DICOM metadata, replacing error-prone raw hex values with semantic, discoverable tag names.
+
+### Why Use DicomTag Enum?
+
+**Benefits:**
+- **Type safety** - Compiler-checked tag names prevent typos
+- **Discoverability** - Autocomplete shows all available standard tags
+- **Readability** - Semantic names like `.patientName` instead of `0x00100010`
+- **No magic numbers** - Self-documenting code
+- **Backward compatible** - Raw hex values still work for custom/private tags
+
+### Basic Tag Access
+
+```swift
+import DicomCore
+
+do {
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
+
+    // ✅ Recommended: Type-safe DicomTag enum
+    let patientName = decoder.info(for: .patientName)
+    let modality = decoder.info(for: .modality)
+    let studyUID = decoder.info(for: .studyInstanceUID)
+    let seriesDesc = decoder.info(for: .seriesDescription)
+
+    print("Patient: \(patientName)")
+    print("Modality: \(modality)")
+    print("Study: \(studyUID)")
+    print("Series: \(seriesDesc)")
+
+} catch {
+    print("Error: \(error)")
+}
+```
+
+### Typed Value Access
+
+The DicomTag enum works with all metadata access methods:
+
+```swift
+// String values (default)
+let patientName = decoder.info(for: .patientName)
+let modality = decoder.info(for: .modality)
+
+// Integer values
+if let rows = decoder.intValue(for: .rows) {
+    print("Height: \(rows) pixels")
+}
+
+if let columns = decoder.intValue(for: .columns) {
+    print("Width: \(columns) pixels")
+}
+
+if let bitsAllocated = decoder.intValue(for: .bitsAllocated) {
+    print("Bits per pixel: \(bitsAllocated)")
+}
+
+// Double values
+if let windowCenter = decoder.doubleValue(for: .windowCenter) {
+    print("Window center: \(windowCenter)")
+}
+
+if let windowWidth = decoder.doubleValue(for: .windowWidth) {
+    print("Window width: \(windowWidth)")
+}
+
+if let sliceThickness = decoder.doubleValue(for: .sliceThickness) {
+    print("Slice thickness: \(sliceThickness) mm")
+}
+```
+
+### Common Tags by Category
+
+**Patient Information:**
+```swift
+decoder.info(for: .patientName)          // (0010,0010) Patient Name
+decoder.info(for: .patientID)            // (0010,0020) Patient ID
+decoder.info(for: .patientBirthDate)     // (0010,0030) Birth Date
+decoder.info(for: .patientSex)           // (0010,0040) Sex
+decoder.info(for: .patientAge)           // (0010,1010) Age
+```
+
+**Study/Series:**
+```swift
+decoder.info(for: .studyInstanceUID)     // (0020,000D) Study UID
+decoder.info(for: .seriesInstanceUID)    // (0020,000E) Series UID
+decoder.info(for: .modality)             // (0008,0060) Modality
+decoder.info(for: .studyDescription)     // (0008,1030) Study Description
+decoder.info(for: .seriesDescription)    // (0008,103E) Series Description
+decoder.info(for: .studyDate)            // (0008,0020) Study Date
+decoder.info(for: .studyTime)            // (0008,0030) Study Time
+```
+
+**Image Geometry:**
+```swift
+decoder.intValue(for: .rows)             // (0028,0010) Height
+decoder.intValue(for: .columns)          // (0028,0011) Width
+decoder.info(for: .pixelSpacing)         // (0028,0030) Pixel Spacing
+decoder.doubleValue(for: .sliceThickness)  // (0018,0050) Slice Thickness
+decoder.info(for: .imagePositionPatient)   // (0020,0032) Position
+decoder.info(for: .imageOrientationPatient) // (0020,0037) Orientation
+```
+
+**Window/Level:**
+```swift
+decoder.doubleValue(for: .windowCenter)    // (0028,1050) Window Center
+decoder.doubleValue(for: .windowWidth)     // (0028,1051) Window Width
+decoder.doubleValue(for: .rescaleSlope)    // (0028,1053) Rescale Slope
+decoder.doubleValue(for: .rescaleIntercept) // (0028,1052) Rescale Intercept
+```
+
+**Pixel Data:**
+```swift
+decoder.intValue(for: .bitsAllocated)      // (0028,0100) Bits Allocated
+decoder.intValue(for: .bitsStored)         // (0028,0101) Bits Stored
+decoder.intValue(for: .highBit)            // (0028,0102) High Bit
+decoder.intValue(for: .pixelRepresentation) // (0028,0103) Signed/Unsigned
+decoder.intValue(for: .samplesPerPixel)    // (0028,0002) Samples Per Pixel
+```
+
+### Custom and Private Tags
+
+For custom or private tags not in the standard enum, use raw hex values:
+
+```swift
+// ⚠️ Use raw hex for custom/private tags
+let manufacturerTag = decoder.info(for: 0x00091001)  // Private tag
+let customData = decoder.info(for: 0x00111234)       // Custom tag
+
+// Standard tags should use the enum
+let patientName = decoder.info(for: .patientName)  // ✅ Preferred
+// Not: decoder.info(for: 0x00100010)               // ❌ Discouraged for standard tags
+```
+
+### Migration from Hex Values
+
+Replace hex values with semantic enum cases:
+
+```swift
+// ❌ Old: Magic hex numbers
+let patient = decoder.info(for: 0x00100010)
+let modality = decoder.info(for: 0x00080060)
+let rows = decoder.intValue(for: 0x00280010)
+let columns = decoder.intValue(for: 0x00280011)
+
+// ✅ New: Semantic, discoverable tag names
+let patient = decoder.info(for: .patientName)
+let modality = decoder.info(for: .modality)
+let rows = decoder.intValue(for: .rows)
+let columns = decoder.intValue(for: .columns)
+```
+
+### Autocomplete Support
+
+The DicomTag enum provides full IDE autocomplete:
+
+```swift
+// Start typing "decoder.info(for: ." and get autocomplete suggestions:
+decoder.info(for: .pa...)  // Shows: .patientName, .patientID, .patientAge, etc.
+decoder.info(for: .study...)  // Shows: .studyInstanceUID, .studyDescription, etc.
+decoder.info(for: .window...)  // Shows: .windowCenter, .windowWidth
+```
+
+### Complete Example
+
+```swift
+import DicomCore
+
+do {
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
+
+    // Patient demographics using type-safe tags
+    print("=== Patient Information ===")
+    print("Name: \(decoder.info(for: .patientName))")
+    print("ID: \(decoder.info(for: .patientID))")
+    print("Sex: \(decoder.info(for: .patientSex))")
+    print("Age: \(decoder.info(for: .patientAge))")
+
+    // Study information
+    print("\n=== Study Information ===")
+    print("Date: \(decoder.info(for: .studyDate))")
+    print("Description: \(decoder.info(for: .studyDescription))")
+    print("Modality: \(decoder.info(for: .modality))")
+
+    // Image geometry with typed access
+    print("\n=== Image Properties ===")
+    if let rows = decoder.intValue(for: .rows),
+       let cols = decoder.intValue(for: .columns) {
+        print("Dimensions: \(cols) x \(rows)")
+    }
+
+    if let bits = decoder.intValue(for: .bitsAllocated) {
+        print("Bit depth: \(bits)")
+    }
+
+    // Window/level settings
+    print("\n=== Display Settings ===")
+    if let center = decoder.doubleValue(for: .windowCenter),
+       let width = decoder.doubleValue(for: .windowWidth) {
+        print("Window: C=\(center) W=\(width)")
+    }
+
+    // Spatial information
+    print("\n=== Spatial Information ===")
+    print("Position: \(decoder.info(for: .imagePositionPatient))")
+    print("Spacing: \(decoder.info(for: .pixelSpacing))")
+
+    if let thickness = decoder.doubleValue(for: .sliceThickness) {
+        print("Slice thickness: \(thickness) mm")
+    }
+
+} catch {
+    print("Error loading DICOM: \(error)")
+}
+```
+
+## Basic Usage
+
+### Loading a DICOM File (Legacy Pattern)
+
+> **Note:** This pattern is deprecated. Use the [throwing initializers](#recommended-api-throwing-initializers) for new code.
+
+```swift
+import DicomCore
+
+// ⚠️ Legacy pattern - still works but deprecated
+let decoder = DCMDecoder()
+decoder.setDicomFilename("/path/to/image.dcm")
+
 guard decoder.dicomFileReadSuccess else {
     print("Failed to load DICOM file")
     return
@@ -37,7 +421,10 @@ guard decoder.dicomFileReadSuccess else {
 // Access image properties
 print("Image dimensions: \(decoder.width) x \(decoder.height)")
 print("Bit depth: \(decoder.bitDepth)")
-print("Modality: \(decoder.info(for: 0x00080060))")
+
+// ✅ Use type-safe DicomTag enum (recommended)
+print("Modality: \(decoder.info(for: .modality))")
+// Or legacy hex values: decoder.info(for: 0x00080060)
 ```
 
 ### Reading Pixel Data
@@ -68,15 +455,48 @@ if let pixels24 = decoder.getPixels24() {
 
 ## Async/Await Usage
 
-### Loading Files Asynchronously (iOS 13+, macOS 10.15+)
+### Loading Files Asynchronously with Throwing Initializers (Recommended)
 
 ```swift
 import DicomCore
 
 func loadDICOMAsync(path: String) async {
+    do {
+        // ✅ Recommended: Use async throwing initializer
+        let decoder = try await DCMDecoder(contentsOfFile: path)
+
+        print("Loaded \(decoder.width) x \(decoder.height)")
+
+        // Get pixels asynchronously (if needed)
+        if let pixels = await decoder.getPixels16Async() {
+            print("Loaded \(pixels.count) pixels")
+        }
+    } catch DICOMError.fileNotFound(let filePath) {
+        print("File not found: \(filePath)")
+    } catch DICOMError.invalidDICOMFormat(let filePath, let reason) {
+        print("Invalid DICOM at \(filePath): \(reason)")
+    } catch {
+        print("Error: \(error)")
+    }
+}
+
+// Usage
+Task {
+    await loadDICOMAsync(path: "/path/to/image.dcm")
+}
+```
+
+### Loading Files Asynchronously (Legacy Pattern)
+
+> **Note:** This pattern is deprecated. Use the [async throwing initializers](#recommended-api-throwing-initializers) for new code.
+
+```swift
+import DicomCore
+
+func loadDICOMAsyncLegacy(path: String) async {
     let decoder = DCMDecoder()
 
-    // Load file asynchronously
+    // ⚠️ Legacy pattern - deprecated
     let success = await decoder.loadDICOMFileAsync(path)
 
     guard success else {
@@ -94,7 +514,7 @@ func loadDICOMAsync(path: String) async {
 
 // Usage
 Task {
-    await loadDICOMAsync(path: "/path/to/image.dcm")
+    await loadDICOMAsyncLegacy(path: "/path/to/image.dcm")
 }
 ```
 
@@ -232,9 +652,9 @@ let brainWindowed = DCMWindowingProcessor.applyWindowLevel(
 ### Auto-Suggesting Presets
 
 ```swift
-// Get suggested presets based on modality and body part
-let modality = decoder.info(for: 0x00080060)  // Modality tag
-let bodyPart = decoder.info(for: 0x00180015)  // Body Part Examined
+// ✅ Use type-safe DicomTag enum for metadata access
+let modality = decoder.info(for: .modality)
+let bodyPart = decoder.info(for: .bodyPartExamined)
 
 let suggestions = DCMWindowingProcessor.suggestPresets(
     for: modality,
@@ -296,18 +716,32 @@ print("Description: \(seriesInfo["SeriesDescription"] ?? "")")
 ### Accessing Individual Tags
 
 ```swift
+// ✅ Recommended: Use type-safe DicomTag enum
+
 // String values
-let patientName = decoder.info(for: 0x00100010)
+let patientName = decoder.info(for: .patientName)
+let modality = decoder.info(for: .modality)
 
 // Integer values
-if let rows = decoder.intValue(for: 0x00280010) {
+if let rows = decoder.intValue(for: .rows) {
     print("Rows: \(rows)")
 }
 
+if let columns = decoder.intValue(for: .columns) {
+    print("Columns: \(columns)")
+}
+
 // Double values
-if let sliceThickness = decoder.doubleValue(for: 0x00180050) {
+if let sliceThickness = decoder.doubleValue(for: .sliceThickness) {
     print("Slice thickness: \(sliceThickness) mm")
 }
+
+if let windowCenter = decoder.doubleValue(for: .windowCenter) {
+    print("Window center: \(windowCenter)")
+}
+
+// ⚠️ Legacy: Raw hex values (use only for custom/private tags)
+let privateTag = decoder.info(for: 0x00091001)  // Private manufacturer tag
 
 // Get all tags
 let allTags = decoder.getAllTags()
@@ -478,11 +912,12 @@ class MyDicomTests: XCTestCase {
         mock.bitDepth = 16
         mock.dicomFileReadSuccess = true
 
-        // Configure metadata tags
-        mock.setTag(0x00100010, value: "Test^Patient")
-        mock.setTag(0x0020000D, value: "1.2.3.4.5.6.7.8.9")  // Study UID
-        mock.setTag(0x0020000E, value: "1.2.3.4.5.6.7.8.10") // Series UID
-        mock.setTag(0x00080060, value: "CT")                 // Modality
+        // Configure metadata tags (using raw values for mocking)
+        // Note: Use DicomTag enum values in production code
+        mock.setTag(0x00100010, value: "Test^Patient")       // .patientName
+        mock.setTag(0x0020000D, value: "1.2.3.4.5.6.7.8.9")  // .studyInstanceUID
+        mock.setTag(0x0020000E, value: "1.2.3.4.5.6.7.8.10") // .seriesInstanceUID
+        mock.setTag(0x00080060, value: "CT")                 // .modality
 
         // Configure pixel data
         let testPixels = [UInt16](repeating: 1000, count: 512 * 512)
@@ -577,7 +1012,7 @@ let mockLoader = DicomSeriesLoader(
         mock.width = 512
         mock.height = 512
         mock.setPixels16([/* test data */])
-        mock.setTag(0x00200032, value: "0\\0\\0")  // Image Position
+        mock.setTag(0x00200032, value: "0\\0\\0")  // .imagePositionPatient
         return mock
     }
 )
@@ -600,7 +1035,7 @@ func testZipExtraction() {
     // Create mock decoder
     let mock = MockDicomDecoder()
     mock.dicomFileReadSuccess = true
-    mock.setTag(0x0020000D, value: "1.2.3.4.5")
+    mock.setTag(0x0020000D, value: "1.2.3.4.5")  // .studyInstanceUID
 
     // Inject into FileImportService
     let importService = FileImportService(
@@ -625,7 +1060,7 @@ func testIntegration() {
 
     // Use mock decoder for file I/O
     let mockDecoder = MockDicomDecoder()
-    mockDecoder.setTag(0x00100010, value: "Test^Patient")
+    mockDecoder.setTag(0x00100010, value: "Test^Patient")  // .patientName
 
     // Combine in service
     let service = StudyDataService(
@@ -692,14 +1127,15 @@ class CompleteDIExample: XCTestCase {
         mock.windowCenter = 40.0
         mock.windowWidth = 80.0
 
-        // Configure metadata
-        mock.setTag(0x00100010, value: "Doe^John")
-        mock.setTag(0x00100020, value: "12345")
-        mock.setTag(0x0020000D, value: "1.2.840.113619.2.1.1")
-        mock.setTag(0x0020000E, value: "1.2.840.113619.2.1.2")
-        mock.setTag(0x00080060, value: "CT")
-        mock.setTag(0x00200032, value: "0\\0\\0")  // Position
-        mock.setTag(0x00200037, value: "1\\0\\0\\0\\1\\0")  // Orientation
+        // Configure metadata (using raw hex for mocking)
+        // In production code, access these with DicomTag enum (e.g., .patientName)
+        mock.setTag(0x00100010, value: "Doe^John")            // .patientName
+        mock.setTag(0x00100020, value: "12345")               // .patientID
+        mock.setTag(0x0020000D, value: "1.2.840.113619.2.1.1") // .studyInstanceUID
+        mock.setTag(0x0020000E, value: "1.2.840.113619.2.1.2") // .seriesInstanceUID
+        mock.setTag(0x00080060, value: "CT")                  // .modality
+        mock.setTag(0x00200032, value: "0\\0\\0")             // .imagePositionPatient
+        mock.setTag(0x00200037, value: "1\\0\\0\\0\\1\\0")    // .imageOrientationPatient
 
         // Configure pixel data
         let pixels = [UInt16](repeating: 1000, count: 512 * 512)
@@ -854,11 +1290,11 @@ func loadDICOM(path: String) throws {
         )
     }
 
-    // Verify required metadata
-    let studyUID = decoder.info(for: 0x0020000D)
+    // Verify required metadata using type-safe DicomTag enum
+    let studyUID = decoder.info(for: .studyInstanceUID)
     if studyUID.isEmpty {
         throw DICOMError.missingRequiredTag(
-            tag: "0020000D",
+            tag: "StudyInstanceUID",
             description: "Study Instance UID"
         )
     }
@@ -911,9 +1347,9 @@ class DICOMImageProcessor {
         let studyInfo = decoder.getStudyInfo()
         let seriesInfo = decoder.getSeriesInfo()
 
-        // Get suggested presets
-        let modality = seriesInfo["Modality"] ?? "CT"
-        let bodyPart = decoder.info(for: 0x00180015)
+        // Get suggested presets using type-safe DicomTag enum
+        let modality = decoder.info(for: .modality)
+        let bodyPart = decoder.info(for: .bodyPartExamined)
         let suggestedPresets = DCMWindowingProcessor.suggestPresets(
             for: modality,
             bodyPart: bodyPart

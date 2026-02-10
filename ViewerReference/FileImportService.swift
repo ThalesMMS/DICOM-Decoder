@@ -500,19 +500,30 @@ public final class FileImportService: FileImportServiceProtocol {
             return nil
         }
         
-        print("🔍 [UID] Creating DCMDecoder...")
-        let decoder = DCMDecoder()
-        
-        print("🔍 [UID] Setting DICOM filename...")
-        decoder.setDicomFilename(filePath)
-        
-        print("🔍 [UID] Checking if DICOM read was successful...")
-        guard decoder.dicomFileReadSuccess else {
-            print("❌ [UID] DICOM file read failed")
-            print("❌ [UID] Not a valid DICOM file: \(URL(fileURLWithPath: filePath).lastPathComponent)")
+        // Old API (deprecated):
+        // let decoder = DCMDecoder()
+        // decoder.setDicomFilename(filePath)
+        // guard decoder.dicomFileReadSuccess else { return nil }
+
+        print("🔍 [UID] Creating DCMDecoder with throwing initializer...")
+        let decoder: DCMDecoder
+        do {
+            decoder = try DCMDecoder(contentsOfFile: filePath)
+            print("✅ [UID] DICOM file read successful")
+        } catch let error as DICOMError {
+            switch error {
+            case .fileNotFound:
+                print("❌ [UID] File not found: \(URL(fileURLWithPath: filePath).lastPathComponent)")
+            case .invalidDICOMFormat(let reason):
+                print("❌ [UID] Invalid DICOM format: \(reason)")
+            default:
+                print("❌ [UID] DICOM error: \(error)")
+            }
+            return nil
+        } catch {
+            print("❌ [UID] Unexpected error loading DICOM file: \(error)")
             return nil
         }
-        print("✅ [UID] DICOM file read successful")
         
         // Use DICOM tag constants
         let studyUID = decoder.info(for: DicomTag.studyInstanceUID.rawValue)
@@ -803,10 +814,26 @@ public final class FileImportService: FileImportServiceProtocol {
     }
     
     private func extractMinimalSeriesMetadata(from filePath: String) -> (seriesNumber: String?, seriesDescription: String?, modality: String)? {
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath)
-        
-        guard decoder.dicomFileReadSuccess else {
+        // Old API (deprecated):
+        // let decoder = DCMDecoder()
+        // decoder.setDicomFilename(filePath)
+        // guard decoder.dicomFileReadSuccess else { return nil }
+
+        let decoder: DCMDecoder
+        do {
+            decoder = try DCMDecoder(contentsOfFile: filePath)
+        } catch let error as DICOMError {
+            switch error {
+            case .fileNotFound:
+                print("❌ [Metadata] File not found: \(URL(fileURLWithPath: filePath).lastPathComponent)")
+            case .invalidDICOMFormat(let reason):
+                print("❌ [Metadata] Invalid DICOM format: \(reason)")
+            default:
+                print("❌ [Metadata] DICOM error: \(error)")
+            }
+            return nil
+        } catch {
+            print("❌ [Metadata] Unexpected error loading DICOM file: \(error)")
             return nil
         }
         

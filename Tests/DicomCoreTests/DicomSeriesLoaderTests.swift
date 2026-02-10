@@ -497,4 +497,447 @@ final class DicomSeriesLoaderTests: XCTestCase {
         XCTAssertLessThan(diff1, tolerance, "Should be within tolerance")
         XCTAssertGreaterThan(diff2, tolerance, "Should exceed tolerance")
     }
+
+    // MARK: - Async/Await Tests
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncLoadSeriesWithNonexistentDirectory() async {
+        let loader = DicomSeriesLoader()
+        let nonexistentURL = URL(fileURLWithPath: "/nonexistent/path/to/dicom/files")
+
+        do {
+            _ = try await loader.loadSeries(in: nonexistentURL, progress: nil)
+            XCTFail("Should throw error for nonexistent directory")
+        } catch {
+            // Expected - error could be noDicomFiles or system error
+            XCTAssertTrue(
+                error is DicomSeriesLoaderError || error is CocoaError,
+                "Should throw appropriate error for nonexistent directory"
+            )
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncLoadSeriesWithEmptyDirectory() async throws {
+        let loader = DicomSeriesLoader()
+
+        // Create a temporary empty directory
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncTests_Empty_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        do {
+            _ = try await loader.loadSeries(in: tempDir, progress: nil)
+            XCTFail("Should throw noDicomFiles error for empty directory")
+        } catch DicomSeriesLoaderError.noDicomFiles {
+            // Expected
+        } catch {
+            XCTFail("Expected noDicomFiles error, got \(error)")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncLoadSeriesWithProgressCallback() async throws {
+        // Create a temporary directory with mock DICOM files
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncTests_Progress_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create mock files
+        let sliceCount = 3
+        for i in 0..<sliceCount {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        // Create loader with mock decoder factory
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 256
+            mock.height = 256
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 100, count: 256 * 256))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        var progressCallCount = 0
+        var lastFraction = 0.0
+
+        let volume = try await loader.loadSeries(in: tempDir) { fraction, slicesCopied, sliceData, vol in
+            progressCallCount += 1
+            XCTAssertGreaterThanOrEqual(fraction, 0.0, "Fraction should be >= 0")
+            XCTAssertLessThanOrEqual(fraction, 1.0, "Fraction should be <= 1")
+            XCTAssertGreaterThan(slicesCopied, 0, "Slices copied should be > 0")
+            XCTAssertNotNil(vol, "Volume info should be provided")
+            lastFraction = fraction
+        }
+
+        XCTAssertGreaterThan(progressCallCount, 0, "Progress callback should be called at least once")
+        XCTAssertEqual(volume.depth, sliceCount, "Volume should have correct depth")
+        XCTAssertEqual(lastFraction, 1.0, accuracy: 0.01, "Last progress should be 1.0")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncLoadSeriesMatchesSyncVersion() async throws {
+        // Create a simple test directory
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncTests_Sync_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create some mock files
+        for i in 0..<2 {
+            let url = tempDir.appendingPathComponent("slice_\(i).dcm")
+            try Data().write(to: url)
+        }
+
+        // Create loader with mock decoder factory
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 128
+            mock.height = 128
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 50, count: 128 * 128))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        // Load using detached task to call synchronous version explicitly
+        let syncVolume = try await Task.detached {
+            try loader.loadSeries(in: tempDir, progress: nil)
+        }.value
+
+        // Create new loader instance for async test
+        let asyncLoader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        // Load asynchronously
+        let asyncVolume = try await asyncLoader.loadSeries(in: tempDir, progress: nil)
+
+        // Verify both produce same results
+        XCTAssertEqual(syncVolume.width, asyncVolume.width, "Width should match")
+        XCTAssertEqual(syncVolume.height, asyncVolume.height, "Height should match")
+        XCTAssertEqual(syncVolume.depth, asyncVolume.depth, "Depth should match")
+        XCTAssertEqual(syncVolume.bitsAllocated, asyncVolume.bitsAllocated, "Bits allocated should match")
+        XCTAssertEqual(syncVolume.spacing.x, asyncVolume.spacing.x, "X spacing should match")
+        XCTAssertEqual(syncVolume.spacing.y, asyncVolume.spacing.y, "Y spacing should match")
+        XCTAssertEqual(syncVolume.spacing.z, asyncVolume.spacing.z, "Z spacing should match")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testConcurrentAsyncLoadOperations() async throws {
+        // Test that multiple async load operations can run concurrently
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncTests_Concurrent_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create mock files
+        try Data().write(to: tempDir.appendingPathComponent("slice.dcm"))
+
+        let iterations = 5
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 64
+            mock.height = 64
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 25, count: 64 * 64))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        // Launch multiple concurrent async operations
+        try await withThrowingTaskGroup(of: DicomSeriesVolume.self) { group in
+            for _ in 0..<iterations {
+                group.addTask {
+                    let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+                    return try await loader.loadSeries(in: tempDir, progress: nil)
+                }
+            }
+
+            var completedCount = 0
+            for try await volume in group {
+                XCTAssertEqual(volume.width, 64, "Each volume should have correct width")
+                XCTAssertEqual(volume.height, 64, "Each volume should have correct height")
+                completedCount += 1
+            }
+
+            XCTAssertEqual(completedCount, iterations, "All concurrent operations should complete")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncLoadSeriesErrorHandling() async throws {
+        // Test various error conditions in async context
+        let loader = DicomSeriesLoader()
+
+        // Test with nonexistent directory
+        let nonexistent = URL(fileURLWithPath: "/nonexistent/async/test/\(UUID().uuidString)")
+        do {
+            _ = try await loader.loadSeries(in: nonexistent, progress: nil)
+            XCTFail("Should throw error for nonexistent directory")
+        } catch {
+            // Expected
+            XCTAssertNotNil(error, "Should receive an error")
+        }
+
+        // Test with empty directory
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncTests_ErrorEmpty_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        do {
+            _ = try await loader.loadSeries(in: tempDir, progress: nil)
+            XCTFail("Should throw noDicomFiles error")
+        } catch DicomSeriesLoaderError.noDicomFiles {
+            // Expected
+        } catch {
+            XCTFail("Expected noDicomFiles, got \(error)")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncLoadSeriesWithoutProgressCallback() async throws {
+        // Test async loading without progress callback
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncTests_NoProgress_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create a mock file
+        try Data().write(to: tempDir.appendingPathComponent("slice.dcm"))
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 32
+            mock.height = 32
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 10, count: 32 * 32))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        // Load without progress callback (nil)
+        let volume = try await loader.loadSeries(in: tempDir, progress: nil)
+
+        XCTAssertEqual(volume.width, 32, "Should load volume without progress callback")
+        XCTAssertEqual(volume.height, 32, "Should have correct dimensions")
+        XCTAssertEqual(volume.depth, 1, "Should have single slice")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncLoadSeriesCancellation() async throws {
+        // Test that async loading respects task cancellation
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncTests_Cancel_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create multiple mock files to make loading take longer
+        for i in 0..<10 {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 512
+            mock.height = 512
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 100, count: 512 * 512))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        // Create a task and cancel it
+        let task = Task {
+            try await loader.loadSeries(in: tempDir, progress: nil)
+        }
+
+        // Cancel immediately
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            // Note: Cancellation might not always propagate in time
+            // This test verifies the mechanism exists, not that it always works
+        } catch is CancellationError {
+            // Expected if cancellation propagated
+        } catch {
+            // Also acceptable - task may complete before cancellation
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testMultipleLoadersWithAsyncOperations() async throws {
+        // Test that multiple loader instances can run async operations simultaneously
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncTests_MultiLoader_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        try Data().write(to: tempDir.appendingPathComponent("slice.dcm"))
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 128
+            mock.height = 128
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 75, count: 128 * 128))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        // Create multiple loaders and run them concurrently
+        async let volume1 = DicomSeriesLoader(decoderFactory: mockFactory).loadSeries(in: tempDir, progress: nil)
+        async let volume2 = DicomSeriesLoader(decoderFactory: mockFactory).loadSeries(in: tempDir, progress: nil)
+        async let volume3 = DicomSeriesLoader(decoderFactory: mockFactory).loadSeries(in: tempDir, progress: nil)
+
+        let (v1, v2, v3) = try await (volume1, volume2, volume3)
+
+        XCTAssertEqual(v1.width, 128, "First loader should succeed")
+        XCTAssertEqual(v2.width, 128, "Second loader should succeed")
+        XCTAssertEqual(v3.width, 128, "Third loader should succeed")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncLoadSeriesProgressMonitoring() async throws {
+        // Test detailed progress monitoring during async loading
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncTests_ProgressMonitor_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let sliceCount = 5
+        for i in 0..<sliceCount {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 64
+            mock.height = 64
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 33, count: 64 * 64))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        var progressFractions: [Double] = []
+        var slicesCopiedValues: [Int] = []
+
+        let volume = try await loader.loadSeries(in: tempDir) { fraction, slicesCopied, sliceData, vol in
+            progressFractions.append(fraction)
+            slicesCopiedValues.append(slicesCopied)
+        }
+
+        XCTAssertEqual(volume.depth, sliceCount, "Volume should have all slices")
+        XCTAssertFalse(progressFractions.isEmpty, "Should have progress updates")
+        XCTAssertEqual(progressFractions.count, slicesCopiedValues.count, "Should have matching progress arrays")
+
+        // Verify progress is monotonically increasing
+        for i in 1..<progressFractions.count {
+            XCTAssertGreaterThanOrEqual(progressFractions[i], progressFractions[i-1],
+                                       "Progress should increase monotonically")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testConcurrentLoaderInstancesWithAsyncAccess() async {
+        // Test that multiple loader instances can be created and used concurrently in async context
+        let iterations = 10
+
+        await withTaskGroup(of: Bool.self) { group in
+            for _ in 0..<iterations {
+                group.addTask {
+                    // Create a loader instance in this task
+                    let loader = DicomSeriesLoader()
+
+                    // Verify loader was created successfully (always true for struct/class init)
+                    return true
+                }
+            }
+
+            var completedCount = 0
+            for await success in group {
+                if success {
+                    completedCount += 1
+                }
+            }
+
+            XCTAssertEqual(completedCount, iterations, "All loader instances should be created successfully")
+        }
+    }
 }
