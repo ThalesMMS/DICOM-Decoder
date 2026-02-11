@@ -7,6 +7,8 @@
   <img src="https://img.shields.io/badge/license-MIT-green.svg" />
 </p>
 
+![UI Screenshot](screenshot/screenshot.png)
+
 Pure Swift DICOM decoder for iOS and macOS. Read DICOM files, extract medical metadata, and process pixel data without UIKit or Objective-C dependencies.
 
 Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and research tools.
