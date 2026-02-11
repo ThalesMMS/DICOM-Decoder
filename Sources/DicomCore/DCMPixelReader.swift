@@ -238,7 +238,7 @@ internal final class DCMPixelReader {
         height: Int,
         bytesPerPixel: Int64,
         context: String,
-        logger: AnyLogger?
+        logger: LoggerProtocol?
     ) -> (numPixels: Int, numBytes: Int)? {
         guard width > 0, height > 0 else {
             logger?.warning("Invalid image dimensions: width=\(width), height=\(height)")
@@ -320,7 +320,7 @@ internal final class DCMPixelReader {
         pixelRepresentation: Int,
         littleEndian: Bool,
         photometricInterpretation: String,
-        logger: AnyLogger? = nil
+        logger: LoggerProtocol? = nil
     ) -> DCMPixelReadResult {
         let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -536,7 +536,7 @@ internal final class DCMPixelReader {
         pixelRepresentation: Int,
         littleEndian: Bool,
         photometricInterpretation: String,
-        logger: AnyLogger? = nil
+        logger: LoggerProtocol? = nil
     ) -> DCMPixelReadResult? {
         let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -729,7 +729,7 @@ internal final class DCMPixelReader {
         height: Int,
         offset: Int,
         photometricInterpretation: String,
-        logger: AnyLogger? = nil
+        logger: LoggerProtocol? = nil
     ) -> DCMPixelReadResult? {
         let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -865,7 +865,7 @@ internal final class DCMPixelReader {
         width: Int,
         height: Int,
         offset: Int,
-        logger: AnyLogger? = nil
+        logger: LoggerProtocol? = nil
     ) -> DCMPixelReadResult? {
         let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -982,7 +982,7 @@ internal final class DCMPixelReader {
     internal static func decodeCompressedPixelData(
         data: Data,
         offset: Int,
-        logger: AnyLogger? = nil
+        logger: LoggerProtocol? = nil
     ) -> DCMPixelReadResult? {
         // Extract the encapsulated pixel data from the offset to
         // the end of the file.  Some DICOM files encapsulate each

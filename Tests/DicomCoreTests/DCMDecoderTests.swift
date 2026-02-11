@@ -843,6 +843,205 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertEqual(value3, -50.0, accuracy: 0.01, "Should handle negative value")
     }
 
+    // MARK: - V2 API Tests (Type-Safe Structs)
+
+    func testPixelSpacingV2Property() {
+        let decoder = DCMDecoder()
+        let spacingV2 = decoder.pixelSpacingV2
+
+        // Verify V2 API returns PixelSpacing struct with correct values
+        XCTAssertEqual(spacingV2.x, decoder.pixelWidth, "pixelSpacingV2.x should match pixelWidth")
+        XCTAssertEqual(spacingV2.y, decoder.pixelHeight, "pixelSpacingV2.y should match pixelHeight")
+        XCTAssertEqual(spacingV2.z, decoder.pixelDepth, "pixelSpacingV2.z should match pixelDepth")
+
+        // Verify default values
+        XCTAssertEqual(spacingV2.x, 1.0, "Initial spacing x should be 1.0")
+        XCTAssertEqual(spacingV2.y, 1.0, "Initial spacing y should be 1.0")
+        XCTAssertEqual(spacingV2.z, 1.0, "Initial spacing z should be 1.0")
+
+        // Verify V2 API returns equivalent values to old tuple-based API
+        let spacingOld = decoder.pixelSpacing
+        XCTAssertEqual(spacingV2.x, spacingOld.width, "V2 API should match old API width")
+        XCTAssertEqual(spacingV2.y, spacingOld.height, "V2 API should match old API height")
+        XCTAssertEqual(spacingV2.z, spacingOld.depth, "V2 API should match old API depth")
+    }
+
+    func testWindowSettingsV2Property() {
+        let decoder = DCMDecoder()
+        let settingsV2 = decoder.windowSettingsV2
+
+        // Verify V2 API returns WindowSettings struct with correct values
+        XCTAssertEqual(settingsV2.center, decoder.windowCenter, "windowSettingsV2.center should match windowCenter")
+        XCTAssertEqual(settingsV2.width, decoder.windowWidth, "windowSettingsV2.width should match windowWidth")
+
+        // Verify default values
+        XCTAssertEqual(settingsV2.center, 0.0, "Initial window center should be 0.0")
+        XCTAssertEqual(settingsV2.width, 0.0, "Initial window width should be 0.0")
+
+        // Verify V2 API returns equivalent values to old tuple-based API
+        let settingsOld = decoder.windowSettings
+        XCTAssertEqual(settingsV2.center, settingsOld.center, "V2 API should match old API center")
+        XCTAssertEqual(settingsV2.width, settingsOld.width, "V2 API should match old API width")
+    }
+
+    func testRescaleParametersV2Property() {
+        let decoder = DCMDecoder()
+        let parametersV2 = decoder.rescaleParametersV2
+
+        // Verify default values
+        XCTAssertEqual(parametersV2.intercept, 0.0, "Initial rescale intercept should be 0.0")
+        XCTAssertEqual(parametersV2.slope, 1.0, "Initial rescale slope should be 1.0")
+
+        // Verify V2 API returns equivalent values to old tuple-based API
+        let parametersOld = decoder.rescaleParameters
+        XCTAssertEqual(parametersV2.intercept, parametersOld.intercept, "V2 API should match old API intercept")
+        XCTAssertEqual(parametersV2.slope, parametersOld.slope, "V2 API should match old API slope")
+
+        // Verify isIdentity property
+        XCTAssertTrue(parametersV2.isIdentity, "Default parameters should be identity transformation")
+    }
+
+    func testPixelSpacingV2WithLoadedFile() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+        let decoder = try DCMDecoder(contentsOf: fileURL)
+
+        let spacingV2 = decoder.pixelSpacingV2
+        let spacingOld = decoder.pixelSpacing
+
+        // Verify V2 API matches old API with real file data
+        XCTAssertEqual(spacingV2.x, spacingOld.width, "V2 API should match old API with loaded file")
+        XCTAssertEqual(spacingV2.y, spacingOld.height, "V2 API should match old API with loaded file")
+        XCTAssertEqual(spacingV2.z, spacingOld.depth, "V2 API should match old API with loaded file")
+
+        // Verify spacing values match decoder properties
+        XCTAssertEqual(spacingV2.x, decoder.pixelWidth, "V2 x should match pixelWidth")
+        XCTAssertEqual(spacingV2.y, decoder.pixelHeight, "V2 y should match pixelHeight")
+        XCTAssertEqual(spacingV2.z, decoder.pixelDepth, "V2 z should match pixelDepth")
+    }
+
+    func testWindowSettingsV2WithLoadedFile() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+        let decoder = try DCMDecoder(contentsOf: fileURL)
+
+        let settingsV2 = decoder.windowSettingsV2
+        let settingsOld = decoder.windowSettings
+
+        // Verify V2 API matches old API with real file data
+        XCTAssertEqual(settingsV2.center, settingsOld.center, "V2 API should match old API with loaded file")
+        XCTAssertEqual(settingsV2.width, settingsOld.width, "V2 API should match old API with loaded file")
+
+        // Verify settings values match decoder properties
+        XCTAssertEqual(settingsV2.center, decoder.windowCenter, "V2 center should match windowCenter")
+        XCTAssertEqual(settingsV2.width, decoder.windowWidth, "V2 width should match windowWidth")
+    }
+
+    func testRescaleParametersV2WithLoadedFile() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+        let decoder = try DCMDecoder(contentsOf: fileURL)
+
+        let parametersV2 = decoder.rescaleParametersV2
+        let parametersOld = decoder.rescaleParameters
+
+        // Verify V2 API matches old API with real file data
+        XCTAssertEqual(parametersV2.intercept, parametersOld.intercept, "V2 API should match old API with loaded file")
+        XCTAssertEqual(parametersV2.slope, parametersOld.slope, "V2 API should match old API with loaded file")
+
+        // Verify apply() method produces same result as decoder's applyRescale
+        let testValue = 100.0
+        let v2Result = parametersV2.apply(to: testValue)
+        let decoderResult = decoder.applyRescale(to: testValue)
+        XCTAssertEqual(v2Result, decoderResult, accuracy: 0.01, "V2 apply() should match decoder applyRescale()")
+    }
+
+    func testCalculateOptimalWindowV2() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+        let decoder = try DCMDecoder(contentsOf: fileURL)
+
+        // Test V2 API
+        guard let settingsV2 = decoder.calculateOptimalWindowV2() else {
+            throw XCTSkip("File has no pixel data for optimal window calculation")
+        }
+
+        // Test old API
+        guard let settingsOld = decoder.calculateOptimalWindow() else {
+            XCTFail("Old API returned nil but V2 API returned non-nil")
+            return
+        }
+
+        // Verify V2 API returns equivalent values to old tuple-based API
+        XCTAssertEqual(settingsV2.center, settingsOld.center, accuracy: 0.01, "V2 API should match old API center")
+        XCTAssertEqual(settingsV2.width, settingsOld.width, accuracy: 0.01, "V2 API should match old API width")
+
+        // Verify returned settings are valid
+        XCTAssertTrue(settingsV2.isValid, "Calculated settings should be valid")
+        XCTAssertGreaterThan(settingsV2.width, 0, "Calculated window width should be positive")
+    }
+
+    func testCalculateOptimalWindowV2WithNoPixelData() {
+        // Create empty decoder with no pixel data
+        let decoder = DCMDecoder()
+
+        // Both V2 and old API should return nil for empty decoder
+        let settingsV2 = decoder.calculateOptimalWindowV2()
+        let settingsOld = decoder.calculateOptimalWindow()
+
+        XCTAssertNil(settingsV2, "V2 API should return nil when no pixel data")
+        XCTAssertNil(settingsOld, "Old API should return nil when no pixel data")
+    }
+
+    func testV2APIStructTypeSafety() {
+        let decoder = DCMDecoder()
+
+        // Verify V2 APIs return the correct struct types
+        let spacing: PixelSpacing = decoder.pixelSpacingV2
+        let settings: WindowSettings = decoder.windowSettingsV2
+        let parameters: RescaleParameters = decoder.rescaleParametersV2
+
+        // Verify struct conformances through usage
+        _ = spacing.isValid
+        _ = settings.isValid
+        _ = parameters.isIdentity
+
+        // This test primarily verifies compile-time type safety
+        XCTAssertNotNil(spacing, "Should compile with PixelSpacing type")
+        XCTAssertNotNil(settings, "Should compile with WindowSettings type")
+        XCTAssertNotNil(parameters, "Should compile with RescaleParameters type")
+    }
+
+    func testV2APIStructCodableConformance() throws {
+        // Get a valid DICOM file from fixtures
+        let fileURL = try getAnyDICOMFile()
+        let decoder = try DCMDecoder(contentsOf: fileURL)
+
+        // Get V2 structs
+        let spacing = decoder.pixelSpacingV2
+        let settings = decoder.windowSettingsV2
+        let parameters = decoder.rescaleParametersV2
+
+        // Verify all structs can be encoded/decoded via JSON
+        let encoder = JSONEncoder()
+        let jsonDecoder = JSONDecoder()
+
+        // Test PixelSpacing Codable
+        let spacingData = try encoder.encode(spacing)
+        let spacingDecoded = try jsonDecoder.decode(PixelSpacing.self, from: spacingData)
+        XCTAssertEqual(spacing, spacingDecoded, "PixelSpacing should encode/decode correctly")
+
+        // Test WindowSettings Codable
+        let settingsData = try encoder.encode(settings)
+        let settingsDecoded = try jsonDecoder.decode(WindowSettings.self, from: settingsData)
+        XCTAssertEqual(settings, settingsDecoded, "WindowSettings should encode/decode correctly")
+
+        // Test RescaleParameters Codable
+        let parametersData = try encoder.encode(parameters)
+        let parametersDecoded = try jsonDecoder.decode(RescaleParameters.self, from: parametersData)
+        XCTAssertEqual(parameters, parametersDecoded, "RescaleParameters should encode/decode correctly")
+    }
+
     // MARK: - Image Type Detection Tests
 
     func testIsGrayscaleProperty() {

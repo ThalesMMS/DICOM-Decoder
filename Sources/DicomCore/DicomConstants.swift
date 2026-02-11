@@ -17,8 +17,85 @@ import Foundation
 // MARK: - DICOM Tag Constants
 
 /// DICOM tag identifiers following the DICOM standard format.
-/// Each tag is a 32-bit value combining group and element numbers
-/// (0xGGGGEEEE). Tags are organized by category for clarity.
+///
+/// ## Overview
+///
+/// ``DicomTag`` provides type-safe access to DICOM tag identifiers defined in the DICOM standard.
+/// Each tag is a 32-bit value combining group and element numbers in the format `0xGGGGEEEE`,
+/// where `GGGG` is the group number and `EEEE` is the element number. Tags are organized into
+/// logical categories for improved discoverability and maintainability.
+///
+/// Using this enum eliminates magic numbers throughout the codebase and provides compile-time
+/// safety when working with DICOM metadata. All standard DICOM tags used by the library are
+/// represented here, from basic image dimensions to complex spatial geometry attributes.
+///
+/// ## Usage
+///
+/// Use ``DicomTag`` cases directly with ``DCMDecoder`` metadata accessors:
+///
+/// ```swift
+/// let decoder = try DCMDecoder(contentsOf: url)
+/// let patientName = decoder.info(for: .patientName)
+/// let modality = decoder.info(for: .modality)
+/// let rows = decoder.intValue(for: .rows) ?? 0
+/// ```
+///
+/// For raw tag access (e.g., private tags not in this enum), use the `rawValue`:
+///
+/// ```swift
+/// let customTag = decoder.info(for: 0x00091001)  // Private tag
+/// ```
+///
+/// ## Topics
+///
+/// ### Image Pixel Description
+///
+/// - ``samplesPerPixel``
+/// - ``photometricInterpretation``
+/// - ``planarConfiguration``
+/// - ``numberOfFrames``
+/// - ``rows``
+/// - ``columns``
+/// - ``pixelSpacing``
+/// - ``bitsAllocated``
+/// - ``bitsStored``
+/// - ``highBit``
+/// - ``pixelRepresentation``
+///
+/// ### Display Parameters
+///
+/// - ``windowCenter``
+/// - ``windowWidth``
+/// - ``rescaleIntercept``
+/// - ``rescaleSlope``
+///
+/// ### Patient Information
+///
+/// - ``patientName``
+/// - ``patientID``
+/// - ``patientSex``
+/// - ``patientAge``
+///
+/// ### Study and Series Information
+///
+/// - ``studyInstanceUID``
+/// - ``studyID``
+/// - ``studyDate``
+/// - ``seriesInstanceUID``
+/// - ``seriesNumber``
+/// - ``modality``
+///
+/// ### Spatial Geometry
+///
+/// - ``imagePositionPatient``
+/// - ``imageOrientationPatient``
+/// - ``sliceThickness``
+/// - ``sliceSpacing``
+///
+/// ### Pixel Data
+///
+/// - ``pixelData``
+/// - ``iconImageSequence``
 public enum DicomTag: Int {
 
     // MARK: - Image Pixel Description
@@ -215,12 +292,80 @@ public enum DicomTag: Int {
 
 // MARK: - DICOM Value Representation (VR)
 
-/// Value Representation codes expressed as their 16-bit ASCII
-/// representation. These values correspond to the two-character
-/// VR codes defined in the DICOM standard (e.g., AE, AS, AT).
-/// Implicit VR is represented by `implicitRaw` which is the
-/// value of two hyphens (0x2D2D). Unknown VR is represented
-/// by `unknown`.
+/// Value Representation codes expressed as their 16-bit ASCII representation.
+///
+/// ## Overview
+///
+/// ``DicomVR`` defines type-safe identifiers for DICOM Value Representations (VRs), which specify
+/// the data type and encoding of DICOM data elements. Each VR is represented by a two-character
+/// ASCII code (e.g., "AE", "AS", "AT") stored as a 16-bit integer. The VR determines how to
+/// interpret the value field of a data element, including string encoding, numeric representation,
+/// or binary format.
+///
+/// The enum includes all standard DICOM VRs plus special cases for implicit VR encoding and
+/// unknown VRs. Each VR case includes its maximum length constraints and encoding rules as
+/// defined in DICOM Part 5.
+///
+/// ## Usage
+///
+/// VRs are primarily used internally by the parser to interpret data element values:
+///
+/// ```swift
+/// // VR determines how to parse the value field
+/// if vr == .US {
+///     // Parse as unsigned 16-bit integer
+/// } else if vr == .DS {
+///     // Parse as decimal string
+/// }
+/// ```
+///
+/// Check if a VR requires a 32-bit length field:
+///
+/// ```swift
+/// if vr.uses32BitLength {
+///     // Read 32-bit length for OB, OW, SQ, UN, UT
+/// }
+/// ```
+///
+/// ## Topics
+///
+/// ### String Types
+///
+/// - ``AE``
+/// - ``AS``
+/// - ``CS``
+/// - ``DA``
+/// - ``DS``
+/// - ``DT``
+/// - ``LO``
+/// - ``LT``
+/// - ``PN``
+/// - ``SH``
+/// - ``ST``
+/// - ``TM``
+/// - ``UI``
+/// - ``UT``
+///
+/// ### Numeric Types
+///
+/// - ``FD``
+/// - ``FL``
+/// - ``IS``
+/// - ``SL``
+/// - ``SS``
+/// - ``UL``
+/// - ``US``
+///
+/// ### Binary Types
+///
+/// - ``OB``
+/// - ``OW``
+/// - ``SQ``
+/// - ``UN``
+///
+/// ### Helper Methods
+///
+/// - ``uses32BitLength``
 public enum DicomVR: Int {
 
     // MARK: - String Types
@@ -339,10 +484,83 @@ public enum DicomVR: Int {
 
 // MARK: - DICOM Transfer Syntax UIDs
 
-/// DICOM transfer syntax unique identifiers (UIDs) as defined in
-/// the DICOM standard Part 5. Transfer syntaxes specify the encoding
-/// rules used for the DICOM file, including byte ordering (endianness),
-/// VR encoding (explicit vs implicit), and pixel data compression.
+/// DICOM transfer syntax unique identifiers (UIDs) as defined in DICOM Part 5.
+///
+/// ## Overview
+///
+/// ``DicomTransferSyntax`` defines type-safe identifiers for DICOM transfer syntaxes, which specify
+/// the encoding rules used for a DICOM file. Transfer syntaxes control three key aspects:
+///
+/// 1. **Byte Ordering**: Little-endian (most common) or big-endian (retired)
+/// 2. **VR Encoding**: Explicit VR (includes VR code) or Implicit VR (requires dictionary lookup)
+/// 3. **Compression**: Uncompressed or compressed (JPEG, JPEG 2000, JPEG-LS, RLE)
+///
+/// The library fully supports uncompressed transfer syntaxes and provides limited support for
+/// compressed syntaxes through native JPEG Lossless decoding and ImageIO fallback for
+/// single-frame JPEG/JPEG 2000 images.
+///
+/// ## Usage
+///
+/// Transfer syntaxes are typically read from the DICOM file header and used to configure parsing:
+///
+/// ```swift
+/// // Check transfer syntax from DICOM metadata
+/// if let tsUID = decoder.info(for: .transferSyntaxUID),
+///    let ts = DicomTransferSyntax(uid: tsUID) {
+///     if ts.isCompressed {
+///         print("Compressed: \(ts.rawValue)")
+///     }
+///     if ts.isBigEndian {
+///         print("Big-endian encoding")
+///     }
+/// }
+/// ```
+///
+/// Check compression status:
+///
+/// ```swift
+/// let syntax = DicomTransferSyntax.jpegLossless
+/// if syntax.isCompressed {
+///     // Requires decompression
+/// }
+/// ```
+///
+/// ## Topics
+///
+/// ### Uncompressed Transfer Syntaxes
+///
+/// - ``implicitVRLittleEndian``
+/// - ``explicitVRLittleEndian``
+/// - ``explicitVRBigEndian``
+///
+/// ### JPEG Compressed Transfer Syntaxes
+///
+/// - ``jpegBaseline``
+/// - ``jpegExtended``
+/// - ``jpegLossless``
+/// - ``jpegLosslessFirstOrder``
+///
+/// ### JPEG-LS Compressed Transfer Syntaxes
+///
+/// - ``jpegLSLossless``
+/// - ``jpegLSNearLossless``
+///
+/// ### JPEG 2000 Compressed Transfer Syntaxes
+///
+/// - ``jpeg2000Lossless``
+/// - ``jpeg2000``
+///
+/// ### RLE Compressed Transfer Syntax
+///
+/// - ``rleLossless``
+///
+/// ### Helper Methods
+///
+/// - ``isCompressed``
+/// - ``isBigEndian``
+/// - ``isExplicitVR``
+/// - ``init(uid:)``
+/// - ``matches(_:)``
 public enum DicomTransferSyntax: String {
 
     // MARK: - Uncompressed Transfer Syntaxes

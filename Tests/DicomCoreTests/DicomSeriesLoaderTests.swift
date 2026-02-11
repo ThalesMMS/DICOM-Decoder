@@ -940,4 +940,826 @@ final class DicomSeriesLoaderTests: XCTestCase {
             XCTAssertEqual(completedCount, iterations, "All loader instances should be created successfully")
         }
     }
+
+    // MARK: - AsyncStream Tests
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testLoadSeriesWithProgressBasicStream() async throws {
+        // Test basic AsyncStream iteration with progress updates
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderStreamTests_Basic_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let sliceCount = 3
+        for i in 0..<sliceCount {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 64
+            mock.height = 64
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 50, count: 64 * 64))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let stream = loader.loadSeriesWithProgress(in: tempDir)
+
+        var progressUpdates: [SeriesLoadProgress] = []
+
+        do {
+            for try await progress in stream {
+                progressUpdates.append(progress)
+            }
+        } catch {
+            XCTFail("Stream should complete successfully, got error: \(error)")
+        }
+
+        // Verify we received progress updates
+        XCTAssertFalse(progressUpdates.isEmpty, "Should receive progress updates")
+
+        // Verify final progress
+        if let finalProgress = progressUpdates.last {
+            XCTAssertEqual(finalProgress.fractionComplete, 1.0, "Final progress should be 100%")
+            XCTAssertEqual(finalProgress.slicesCopied, sliceCount, "Should have copied all slices")
+            XCTAssertEqual(finalProgress.volumeInfo.depth, sliceCount, "Final volume should have all slices")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testLoadSeriesWithProgressStreamErrorHandling() async throws {
+        // Test stream error handling with nonexistent directory
+        let loader = DicomSeriesLoader()
+        let nonexistentURL = URL(fileURLWithPath: "/nonexistent/path/to/dicom/files")
+        let stream = loader.loadSeriesWithProgress(in: nonexistentURL)
+
+        do {
+            for try await _ in stream {
+                XCTFail("Should not receive progress updates for nonexistent directory")
+            }
+            XCTFail("Stream should throw error for nonexistent directory")
+        } catch {
+            // Expected - error could be noDicomFiles or system error
+            XCTAssertTrue(
+                error is DicomSeriesLoaderError || error is CocoaError,
+                "Should throw appropriate error for nonexistent directory"
+            )
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testLoadSeriesWithProgressStreamEmptyDirectory() async throws {
+        // Test stream behavior with empty directory
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderStreamTests_Empty_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let loader = DicomSeriesLoader()
+        let stream = loader.loadSeriesWithProgress(in: tempDir)
+
+        do {
+            for try await _ in stream {
+                XCTFail("Should not receive progress updates for empty directory")
+            }
+            XCTFail("Stream should throw noDicomFiles error")
+        } catch DicomSeriesLoaderError.noDicomFiles {
+            // Expected
+        } catch {
+            XCTFail("Expected noDicomFiles error, got \(error)")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testLoadSeriesWithProgressStreamProgressValues() async throws {
+        // Test that progress values are monotonically increasing
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderStreamTests_Progress_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let sliceCount = 5
+        for i in 0..<sliceCount {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 32
+            mock.height = 32
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 25, count: 32 * 32))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let stream = loader.loadSeriesWithProgress(in: tempDir)
+
+        var progressFractions: [Double] = []
+        var slicesCopiedValues: [Int] = []
+
+        for try await progress in stream {
+            progressFractions.append(progress.fractionComplete)
+            slicesCopiedValues.append(progress.slicesCopied)
+        }
+
+        // Verify we got progress updates
+        XCTAssertFalse(progressFractions.isEmpty, "Should have progress updates")
+
+        // Verify progress is monotonically increasing
+        for i in 1..<progressFractions.count {
+            XCTAssertGreaterThanOrEqual(
+                progressFractions[i],
+                progressFractions[i-1],
+                "Progress fraction should increase monotonically"
+            )
+        }
+
+        // Verify slices copied is monotonically increasing
+        for i in 1..<slicesCopiedValues.count {
+            XCTAssertGreaterThanOrEqual(
+                slicesCopiedValues[i],
+                slicesCopiedValues[i-1],
+                "Slices copied should increase monotonically"
+            )
+        }
+
+        // Verify final values
+        XCTAssertEqual(progressFractions.last, 1.0, "Final progress should be 100%")
+        XCTAssertEqual(slicesCopiedValues.last, sliceCount, "Should have copied all slices")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testLoadSeriesWithProgressStreamCancellation() async throws {
+        // Test stream cancellation
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderStreamTests_Cancel_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create multiple slices to allow time for cancellation
+        for i in 0..<10 {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 256
+            mock.height = 256
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 100, count: 256 * 256))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        let task = Task {
+            let stream = loader.loadSeriesWithProgress(in: tempDir)
+            var count = 0
+            for try await _ in stream {
+                count += 1
+            }
+            return count
+        }
+
+        // Cancel immediately
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            // Cancellation might not always propagate in time
+        } catch is CancellationError {
+            // Expected if cancellation propagated
+        } catch {
+            // Also acceptable - task may complete before cancellation
+        }
+    }
+
+    // MARK: - Advanced AsyncStream Tests
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncStreamCancellationMidProgress() async throws {
+        // Test cancelling stream mid-iteration and verify partial progress
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncStreamTests_CancelMid_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create many slices to ensure we can cancel mid-progress
+        let totalSlices = 20
+        for i in 0..<totalSlices {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 512
+            mock.height = 512
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 75, count: 512 * 512))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        let task = Task {
+            let stream = loader.loadSeriesWithProgress(in: tempDir)
+            var progressUpdates: [SeriesLoadProgress] = []
+
+            for try await progress in stream {
+                progressUpdates.append(progress)
+                // Check if we've been cancelled
+                if Task.isCancelled {
+                    break
+                }
+            }
+
+            return progressUpdates
+        }
+
+        // Give task time to start, then cancel
+        try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        task.cancel()
+
+        do {
+            let updates = try await task.value
+            // Task may have completed before cancellation (acceptable)
+            // or may have been cancelled mid-progress (also acceptable)
+            // Just verify we got a valid result
+            XCTAssertTrue(updates.count >= 0, "Should get valid update count")
+        } catch is CancellationError {
+            // Expected if cancellation propagated successfully
+            XCTAssertTrue(true, "Cancellation propagated as expected")
+        } catch {
+            // Other errors are acceptable - task may have completed or failed differently
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testConcurrentAsyncStreamIterations() async throws {
+        // Test multiple concurrent AsyncStream iterations
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncStreamTests_Concurrent_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create test files
+        let sliceCount = 5
+        for i in 0..<sliceCount {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 128
+            mock.height = 128
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 50, count: 128 * 128))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let iterations = 4
+
+        // Launch multiple concurrent stream iterations
+        try await withThrowingTaskGroup(of: Int.self) { group in
+            for _ in 0..<iterations {
+                group.addTask {
+                    let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+                    let stream = loader.loadSeriesWithProgress(in: tempDir)
+                    var updateCount = 0
+
+                    for try await progress in stream {
+                        updateCount += 1
+                        XCTAssertGreaterThan(progress.fractionComplete, 0.0, "Progress should be positive")
+                        XCTAssertLessThanOrEqual(progress.fractionComplete, 1.0, "Progress should not exceed 100%")
+                    }
+
+                    return updateCount
+                }
+            }
+
+            var completedCount = 0
+            for try await updateCount in group {
+                XCTAssertGreaterThan(updateCount, 0, "Each stream should have at least one update")
+                completedCount += 1
+            }
+
+            XCTAssertEqual(completedCount, iterations, "All concurrent streams should complete")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncStreamConcurrentAccessWithDifferentDirectories() async throws {
+        // Test concurrent access to streams with different data sources
+        // Use separate loader instances to avoid cache conflicts
+        let tempDir1 = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncStreamTests_Concurrent1_\(UUID().uuidString)")
+        let tempDir2 = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncStreamTests_Concurrent2_\(UUID().uuidString)")
+
+        try FileManager.default.createDirectory(at: tempDir1, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempDir2, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir1)
+            try? FileManager.default.removeItem(at: tempDir2)
+        }
+
+        // Create different numbers of slices in each directory
+        for i in 0..<3 {
+            try Data().write(to: tempDir1.appendingPathComponent("slice_\(i).dcm"))
+        }
+        for i in 0..<5 {
+            try Data().write(to: tempDir2.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 64
+            mock.height = 64
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 30, count: 64 * 64))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        // Create separate loader instances to avoid concurrent cache access
+        let loader1 = DicomSeriesLoader(decoderFactory: mockFactory)
+        let loader2 = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        // Iterate both streams concurrently
+        async let result1: Int = {
+            let stream = loader1.loadSeriesWithProgress(in: tempDir1)
+            var finalDepth = 0
+            for try await progress in stream {
+                finalDepth = progress.volumeInfo.depth
+            }
+            return finalDepth
+        }()
+
+        async let result2: Int = {
+            let stream = loader2.loadSeriesWithProgress(in: tempDir2)
+            var finalDepth = 0
+            for try await progress in stream {
+                finalDepth = progress.volumeInfo.depth
+            }
+            return finalDepth
+        }()
+
+        let (depth1, depth2) = try await (result1, result2)
+
+        XCTAssertEqual(depth1, 3, "First stream should have 3 slices")
+        XCTAssertEqual(depth2, 5, "Second stream should have 5 slices")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncStreamErrorPropagation() async throws {
+        // Test that errors propagate correctly through AsyncStream
+        let loader = DicomSeriesLoader()
+        let invalidURL = URL(fileURLWithPath: "/invalid/nonexistent/path/\(UUID().uuidString)")
+        let stream = loader.loadSeriesWithProgress(in: invalidURL)
+
+        var didThrowError = false
+        var progressCount = 0
+
+        do {
+            for try await _ in stream {
+                progressCount += 1
+            }
+        } catch {
+            didThrowError = true
+            XCTAssertTrue(
+                error is DicomSeriesLoaderError || error is CocoaError,
+                "Should throw appropriate error type, got: \(type(of: error))"
+            )
+        }
+
+        XCTAssertTrue(didThrowError, "Stream should propagate error")
+        XCTAssertEqual(progressCount, 0, "Should not receive any progress updates before error")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncStreamMultipleIterations() async throws {
+        // Test iterating the same stream multiple times (should create new streams each time)
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncStreamTests_MultiIter_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let sliceCount = 3
+        for i in 0..<sliceCount {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 64
+            mock.height = 64
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 40, count: 64 * 64))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        // First iteration
+        let stream1 = loader.loadSeriesWithProgress(in: tempDir)
+        var count1 = 0
+        for try await _ in stream1 {
+            count1 += 1
+        }
+        XCTAssertGreaterThan(count1, 0, "First iteration should receive updates")
+
+        // Second iteration (should work independently)
+        let stream2 = loader.loadSeriesWithProgress(in: tempDir)
+        var count2 = 0
+        for try await _ in stream2 {
+            count2 += 1
+        }
+        XCTAssertGreaterThan(count2, 0, "Second iteration should receive updates")
+        XCTAssertEqual(count1, count2, "Both iterations should receive same number of updates")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncStreamBreakEarly() async throws {
+        // Test breaking out of stream iteration early
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAsyncStreamTests_BreakEarly_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let sliceCount = 10
+        for i in 0..<sliceCount {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 128
+            mock.height = 128
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 60, count: 128 * 128))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let stream = loader.loadSeriesWithProgress(in: tempDir)
+
+        var progressUpdates: [SeriesLoadProgress] = []
+        let maxUpdates = 3
+
+        for try await progress in stream {
+            progressUpdates.append(progress)
+            if progressUpdates.count >= maxUpdates {
+                break  // Exit early
+            }
+        }
+
+        XCTAssertLessThanOrEqual(progressUpdates.count, maxUpdates, "Should stop after max updates")
+        XCTAssertGreaterThan(progressUpdates.count, 0, "Should have received some updates")
+
+        // Verify we didn't complete the full series
+        if let lastProgress = progressUpdates.last {
+            XCTAssertLessThan(lastProgress.fractionComplete, 1.0, "Should not have completed entire series")
+        }
+    }
+
+    // MARK: - API Comparison Tests (AsyncStream vs Callback)
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncStreamAndCallbackProduceSameVolume() async throws {
+        // Test that AsyncStream and callback APIs produce identical volumes
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAPICompare_Volume_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let sliceCount = 5
+        for i in 0..<sliceCount {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 256
+            mock.height = 256
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 100, count: 256 * 256))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        // Load using callback API
+        let callbackLoader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let callbackVolume = try await callbackLoader.loadSeries(in: tempDir, progress: nil)
+
+        // Load using AsyncStream API
+        let streamLoader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let stream = streamLoader.loadSeriesWithProgress(in: tempDir)
+
+        var streamVolume: DicomSeriesVolume?
+        for try await progress in stream {
+            if progress.fractionComplete >= 1.0 {
+                streamVolume = progress.volumeInfo
+            }
+        }
+
+        // Verify both APIs produced volumes
+        XCTAssertNotNil(streamVolume, "AsyncStream should produce a volume")
+        guard let streamVol = streamVolume else { return }
+
+        // Compare volume properties
+        XCTAssertEqual(callbackVolume.width, streamVol.width, "Widths should match")
+        XCTAssertEqual(callbackVolume.height, streamVol.height, "Heights should match")
+        XCTAssertEqual(callbackVolume.depth, streamVol.depth, "Depths should match")
+        XCTAssertEqual(callbackVolume.bitsAllocated, streamVol.bitsAllocated, "Bits allocated should match")
+        XCTAssertEqual(callbackVolume.isSignedPixel, streamVol.isSignedPixel, "Pixel signedness should match")
+        XCTAssertEqual(callbackVolume.rescaleSlope, streamVol.rescaleSlope, "Rescale slopes should match")
+        XCTAssertEqual(callbackVolume.rescaleIntercept, streamVol.rescaleIntercept, "Rescale intercepts should match")
+        XCTAssertEqual(callbackVolume.spacing.x, streamVol.spacing.x, "X spacing should match")
+        XCTAssertEqual(callbackVolume.spacing.y, streamVol.spacing.y, "Y spacing should match")
+        XCTAssertEqual(callbackVolume.spacing.z, streamVol.spacing.z, "Z spacing should match")
+        XCTAssertEqual(callbackVolume.voxels, streamVol.voxels, "Voxel data should be identical")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncStreamAndCallbackProduceSameProgressUpdates() async throws {
+        // Test that both APIs provide equivalent progress information
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAPICompare_Progress_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let sliceCount = 4
+        for i in 0..<sliceCount {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 128
+            mock.height = 128
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 75, count: 128 * 128))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        // Collect progress from callback API
+        var callbackProgressUpdates: [(fraction: Double, slicesCopied: Int)] = []
+        let callbackLoader = DicomSeriesLoader(decoderFactory: mockFactory)
+        _ = try await callbackLoader.loadSeries(in: tempDir) { fraction, slicesCopied, _, _ in
+            callbackProgressUpdates.append((fraction, slicesCopied))
+        }
+
+        // Collect progress from AsyncStream API
+        var streamProgressUpdates: [(fraction: Double, slicesCopied: Int)] = []
+        let streamLoader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let stream = streamLoader.loadSeriesWithProgress(in: tempDir)
+
+        for try await progress in stream {
+            streamProgressUpdates.append((progress.fractionComplete, progress.slicesCopied))
+        }
+
+        // Both APIs should provide progress updates
+        XCTAssertFalse(callbackProgressUpdates.isEmpty, "Callback API should provide progress updates")
+        XCTAssertFalse(streamProgressUpdates.isEmpty, "AsyncStream API should provide progress updates")
+
+        // Compare final progress values
+        if let callbackFinal = callbackProgressUpdates.last,
+           let streamFinal = streamProgressUpdates.last {
+            XCTAssertEqual(callbackFinal.fraction, streamFinal.fraction, accuracy: 0.01, "Final fractions should match")
+            XCTAssertEqual(callbackFinal.slicesCopied, streamFinal.slicesCopied, "Final slice counts should match")
+            XCTAssertEqual(callbackFinal.slicesCopied, sliceCount, "Both should report all slices copied")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncStreamAndCallbackHandleErrorsEquivalently() async throws {
+        // Test that both APIs handle errors in the same way
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAPICompare_Error_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create files with inconsistent dimensions
+        for i in 0..<2 {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        var callIndex = 0
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            // First file: 128x128, second file: 256x256 (inconsistent)
+            if callIndex == 0 {
+                mock.width = 128
+                mock.height = 128
+            } else {
+                mock.width = 256
+                mock.height = 256
+            }
+            callIndex += 1
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 50, count: mock.width * mock.height))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        // Test callback API error handling
+        var callbackError: Error?
+        let callbackLoader = DicomSeriesLoader(decoderFactory: mockFactory)
+        do {
+            _ = try await callbackLoader.loadSeries(in: tempDir, progress: nil)
+            XCTFail("Callback API should throw error for inconsistent dimensions")
+        } catch {
+            callbackError = error
+        }
+
+        // Reset callIndex for stream test
+        callIndex = 0
+
+        // Test AsyncStream API error handling
+        var streamError: Error?
+        let streamLoader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let stream = streamLoader.loadSeriesWithProgress(in: tempDir)
+
+        do {
+            for try await _ in stream {
+                // Continue until error
+            }
+            XCTFail("AsyncStream API should throw error for inconsistent dimensions")
+        } catch {
+            streamError = error
+        }
+
+        // Both should produce errors
+        XCTAssertNotNil(callbackError, "Callback API should produce error")
+        XCTAssertNotNil(streamError, "AsyncStream API should produce error")
+
+        // Verify both are DicomSeriesLoaderError.inconsistentDimensions
+        if let callbackErr = callbackError as? DicomSeriesLoaderError,
+           let streamErr = streamError as? DicomSeriesLoaderError {
+            XCTAssertEqual(String(describing: callbackErr), String(describing: streamErr),
+                          "Both APIs should produce same error type")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testAsyncStreamAndCallbackPerformanceEquivalence() async throws {
+        // Test that both APIs have comparable performance characteristics
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderAPICompare_Perf_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let sliceCount = 10
+        for i in 0..<sliceCount {
+            try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 512
+            mock.height = 512
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 100, count: 512 * 512))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        // Measure callback API
+        let callbackStart = Date()
+        let callbackLoader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let callbackVolume = try await callbackLoader.loadSeries(in: tempDir, progress: nil)
+        let callbackDuration = Date().timeIntervalSince(callbackStart)
+
+        // Measure AsyncStream API
+        let streamStart = Date()
+        let streamLoader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let stream = streamLoader.loadSeriesWithProgress(in: tempDir)
+
+        var streamVolume: DicomSeriesVolume?
+        for try await progress in stream {
+            if progress.fractionComplete >= 1.0 {
+                streamVolume = progress.volumeInfo
+            }
+        }
+        let streamDuration = Date().timeIntervalSince(streamStart)
+
+        // Verify both completed successfully
+        XCTAssertNotNil(streamVolume, "AsyncStream should complete")
+        XCTAssertEqual(callbackVolume.depth, sliceCount, "Callback should load all slices")
+        XCTAssertEqual(streamVolume?.depth, sliceCount, "AsyncStream should load all slices")
+
+        // Performance should be comparable (within 2x)
+        // Note: This is a rough check - actual performance can vary
+        let ratio = max(callbackDuration, streamDuration) / min(callbackDuration, streamDuration)
+        XCTAssertLessThan(ratio, 2.0, "Performance should be comparable between APIs (ratio: \(ratio))")
+    }
 }

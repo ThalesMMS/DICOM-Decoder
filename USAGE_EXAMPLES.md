@@ -7,6 +7,7 @@ This document provides detailed examples of using the Swift DICOM Decoder in var
 - [Recommended API (Throwing Initializers)](#recommended-api-throwing-initializers)
 - [Migration from Legacy API](#migration-from-legacy-api)
 - [Type-Safe DicomTag Enum](#type-safe-dicomtag-enum)
+- [Type-Safe Value Types (V2 APIs)](#type-safe-value-types-v2-apis)
 - [Basic Usage](#basic-usage)
 - [Async/Await Usage](#asyncawait-usage)
 - [Validation and Error Handling](#validation-and-error-handling)
@@ -397,6 +398,442 @@ do {
 
 } catch {
     print("Error loading DICOM: \(error)")
+}
+```
+
+## Type-Safe Value Types (V2 APIs)
+
+The library provides dedicated structs for common DICOM parameters, offering better type safety, Codable conformance, and discoverability compared to tuple-based APIs. All V2 APIs coexist with legacy tuple-based APIs for backward compatibility.
+
+### Why Use V2 APIs?
+
+**Benefits:**
+- **Type safety** - Structs prevent parameter order mistakes (e.g., swapping center and width)
+- **Codable support** - Serialize to JSON for persistence, networking, or logging
+- **Sendable conformance** - Safe to pass across concurrency boundaries
+- **Computed properties** - Built-in validation (`.isValid`, `.isIdentity`)
+- **Methods** - Convenient transformations like `.apply(to:)` for rescale operations
+- **Better autocomplete** - Named properties instead of tuple labels
+- **Discoverability** - Struct types appear in API documentation and IDE suggestions
+
+### WindowSettings Struct
+
+Represents window center and width values for grayscale display adjustment:
+
+```swift
+import DicomCore
+
+do {
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
+
+    // ✅ Recommended: Use windowSettingsV2
+    let settings = decoder.windowSettingsV2  // Returns WindowSettings struct
+
+    if settings.isValid {
+        print("Window center: \(settings.center)")
+        print("Window width: \(settings.width)")
+
+        // Serialize to JSON
+        let encoder = JSONEncoder()
+        let jsonData = try encoder.encode(settings)
+        print("JSON: \(String(data: jsonData, encoding: .utf8)!)")
+        // Output: {"center":50.0,"width":400.0}
+    }
+
+    // ⚠️ Legacy: Tuple-based API (deprecated)
+    let (center, width) = decoder.windowSettings  // Returns tuple
+
+} catch {
+    print("Error: \(error)")
+}
+```
+
+### PixelSpacing Struct
+
+Represents physical spacing between pixels in millimeters:
+
+```swift
+do {
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
+
+    // ✅ Recommended: Use pixelSpacingV2
+    let spacing = decoder.pixelSpacingV2  // Returns PixelSpacing struct
+
+    if spacing.isValid {
+        print("Pixel spacing:")
+        print("  X (column): \(spacing.x) mm")
+        print("  Y (row): \(spacing.y) mm")
+        print("  Z (slice): \(spacing.z) mm")
+
+        // Calculate physical dimensions
+        let physicalWidth = Double(decoder.width) * spacing.x
+        let physicalHeight = Double(decoder.height) * spacing.y
+        print("Physical size: \(physicalWidth) × \(physicalHeight) mm")
+
+        // Serialize to JSON
+        let jsonData = try JSONEncoder().encode(spacing)
+        // Output: {"x":0.5,"y":0.5,"z":1.0}
+    }
+
+    // ⚠️ Legacy: Tuple-based API (deprecated)
+    let (width, height, depth) = decoder.pixelSpacing  // Returns tuple
+
+} catch {
+    print("Error: \(error)")
+}
+```
+
+### RescaleParameters Struct
+
+Represents rescale slope and intercept for converting pixel values to modality units (e.g., Hounsfield Units in CT):
+
+```swift
+do {
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
+
+    // ✅ Recommended: Use rescaleParametersV2
+    let rescale = decoder.rescaleParametersV2  // Returns RescaleParameters struct
+
+    if !rescale.isIdentity {
+        print("Rescale parameters:")
+        print("  Slope: \(rescale.slope)")
+        print("  Intercept: \(rescale.intercept)")
+
+        // Apply rescale transformation
+        let storedValue: Double = 1024.0
+        let hounsfieldValue = rescale.apply(to: storedValue)
+        print("HU value: \(hounsfieldValue)")
+        // For CT: output = slope * storedValue + intercept
+        // Often slope=1.0, intercept=-1024.0
+
+        // Transform array of pixel values
+        if let pixels = decoder.getPixels16() {
+            let hounsfieldValues = pixels.map { rescale.apply(to: Double($0)) }
+            print("Converted \(hounsfieldValues.count) pixels to HU")
+        }
+    } else {
+        print("No rescale needed (identity transformation)")
+    }
+
+    // ⚠️ Legacy: Tuple-based API (deprecated)
+    let (intercept, slope) = decoder.rescaleParameters  // Returns tuple
+
+} catch {
+    print("Error: \(error)")
+}
+```
+
+### V2 Windowing Methods
+
+All `DCMWindowingProcessor` methods now have V2 variants that return `WindowSettings` structs:
+
+#### Calculate Optimal Window/Level
+
+```swift
+import DicomCore
+
+do {
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
+
+    guard let pixels = decoder.getPixels16() else {
+        print("No pixel data")
+        return
+    }
+
+    // ✅ Recommended: V2 method returns WindowSettings
+    let optimal = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
+
+    if optimal.isValid {
+        print("Optimal window: center=\(optimal.center), width=\(optimal.width)")
+
+        // Apply windowing with the optimal settings
+        let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
+            pixels16: pixels,
+            center: optimal.center,
+            width: optimal.width
+        )
+    }
+
+    // ⚠️ Legacy: Tuple-based method (deprecated)
+    let (center, width) = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: pixels)
+
+} catch {
+    print("Error: \(error)")
+}
+```
+
+#### Get Medical Presets
+
+```swift
+// ✅ Recommended: V2 method with enum parameter
+let lungSettings = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)
+print("Lung preset: center=\(lungSettings.center), width=\(lungSettings.width)")
+// Output: center=-600.0, width=1500.0
+
+// ✅ V2 method with string name
+if let boneSettings = DCMWindowingProcessor.getPresetValuesV2(named: "Bone") {
+    print("Bone preset: center=\(boneSettings.center), width=\(boneSettings.width)")
+    // Output: center=400.0, width=1800.0
+}
+
+// Handle invalid preset name
+if let invalidSettings = DCMWindowingProcessor.getPresetValuesV2(named: "InvalidName") {
+    print("Found preset")
+} else {
+    print("Preset not found")  // This will be printed
+}
+
+// ⚠️ Legacy: Tuple-based methods (deprecated)
+let (center, width) = DCMWindowingProcessor.getPresetValues(preset: .lung)
+let (c2, w2) = DCMWindowingProcessor.getPresetValues(named: "Bone") ?? (0, 0)
+```
+
+#### Batch Processing
+
+```swift
+// Load multiple images
+let paths = ["/path/to/image1.dcm", "/path/to/image2.dcm", "/path/to/image3.dcm"]
+var imagePixels: [[UInt16]] = []
+
+for path in paths {
+    do {
+        let decoder = try DCMDecoder(contentsOfFile: path)
+        if let pixels = decoder.getPixels16() {
+            imagePixels.append(pixels)
+        }
+    } catch {
+        print("Error loading \(path): \(error)")
+    }
+}
+
+// ✅ Recommended: V2 batch method returns [WindowSettings]
+let batchSettings = DCMWindowingProcessor.batchCalculateOptimalWindowLevelV2(
+    imagePixels: imagePixels
+)
+
+for (index, settings) in batchSettings.enumerated() {
+    print("Image \(index + 1): center=\(settings.center), width=\(settings.width)")
+    if settings.isValid {
+        // Apply windowing to each image
+        let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
+            pixels16: imagePixels[index],
+            center: settings.center,
+            width: settings.width
+        )
+    }
+}
+
+// ⚠️ Legacy: Tuple-based method (deprecated)
+let tupleResults = DCMWindowingProcessor.batchCalculateOptimalWindowLevel(imagePixels: imagePixels)
+```
+
+#### Preset Matching
+
+```swift
+// ✅ Recommended: V2 method accepts WindowSettings struct
+let settings = WindowSettings(center: -600.0, width: 1500.0)
+
+if let presetName = DCMWindowingProcessor.getPresetName(settings: settings, tolerance: 50.0) {
+    print("Matches preset: \(presetName)")  // "Matches preset: Lung"
+} else {
+    print("No matching preset found")
+}
+
+// Custom tolerance for stricter matching
+let strictSettings = WindowSettings(center: -595.0, width: 1510.0)
+if let strictMatch = DCMWindowingProcessor.getPresetName(settings: strictSettings, tolerance: 10.0) {
+    print("Strict match: \(strictMatch)")
+} else {
+    print("No match with strict tolerance")  // This will be printed
+}
+
+// ⚠️ Legacy: Separate center and width parameters (deprecated)
+let presetName = DCMWindowingProcessor.getPresetName(center: -600.0, width: 1500.0, tolerance: 50.0)
+```
+
+### Complete V2 API Example
+
+```swift
+import DicomCore
+
+func processDICOMWithV2APIs(path: String) throws {
+    // Load DICOM file
+    let decoder = try DCMDecoder(contentsOfFile: path)
+
+    print("=== DICOM Image Information ===")
+    print("Dimensions: \(decoder.width) × \(decoder.height)")
+    print("Modality: \(decoder.info(for: .modality))")
+
+    // ✅ Use V2 APIs for type-safe value access
+
+    // 1. Window Settings
+    let windowSettings = decoder.windowSettingsV2
+    print("\n=== Window Settings ===")
+    if windowSettings.isValid {
+        print("Embedded: center=\(windowSettings.center), width=\(windowSettings.width)")
+
+        // Check if it matches a known preset
+        if let presetName = DCMWindowingProcessor.getPresetName(settings: windowSettings) {
+            print("Matches preset: \(presetName)")
+        }
+    }
+
+    // 2. Pixel Spacing
+    let spacing = decoder.pixelSpacingV2
+    print("\n=== Pixel Spacing ===")
+    if spacing.isValid {
+        print("Physical spacing: \(spacing.x) × \(spacing.y) × \(spacing.z) mm")
+        let physicalWidth = Double(decoder.width) * spacing.x
+        let physicalHeight = Double(decoder.height) * spacing.y
+        print("Physical dimensions: \(physicalWidth) × \(physicalHeight) mm")
+    }
+
+    // 3. Rescale Parameters
+    let rescale = decoder.rescaleParametersV2
+    print("\n=== Rescale Parameters ===")
+    if rescale.isIdentity {
+        print("No rescale needed (identity transformation)")
+    } else {
+        print("Slope: \(rescale.slope), Intercept: \(rescale.intercept)")
+    }
+
+    // 4. Calculate Optimal Window/Level
+    guard let pixels = decoder.getPixels16() else {
+        print("No pixel data available")
+        return
+    }
+
+    let optimalSettings = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
+    print("\n=== Optimal Window/Level ===")
+    print("Calculated: center=\(optimalSettings.center), width=\(optimalSettings.width)")
+
+    // 5. Compare with Medical Presets
+    print("\n=== Medical Presets ===")
+    let lungPreset = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)
+    let bonePreset = DCMWindowingProcessor.getPresetValuesV2(preset: .bone)
+    let softTissuePreset = DCMWindowingProcessor.getPresetValuesV2(preset: .softTissue)
+
+    print("Lung: center=\(lungPreset.center), width=\(lungPreset.width)")
+    print("Bone: center=\(bonePreset.center), width=\(bonePreset.width)")
+    print("Soft Tissue: center=\(softTissuePreset.center), width=\(softTissuePreset.width)")
+
+    // 6. Apply Windowing
+    let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
+        pixels16: pixels,
+        center: optimalSettings.center,
+        width: optimalSettings.width
+    )
+    print("\n=== Processing Result ===")
+    print("Converted \(pixels8bit.count) pixels to 8-bit display range")
+
+    // 7. Serialize Settings to JSON
+    print("\n=== Serialization ===")
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .prettyPrinted
+
+    if let windowJSON = try? encoder.encode(optimalSettings) {
+        print("Window Settings JSON:")
+        print(String(data: windowJSON, encoding: .utf8)!)
+    }
+
+    if let spacingJSON = try? encoder.encode(spacing) {
+        print("\nPixel Spacing JSON:")
+        print(String(data: spacingJSON, encoding: .utf8)!)
+    }
+
+    if let rescaleJSON = try? encoder.encode(rescale) {
+        print("\nRescale Parameters JSON:")
+        print(String(data: rescaleJSON, encoding: .utf8)!)
+    }
+}
+
+// Usage
+do {
+    try processDICOMWithV2APIs(path: "/path/to/ct_scan.dcm")
+} catch {
+    print("Error: \(error)")
+}
+```
+
+### Migration Guide: Tuple-based to V2 APIs
+
+Replace tuple-based APIs with struct-based V2 variants:
+
+```swift
+// ❌ Old: Tuple-based APIs (deprecated)
+let (center, width) = decoder.windowSettings
+let (x, y, z) = decoder.pixelSpacing
+let (intercept, slope) = decoder.rescaleParameters
+let (optC, optW) = decoder.calculateOptimalWindow() ?? (0, 0)
+let (presetC, presetW) = DCMWindowingProcessor.getPresetValues(preset: .lung)
+let batchTuples = DCMWindowingProcessor.batchCalculateOptimalWindowLevel(imagePixels: images)
+let name = DCMWindowingProcessor.getPresetName(center: 50, width: 400)
+
+// ✅ New: Struct-based V2 APIs (recommended)
+let settings = decoder.windowSettingsV2  // WindowSettings
+let spacing = decoder.pixelSpacingV2     // PixelSpacing
+let rescale = decoder.rescaleParametersV2  // RescaleParameters
+let optimal = decoder.calculateOptimalWindowV2()  // WindowSettings?
+let preset = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)  // WindowSettings
+let batchSettings = DCMWindowingProcessor.batchCalculateOptimalWindowLevelV2(imagePixels: images)  // [WindowSettings]
+let name = DCMWindowingProcessor.getPresetName(settings: settings)  // String?
+```
+
+### Benefits in Practice
+
+**Type Safety:**
+```swift
+// ❌ Tuple: Easy to swap parameters
+func applyWindow(settings: (center: Double, width: Double)) {
+    // What if we accidentally swap center and width?
+    applyWindowLevel(center: settings.width, width: settings.center)  // Bug!
+}
+
+// ✅ Struct: Type-safe property access
+func applyWindow(settings: WindowSettings) {
+    // Named properties prevent mistakes
+    applyWindowLevel(center: settings.center, width: settings.width)  // Correct
+}
+```
+
+**Codable Support:**
+```swift
+// ✅ Serialize to JSON for storage or networking
+let settings = decoder.windowSettingsV2
+let jsonData = try JSONEncoder().encode(settings)
+UserDefaults.standard.set(jsonData, forKey: "lastWindowSettings")
+
+// Load from JSON
+if let savedData = UserDefaults.standard.data(forKey: "lastWindowSettings") {
+    let restoredSettings = try JSONDecoder().decode(WindowSettings.self, from: savedData)
+    print("Restored: center=\(restoredSettings.center), width=\(restoredSettings.width)")
+}
+```
+
+**Validation:**
+```swift
+// ✅ Built-in validation
+let settings = WindowSettings(center: 50.0, width: -100.0)
+if !settings.isValid {
+    print("Invalid window width (must be positive)")  // This will be printed
+}
+
+let rescale = RescaleParameters(intercept: 0.0, slope: 1.0)
+if rescale.isIdentity {
+    print("No transformation needed")  // This will be printed
+}
+```
+
+**Sendable Conformance:**
+```swift
+// ✅ Safe to pass across concurrency boundaries
+Task {
+    let settings = decoder.windowSettingsV2  // WindowSettings is Sendable
+    await processImage(with: settings)  // Safe to pass to async context
+}
+
+func processImage(with settings: WindowSettings) async {
+    // Use settings safely in async context
 }
 ```
 

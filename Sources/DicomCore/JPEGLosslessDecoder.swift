@@ -157,13 +157,13 @@ internal final class JPEGLosslessDecoder {
     private var compressedDataStart: Int = 0
 
     /// Logger for diagnostics and performance tracking
-    private let logger: AnyLogger?
+    private let logger: LoggerProtocol?
 
     // MARK: - Initialization
 
     /// Creates a new JPEG Lossless decoder
     /// - Parameter logger: Optional logger for diagnostics
-    internal init(logger: AnyLogger? = nil) {
+    internal init(logger: LoggerProtocol? = nil) {
         self.logger = logger
     }
 

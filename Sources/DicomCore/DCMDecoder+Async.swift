@@ -257,4 +257,16 @@ extension DCMDecoder {
             }
         }
     }
+
+    /// Retrieves downsampled 8-bit thumbnail pixels asynchronously
+    /// - Parameter maxDimension: Maximum dimension for the thumbnail
+    /// - Returns: Tuple with downsampled pixels and dimensions, or nil
+    @available(macOS 10.15, iOS 13.0, *)
+    public func getDownsampledPixels8Async(maxDimension: Int = 150) async -> (pixels: [UInt8], width: Int, height: Int)? {
+        return await withCheckedContinuation { continuation in
+            Task.detached(priority: .utility) {
+                continuation.resume(returning: self.getDownsampledPixels8(maxDimension: maxDimension))
+            }
+        }
+    }
 }

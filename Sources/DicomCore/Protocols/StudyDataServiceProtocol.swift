@@ -53,6 +53,14 @@ public protocol StudyDataServiceProtocol {
     /// - Returns: Validation result with detailed issues if any
     func validateDICOMFile(_ filePath: String) async -> DICOMValidationResult
 
+    /// Batch validate multiple DICOM files concurrently.
+    /// Processes all files in parallel and returns validation
+    /// results for each file. All results are returned regardless
+    /// of validation status.
+    /// - Parameter filePaths: Array of DICOM file paths to validate
+    /// - Returns: Array of validation results (one per input file)
+    func validateBatchDICOMFiles(_ filePaths: [String]) async -> [DICOMValidationResult]
+
     // MARK: - Data Transformation
 
     /// Create PatientModel from study metadata.

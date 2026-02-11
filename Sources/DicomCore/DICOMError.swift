@@ -8,7 +8,101 @@ import Foundation
 
 // MARK: - DICOM Error Types
 
-/// Comprehensive error types for DICOM operations
+/// Comprehensive error types for DICOM operations.
+///
+/// ## Overview
+///
+/// ``DICOMError`` provides a type-safe, Swift-native error handling system for all DICOM-related
+/// operations. Each error case includes associated values with detailed context about the failure,
+/// making it easy to diagnose issues and provide helpful feedback to users.
+///
+/// The error system conforms to Swift's `LocalizedError` protocol, providing human-readable
+/// descriptions and recovery suggestions automatically. All errors are also `Equatable` for
+/// easy testing and comparison.
+///
+/// ## Error Categories
+///
+/// Errors are organized into five main categories:
+///
+/// - **File Operations**: File not found, read errors, format issues
+/// - **DICOM Parsing**: Invalid format, missing tags, unsupported features
+/// - **Medical Data**: Invalid window/level, patient data issues
+/// - **Network**: Connection issues, server errors, authentication
+/// - **System**: Memory allocation, image processing failures
+///
+/// ## Usage
+///
+/// Handle errors using Swift's do-catch syntax:
+///
+/// ```swift
+/// do {
+///     let decoder = try DCMDecoder(contentsOf: url)
+///     let pixels = decoder.getPixels16()
+/// } catch DICOMError.fileNotFound(let path) {
+///     print("File not found: \(path)")
+/// } catch DICOMError.invalidDICOMFormat(let reason) {
+///     print("Invalid DICOM: \(reason)")
+/// } catch DICOMError.unsupportedTransferSyntax(let syntax) {
+///     print("Unsupported compression: \(syntax)")
+/// } catch {
+///     print("Error: \(error.localizedDescription)")
+/// }
+/// ```
+///
+/// Access error metadata for logging or analytics:
+///
+/// ```swift
+/// let error = DICOMError.memoryAllocationFailed(requestedSize: 1_000_000_000)
+/// print("Severity: \(error.severity)")  // .critical
+/// print("Category: \(error.category)")  // .system
+/// print("Suggestion: \(error.recoverySuggestion ?? "")")
+/// ```
+///
+/// ## Topics
+///
+/// ### File Operation Errors
+///
+/// - ``fileNotFound(path:)``
+/// - ``fileReadError(path:underlyingError:)``
+/// - ``invalidFileFormat(path:expectedFormat:)``
+/// - ``fileCorrupted(path:reason:)``
+///
+/// ### DICOM Parsing Errors
+///
+/// - ``invalidDICOMFormat(reason:)``
+/// - ``missingRequiredTag(tag:description:)``
+/// - ``unsupportedTransferSyntax(syntax:)``
+/// - ``invalidPixelData(reason:)``
+/// - ``bufferOverflow(operation:offset:available:)``
+/// - ``invalidOffset(offset:fileSize:context:)``
+/// - ``invalidLength(requested:available:context:)``
+/// - ``excessiveAllocation(requested:limit:context:)``
+///
+/// ### Medical Data Errors
+///
+/// - ``invalidWindowLevel(window:level:reason:)``
+/// - ``invalidPatientData(field:value:reason:)``
+/// - ``missingStudyInformation(missingFields:)``
+/// - ``invalidModality(modality:)``
+///
+/// ### Network Errors
+///
+/// - ``networkUnavailable``
+/// - ``serverError(statusCode:message:)``
+/// - ``authenticationFailed(reason:)``
+///
+/// ### System Errors
+///
+/// - ``memoryAllocationFailed(requestedSize:)``
+/// - ``imageProcessingFailed(operation:reason:)``
+/// - ``unknown(underlyingError:)``
+///
+/// ### Error Metadata
+///
+/// - ``severity``
+/// - ``category``
+/// - ``errorDescription``
+/// - ``recoverySuggestion``
 public enum DICOMError: Error, LocalizedError, Equatable {
     
     // MARK: - File Operation Errors
@@ -124,19 +218,89 @@ public enum DICOMError: Error, LocalizedError, Equatable {
 
 // MARK: - Error Classification Enums
 
-/// Severity levels for DICOM errors
+/// Severity levels for DICOM errors.
+///
+/// ## Overview
+///
+/// ``ErrorSeverity`` classifies errors by their impact level, helping applications prioritize
+/// error handling and user notifications. Severity levels range from warnings (non-critical issues
+/// that may allow continued operation) to critical errors (serious failures requiring immediate
+/// attention).
+///
+/// Access the severity level of any ``DICOMError`` via its ``DICOMError/severity`` property.
+///
+/// ## Usage
+///
+/// ```swift
+/// do {
+///     try processFile(url)
+/// } catch let error as DICOMError {
+///     switch error.severity {
+///     case .warning:
+///         logWarning(error.localizedDescription)
+///     case .error:
+///         showUserAlert(error.localizedDescription)
+///     case .critical:
+///         emergencyShutdown(error.localizedDescription)
+///     }
+/// }
+/// ```
 public enum ErrorSeverity: String, CaseIterable {
+    /// Non-critical issue that may allow continued operation
     case warning = "Warning"
-    case error = "Error" 
+
+    /// Standard error requiring user attention
+    case error = "Error"
+
+    /// Critical failure requiring immediate action
     case critical = "Critical"
 }
 
-/// Categories for DICOM error types
+/// Categories for DICOM error types.
+///
+/// ## Overview
+///
+/// ``ErrorCategory`` groups errors by their functional domain, making it easier to organize
+/// error handling logic and provide context-specific recovery strategies. Categories include
+/// file operations, DICOM parsing, medical data validation, network operations, and system
+/// resources.
+///
+/// Access the category of any ``DICOMError`` via its ``DICOMError/category`` property.
+///
+/// ## Usage
+///
+/// ```swift
+/// do {
+///     try loadDicomFile(url)
+/// } catch let error as DICOMError {
+///     switch error.category {
+///     case .file:
+///         handleFileError(error)
+///     case .dicom:
+///         handleParsingError(error)
+///     case .medical:
+///         handleMedicalDataError(error)
+///     case .network:
+///         handleNetworkError(error)
+///     case .system:
+///         handleSystemError(error)
+///     }
+/// }
+/// ```
 public enum ErrorCategory: String, CaseIterable {
+    /// File system operations (read, write, access)
     case file = "File Operation"
+
+    /// DICOM format parsing and validation
     case dicom = "DICOM Processing"
+
+    /// Medical data validation and constraints
     case medical = "Medical Data"
+
+    /// Network communication and authentication
     case network = "Network"
+
+    /// System resources and image processing
     case system = "System"
 }
 

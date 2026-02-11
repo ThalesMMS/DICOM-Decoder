@@ -48,7 +48,7 @@ public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
     /// readability and makes testing easier.
     private typealias RawDictionary = [String: String]
 
-    private let logger = AnyLogger.make(subsystem: "com.dicomviewer", category: "DCMDictionary")
+    private let logger: LoggerProtocol = DicomLogger.make(subsystem: "com.dicomviewer", category: "DCMDictionary")
 
     /// Internal backing store.  Marked as ``lazy`` so the
     /// property list is only read when first used.  In the event

@@ -13,7 +13,7 @@ Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and res
 
 - Repository: [`ThalesMMS/DICOM-Decoder`](https://github.com/ThalesMMS/DICOM-Decoder)
 - Latest release: [`1.0.0`](https://github.com/ThalesMMS/DICOM-Decoder/releases/tag/1.0.0)
-- Documentation: [Getting Started](GETTING_STARTED.md) | [Glossary](DICOM_GLOSSARY.md) | [Troubleshooting](TROUBLESHOOTING.md)
+- Documentation: [API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/) | [Getting Started](GETTING_STARTED.md) | [Glossary](DICOM_GLOSSARY.md) | [Troubleshooting](TROUBLESHOOTING.md)
 
 ---
 
@@ -85,6 +85,8 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 
 - **Swift-idiomatic throwing initializers** for type-safe error handling
 - **Type-safe DicomTag enum** for metadata access (preferred over raw hex values)
+- **Type-safe value types** (WindowSettings, PixelSpacing, RescaleParameters) with Codable support
+- **V2 APIs** returning structs instead of tuples for better type safety
 - **Async/await** support (iOS 13+, macOS 10.15+) with async throwing initializers
 - **Static factory methods** for alternative initialization patterns
 - **Validation** before loading
@@ -239,6 +241,47 @@ let customTag = decoder.info(for: 0x00091001)  // Private tag
 - **Backward compatible** - Raw hex values still work for custom/private tags
 
 See [Common DICOM Tags](#common-dicom-tags) for a full list of supported tags.
+
+### Type-Safe Value Types (V2 APIs)
+
+The library provides dedicated structs for common DICOM parameters, offering better type safety and Codable conformance than tuple-based APIs:
+
+```swift
+// ✅ Window settings as a struct (recommended)
+let settings = decoder.windowSettingsV2  // WindowSettings struct
+if settings.isValid {
+    print("Window: center=\(settings.center), width=\(settings.width)")
+}
+
+// ✅ Pixel spacing as a struct (recommended)
+let spacing = decoder.pixelSpacingV2  // PixelSpacing struct
+if spacing.isValid {
+    print("Spacing: \(spacing.x) × \(spacing.y) × \(spacing.z) mm")
+}
+
+// ✅ Rescale parameters as a struct (recommended)
+let rescale = decoder.rescaleParametersV2  // RescaleParameters struct
+if !rescale.isIdentity {
+    let hounsfieldValue = rescale.apply(to: pixelValue)
+}
+
+// ✅ V2 windowing methods return WindowSettings
+let optimal = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
+let preset = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)
+
+// ⚠️ Legacy: Tuple-based APIs (deprecated but still supported)
+let (center, width) = decoder.windowSettings  // Returns tuple
+```
+
+**Benefits of V2 APIs:**
+- **Type safety** - Structs prevent parameter order mistakes
+- **Codable support** - Serialize to JSON for persistence
+- **Sendable conformance** - Safe across concurrency boundaries
+- **Computed properties** - `.isValid`, `.isIdentity` checks
+- **Methods** - `.apply(to:)` for transformations
+- **Better autocomplete** - Named properties instead of tuple labels
+
+See [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md#type-safe-value-types-v2-apis) for detailed migration examples.
 
 ---
 
@@ -512,6 +555,18 @@ let privateTag = decoder.info(for: 0x00091001)  // Private manufacturer tag
 ---
 
 ## Documentation
+
+### API Reference
+
+Complete API documentation generated with DocC is available online:
+
+**[📚 Swift DICOM Decoder API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/)**
+
+The API reference includes:
+- Detailed class and method documentation
+- Code examples and usage patterns
+- Type definitions and protocols
+- Complete symbol index
 
 ### Beginner Guides
 

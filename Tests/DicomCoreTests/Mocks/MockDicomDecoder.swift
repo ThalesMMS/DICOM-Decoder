@@ -163,6 +163,7 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     private var _pixels16: [UInt16]?
     private var _pixels24: [UInt8]?
     private var _downsampledPixels16: (pixels: [UInt16], width: Int, height: Int)?
+    private var _downsampledPixels8: (pixels: [UInt8], width: Int, height: Int)?
     private var _tags: [String: String] = [:]
     private var _validationResult: (isValid: Bool, issues: [String]) = (true, [])
 
@@ -265,6 +266,13 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
         }
     }
 
+    /// Configures the mock with downsampled 8-bit pixel data
+    public func setDownsampledPixels8(_ pixels: [UInt8], width: Int, height: Int) {
+        queue.sync {
+            _downsampledPixels8 = (pixels, width, height)
+        }
+    }
+
     /// Sets a DICOM tag value
     public func setTag(_ tag: Int, value: String) {
         queue.sync {
@@ -340,6 +348,14 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     /// - Returns: A tuple `(pixels: [UInt16], width: Int, height: Int)` containing the downsampled pixels and their dimensions, or `nil` if no downsampled data is available.
     public func getDownsampledPixels16(maxDimension: Int) -> (pixels: [UInt16], width: Int, height: Int)? {
         return queue.sync { _downsampledPixels16 }
+    }
+
+    /// Returns the stored downsampled 8-bit pixel buffer and its dimensions.
+    /// - Parameters:
+    ///   - maxDimension: Ignored by this mock implementation; present for API compatibility.
+    /// - Returns: A tuple `(pixels: [UInt8], width: Int, height: Int)` containing the downsampled pixels and their dimensions, or `nil` if no downsampled data is available.
+    public func getDownsampledPixels8(maxDimension: Int) -> (pixels: [UInt8], width: Int, height: Int)? {
+        return queue.sync { _downsampledPixels8 }
     }
 
     /// Returns a subarray of 8-bit pixel values for the specified pixel index range.
@@ -553,6 +569,62 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
         }
     }
 
+    // MARK: - Type-Safe Value Properties (V2 APIs)
+
+    /// Returns pixel spacing as a type-safe struct
+    ///
+    /// This property provides physical pixel spacing in all three dimensions (x, y, z)
+    /// as millimeters per pixel. Use the `isValid` property to check if spacing values
+    /// are physically meaningful (all positive).
+    ///
+    /// ## Example
+    /// ```swift
+    /// let spacing = mockDecoder.pixelSpacingV2
+    /// if spacing.isValid {
+    ///     print("Pixel spacing: \(spacing.x) × \(spacing.y) × \(spacing.z) mm")
+    /// }
+    /// ```
+    public var pixelSpacingV2: PixelSpacing {
+        let tuple = pixelSpacing
+        return PixelSpacing(x: tuple.width, y: tuple.height, z: tuple.depth)
+    }
+
+    /// Returns window settings as a type-safe struct
+    ///
+    /// This property provides the default window center and width for display.
+    /// Window settings control the mapping of pixel values to display brightness.
+    /// Use the `isValid` property to check if settings have a positive width.
+    ///
+    /// ## Example
+    /// ```swift
+    /// let settings = mockDecoder.windowSettingsV2
+    /// if settings.isValid {
+    ///     // Apply windowing with settings.center and settings.width
+    /// }
+    /// ```
+    public var windowSettingsV2: WindowSettings {
+        let tuple = windowSettings
+        return WindowSettings(center: tuple.center, width: tuple.width)
+    }
+
+    /// Returns rescale parameters as a type-safe struct
+    ///
+    /// This property provides the rescale slope and intercept for converting stored
+    /// pixel values to modality units (e.g., Hounsfield Units for CT).
+    /// Use the `isIdentity` property to check if rescaling is needed.
+    ///
+    /// ## Example
+    /// ```swift
+    /// let rescale = mockDecoder.rescaleParametersV2
+    /// if !rescale.isIdentity {
+    ///     let hounsfieldValue = rescale.apply(to: pixelValue)
+    /// }
+    /// ```
+    public var rescaleParametersV2: RescaleParameters {
+        let tuple = rescaleParameters
+        return RescaleParameters(intercept: tuple.intercept, slope: tuple.slope)
+    }
+
     // MARK: - Utility Methods
 
     public func applyRescale(to pixelValue: Double) -> Double {
@@ -567,6 +639,34 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
             }
             return nil
         }
+    }
+
+    /// Calculates optimal window/level based on pixel data statistics (V2 API)
+    ///
+    /// Analyzes pixel data to determine optimal window center and width for display.
+    /// This method wraps the legacy tuple-based method and returns type-safe WindowSettings
+    /// that can be used with windowing processors.
+    ///
+    /// - Returns: WindowSettings with optimal center and width, or nil if no pixel data
+    ///
+    /// ## Example
+    /// ```swift
+    /// if let settings = mockDecoder.calculateOptimalWindowV2() {
+    ///     if settings.isValid {
+    ///         // Apply optimal windowing
+    ///         let displayPixels = DCMWindowingProcessor.applyWindowLevel(
+    ///             pixels16: pixels,
+    ///             center: settings.center,
+    ///             width: settings.width
+    ///         )
+    ///     }
+    /// }
+    /// ```
+    public func calculateOptimalWindowV2() -> WindowSettings? {
+        guard let tuple = calculateOptimalWindow() else {
+            return nil
+        }
+        return WindowSettings(center: tuple.center, width: tuple.width)
     }
 
     public func getQualityMetrics() -> [String: Double]? {

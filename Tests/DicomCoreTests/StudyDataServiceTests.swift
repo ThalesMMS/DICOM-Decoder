@@ -460,6 +460,257 @@ final class StudyDataServiceTests: XCTestCase {
         XCTAssertEqual(result.fileSize, 0, "File size should be 0 for non-existent file")
     }
 
+    // MARK: - Batch Validation Tests
+
+    func testValidateBatchDICOMFilesWithValidFiles() async {
+        // Create mock decoder with valid DICOM data
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
+        mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
+        mockDecoder.dicomFound = true
+        mockDecoder.dicomFileReadSuccess = true
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        // Create temporary files for validation test
+        let tempPaths = (1...3).map { _ in NSTemporaryDirectory() + "test_batch_\(UUID().uuidString).dcm" }
+        let testData = Data([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x44, 0x49, 0x43, 0x4D  // DICM header at offset 128
+        ])
+
+        for path in tempPaths {
+            try? testData.write(to: URL(fileURLWithPath: path))
+        }
+        defer {
+            for path in tempPaths {
+                try? FileManager.default.removeItem(atPath: path)
+            }
+        }
+
+        let results = await service.validateBatchDICOMFiles(tempPaths)
+
+        XCTAssertEqual(results.count, 3, "Should validate all 3 files")
+        for result in results {
+            XCTAssertTrue(result.isValid, "All files should be valid with mock decoder")
+            XCTAssertTrue(result.issues.isEmpty, "Valid files should have no issues")
+        }
+    }
+
+    func testValidateBatchDICOMFilesWithNonExistentFiles() async {
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
+        let nonExistentPaths = [
+            "/tmp/nonexistent1_\(UUID().uuidString).dcm",
+            "/tmp/nonexistent2_\(UUID().uuidString).dcm",
+            "/tmp/nonexistent3_\(UUID().uuidString).dcm"
+        ]
+
+        let results = await service.validateBatchDICOMFiles(nonExistentPaths)
+
+        XCTAssertEqual(results.count, 3, "Should return results for all files")
+        for result in results {
+            XCTAssertFalse(result.isValid, "Non-existent files should be invalid")
+            XCTAssertTrue(result.issues.contains("File does not exist"), "Should report file not found")
+            XCTAssertEqual(result.fileSize, 0, "File size should be 0 for non-existent files")
+        }
+    }
+
+    func testValidateBatchDICOMFilesWithMixedFiles() async {
+        // Create mock decoder with valid DICOM data
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
+        mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
+        mockDecoder.dicomFound = true
+        mockDecoder.dicomFileReadSuccess = true
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        // Create one temporary file
+        let validPath = NSTemporaryDirectory() + "test_valid_\(UUID().uuidString).dcm"
+        let testData = Data([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x44, 0x49, 0x43, 0x4D  // DICM header at offset 128
+        ])
+
+        try? testData.write(to: URL(fileURLWithPath: validPath))
+        defer { try? FileManager.default.removeItem(atPath: validPath) }
+
+        // Mix with non-existent files
+        let mixedPaths = [
+            validPath,
+            "/tmp/nonexistent_\(UUID().uuidString).dcm",
+            "/tmp/another_nonexistent_\(UUID().uuidString).dcm"
+        ]
+
+        let results = await service.validateBatchDICOMFiles(mixedPaths)
+
+        XCTAssertEqual(results.count, 3, "Should return results for all files")
+
+        let validCount = results.filter { $0.isValid }.count
+        let invalidCount = results.filter { !$0.isValid }.count
+
+        XCTAssertEqual(validCount, 1, "Should have 1 valid file")
+        XCTAssertEqual(invalidCount, 2, "Should have 2 invalid files")
+    }
+
+    func testValidateBatchDICOMFilesWithEmptyArray() async {
+        let service = StudyDataService(decoderFactory: makeDecoderFactory())
+
+        let results = await service.validateBatchDICOMFiles([])
+
+        XCTAssertTrue(results.isEmpty, "Batch validation with empty input should return empty array")
+    }
+
+    func testValidateBatchDICOMFilesWithInvalidDecoder() async {
+        // Create mock decoder with invalid DICOM data (missing UIDs)
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.dicomFound = false
+        mockDecoder.dicomFileReadSuccess = false
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        // Create temporary files
+        let tempPaths = (1...2).map { _ in NSTemporaryDirectory() + "test_invalid_\(UUID().uuidString).dcm" }
+        let testData = Data([0x00, 0x01, 0x02, 0x03])  // Invalid DICOM data
+
+        for path in tempPaths {
+            try? testData.write(to: URL(fileURLWithPath: path))
+        }
+        defer {
+            for path in tempPaths {
+                try? FileManager.default.removeItem(atPath: path)
+            }
+        }
+
+        let results = await service.validateBatchDICOMFiles(tempPaths)
+
+        XCTAssertEqual(results.count, 2, "Should return results for all files")
+        for result in results {
+            XCTAssertFalse(result.isValid, "Files with invalid decoder should be invalid")
+            XCTAssertFalse(result.issues.isEmpty, "Invalid files should have issues")
+        }
+    }
+
+    func testValidateBatchDICOMFilesWithMissingUIDs() async {
+        // Create mock decoder with valid read but missing required UIDs
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.dicomFound = true
+        mockDecoder.dicomFileReadSuccess = true
+        // Intentionally omit studyInstanceUID and seriesInstanceUID
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        // Create temporary file
+        let tempPath = NSTemporaryDirectory() + "test_missing_uids_\(UUID().uuidString).dcm"
+        let testData = Data([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x44, 0x49, 0x43, 0x4D  // DICM header at offset 128
+        ])
+
+        try? testData.write(to: URL(fileURLWithPath: tempPath))
+        defer { try? FileManager.default.removeItem(atPath: tempPath) }
+
+        let results = await service.validateBatchDICOMFiles([tempPath])
+
+        XCTAssertEqual(results.count, 1, "Should return result for the file")
+        XCTAssertFalse(results[0].isValid, "File without UIDs should be invalid")
+        XCTAssertTrue(results[0].issues.contains { $0.contains("UID") }, "Should report missing UID issue")
+    }
+
+    func testValidateBatchDICOMFilesConcurrentExecution() async {
+        // Create mock decoder with valid DICOM data
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
+        mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
+        mockDecoder.dicomFound = true
+        mockDecoder.dicomFileReadSuccess = true
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        // Create multiple temporary files to test concurrent execution
+        let tempPaths = (1...10).map { _ in NSTemporaryDirectory() + "test_concurrent_\(UUID().uuidString).dcm" }
+        let testData = Data([
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x44, 0x49, 0x43, 0x4D  // DICM header at offset 128
+        ])
+
+        for path in tempPaths {
+            try? testData.write(to: URL(fileURLWithPath: path))
+        }
+        defer {
+            for path in tempPaths {
+                try? FileManager.default.removeItem(atPath: path)
+            }
+        }
+
+        let results = await service.validateBatchDICOMFiles(tempPaths)
+
+        XCTAssertEqual(results.count, 10, "Should validate all 10 files")
+        for result in results {
+            XCTAssertTrue(result.isValid, "All files should be valid")
+        }
+    }
+
     // MARK: - Metadata Extraction Tests
 
     func testExtractStudyMetadataAsync() async {

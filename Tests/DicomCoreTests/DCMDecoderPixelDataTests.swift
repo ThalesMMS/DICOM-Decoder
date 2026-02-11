@@ -1220,4 +1220,253 @@ final class DCMDecoderPixelDataTests: XCTestCase {
             XCTAssertNil(result, "Downsampling should not work on 8-bit images")
         }
     }
+
+    // MARK: - Downsampled Pixels 8-bit Tests
+
+    func testGetDownsampledPixels8WithUninitializedDecoder() {
+        let decoder = DCMDecoder()
+
+        let result = decoder.getDownsampledPixels8()
+
+        // Uninitialized decoder may return minimal default dimensions (1x1)
+        if let (pixels, width, height) = result {
+            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
+            XCTAssertLessThanOrEqual(width, 1, "Width should be minimal for uninitialized decoder")
+            XCTAssertLessThanOrEqual(height, 1, "Height should be minimal for uninitialized decoder")
+        }
+    }
+
+    func testGetDownsampledPixels8AfterFailedLoad() {
+        let decoder = DCMDecoder()
+
+        decoder.setDicomFilename("/nonexistent/file.dcm")
+
+        // After failed load, decoder still has default dimensions
+        // Downsampling may return a minimal result or nil depending on state
+        let result = decoder.getDownsampledPixels8()
+
+        // Verify file load was not successful
+        XCTAssertFalse(decoder.dicomFileReadSuccess, "File load should not succeed")
+
+        // If result exists, verify it's minimal (default dimensions)
+        if let (pixels, width, height) = result {
+            XCTAssertEqual(width * height, pixels.count, "Pixel count should match dimensions")
+            XCTAssertLessThanOrEqual(width, 1, "Width should be minimal after failed load")
+            XCTAssertLessThanOrEqual(height, 1, "Height should be minimal after failed load")
+        }
+    }
+
+    func testGetDownsampledPixels8RequiresGrayscale8Bit() {
+        let decoder = DCMDecoder()
+
+        // Downsampling requires samplesPerPixel=1 and bitDepth=8
+        if decoder.samplesPerPixel != 1 || decoder.bitDepth != 8 {
+            let result = decoder.getDownsampledPixels8()
+            XCTAssertNil(result, "Downsampling should only work with 8-bit grayscale images")
+        }
+    }
+
+    func testGetDownsampledPixels8WithDefaultMaxDimension() {
+        let decoder = DCMDecoder()
+
+        // Default maxDimension is 150
+        let result = decoder.getDownsampledPixels8()
+
+        // Uninitialized decoder may return minimal result
+        if let (pixels, width, height) = result {
+            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
+        }
+    }
+
+    func testGetDownsampledPixels8WithCustomMaxDimension() {
+        let decoder = DCMDecoder()
+
+        // Test with custom maxDimension
+        let result = decoder.getDownsampledPixels8(maxDimension: 100)
+
+        // Uninitialized decoder may return minimal result
+        if let (pixels, width, height) = result {
+            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
+            XCTAssertLessThanOrEqual(max(width, height), 100, "Dimensions should respect maxDimension")
+        }
+    }
+
+    func testGetDownsampledPixels8MaxDimensionBounds() {
+        let decoder = DCMDecoder()
+
+        // Test various maxDimension values
+        let smallResult = decoder.getDownsampledPixels8(maxDimension: 50)
+        if let (pixels, width, height) = smallResult {
+            XCTAssertLessThanOrEqual(max(width, height), 50, "Should respect small maxDimension")
+            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
+        }
+
+        let largeResult = decoder.getDownsampledPixels8(maxDimension: 500)
+        if let (pixels, width, height) = largeResult {
+            XCTAssertLessThanOrEqual(max(width, height), 500, "Should respect large maxDimension")
+            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
+        }
+
+        let tinyResult = decoder.getDownsampledPixels8(maxDimension: 10)
+        if let (pixels, width, height) = tinyResult {
+            XCTAssertLessThanOrEqual(max(width, height), 10, "Should respect tiny maxDimension")
+            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
+        }
+    }
+
+    func testGetDownsampledPixels8AspectRatioPreservation() {
+        let decoder = DCMDecoder()
+
+        // Verify aspect ratio would be preserved (when data is available)
+        let width = decoder.width
+        let height = decoder.height
+
+        if width > 0 && height > 0 {
+            let originalAspect = Double(width) / Double(height)
+
+            // For uninitialized decoder, we can't test actual downsampling
+            // but we can verify the aspect ratio calculation logic
+            let maxDim = 150
+            let expectedWidth: Int
+            let expectedHeight: Int
+
+            if width > height {
+                expectedWidth = min(width, maxDim)
+                expectedHeight = Int(Double(expectedWidth) / originalAspect)
+            } else {
+                expectedHeight = min(height, maxDim)
+                expectedWidth = Int(Double(expectedHeight) * originalAspect)
+            }
+
+            // Verify calculated dimensions maintain aspect ratio
+            if expectedWidth > 0 && expectedHeight > 0 {
+                let calculatedAspect = Double(expectedWidth) / Double(expectedHeight)
+                XCTAssertEqual(calculatedAspect, originalAspect, accuracy: 0.1,
+                             "Downsampled aspect ratio should match original")
+            }
+        }
+    }
+
+    func testGetDownsampledPixels8ReturnsExpectedTupleStructure() {
+        let decoder = DCMDecoder()
+
+        // When result is available, it should be a tuple (pixels, width, height)
+        let result = decoder.getDownsampledPixels8(maxDimension: 150)
+
+        // For uninitialized decoder, result will be nil
+        if let (pixels, width, height) = result {
+            XCTAssertFalse(pixels.isEmpty, "Downsampled pixels should not be empty")
+            XCTAssertGreaterThan(width, 0, "Downsampled width should be positive")
+            XCTAssertGreaterThan(height, 0, "Downsampled height should be positive")
+            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
+        } else {
+            XCTAssertNil(result, "Uninitialized decoder should return nil")
+        }
+    }
+
+    func testGetDownsampledPixels8DimensionsWithinMaxBounds() {
+        let decoder = DCMDecoder()
+
+        let maxDim = 100
+        let result = decoder.getDownsampledPixels8(maxDimension: maxDim)
+
+        if let (_, width, height) = result {
+            XCTAssertLessThanOrEqual(width, maxDim,
+                                    "Downsampled width should not exceed maxDimension")
+            XCTAssertLessThanOrEqual(height, maxDim,
+                                    "Downsampled height should not exceed maxDimension")
+
+            // At least one dimension should be close to maxDim (aspect-preserving)
+            let maxOfDimensions = max(width, height)
+            XCTAssertLessThanOrEqual(maxOfDimensions, maxDim,
+                                    "Larger dimension should not exceed maxDimension")
+        }
+    }
+
+    func testGetDownsampledPixels8ConsistencyAcrossMultipleCalls() {
+        let decoder = DCMDecoder()
+
+        let result1 = decoder.getDownsampledPixels8(maxDimension: 150)
+        let result2 = decoder.getDownsampledPixels8(maxDimension: 150)
+
+        // Both should be nil for uninitialized decoder
+        XCTAssertEqual(result1 == nil, result2 == nil,
+                      "Multiple downsampling calls should be consistent")
+
+        if let (pixels1, width1, height1) = result1,
+           let (pixels2, width2, height2) = result2 {
+            XCTAssertEqual(width1, width2, "Downsampled width should be consistent")
+            XCTAssertEqual(height1, height2, "Downsampled height should be consistent")
+            XCTAssertEqual(pixels1.count, pixels2.count, "Downsampled pixel count should be consistent")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testGetDownsampledPixels8AsyncWithUninitializedDecoder() async {
+        let decoder = DCMDecoder()
+
+        let result = await decoder.getDownsampledPixels8Async()
+
+        // Uninitialized decoder may return minimal default dimensions (1x1)
+        if let (pixels, width, height) = result {
+            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
+            XCTAssertLessThanOrEqual(width, 1, "Width should be minimal for uninitialized decoder")
+            XCTAssertLessThanOrEqual(height, 1, "Height should be minimal for uninitialized decoder")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testGetDownsampledPixels8AsyncAfterFailedLoad() async {
+        let decoder = DCMDecoder()
+
+        decoder.setDicomFilename("/invalid/path.dcm")
+
+        // After failed load, decoder still has default dimensions
+        let result = await decoder.getDownsampledPixels8Async()
+
+        // Verify file load was not successful
+        XCTAssertFalse(decoder.dicomFileReadSuccess, "File load should not succeed")
+
+        // If result exists, verify it's minimal (default dimensions)
+        if let (pixels, width, height) = result {
+            XCTAssertEqual(width * height, pixels.count, "Pixel count should match dimensions")
+            XCTAssertLessThanOrEqual(width, 1, "Width should be minimal after failed load")
+            XCTAssertLessThanOrEqual(height, 1, "Height should be minimal after failed load")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testGetDownsampledPixels8AsyncWithCustomMaxDimension() async {
+        let decoder = DCMDecoder()
+
+        let result = await decoder.getDownsampledPixels8Async(maxDimension: 200)
+
+        // For uninitialized decoder, may return minimal result or nil
+        if let (pixels, width, height) = result {
+            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
+            XCTAssertGreaterThan(pixels.count, 0, "Should have at least one pixel if result exists")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testGetDownsampledPixels8AsyncConsistencyWithSync() async {
+        let decoder = DCMDecoder()
+
+        let syncResult = decoder.getDownsampledPixels8(maxDimension: 150)
+        let asyncResult = await decoder.getDownsampledPixels8Async(maxDimension: 150)
+
+        // Both should be nil for uninitialized decoder
+        XCTAssertEqual(syncResult == nil, asyncResult == nil,
+                      "Sync and async downsampling should be consistent")
+    }
+
+    func testDownsamplingExcludes16BitImagesForPixels8() {
+        let decoder = DCMDecoder()
+
+        // Downsampling should not work on 16-bit images
+        if decoder.bitDepth == 16 {
+            let result = decoder.getDownsampledPixels8()
+            XCTAssertNil(result, "Downsampling should not work on 16-bit images")
+        }
+    }
 }

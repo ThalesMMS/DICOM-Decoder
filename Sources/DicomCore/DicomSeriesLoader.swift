@@ -12,29 +12,90 @@
 import Foundation
 import simd
 
+// MARK: - Error Handling
+
+/// Errors that can occur during DICOM series loading operations.
+///
+/// These errors represent validation failures and inconsistencies detected
+/// when loading and assembling multi-slice DICOM volumes.
 public enum DicomSeriesLoaderError: Error {
+    /// No valid DICOM files found in the specified directory
     case noDicomFiles
+
+    /// Image has unsupported samples per pixel (only grayscale supported)
+    /// - Parameter Int: The actual samples per pixel value
     case unsupportedSamplesPerPixel(Int)
+
+    /// Image has unsupported bit depth (only 16-bit supported)
+    /// - Parameter Int: The actual bit depth value
     case unsupportedBitDepth(Int)
+
+    /// Slices have inconsistent dimensions (width/height mismatch)
     case inconsistentDimensions
+
+    /// Slices have inconsistent orientation vectors
     case inconsistentOrientation
+
+    /// Slices have inconsistent pixel representation (signed/unsigned)
     case inconsistentPixelRepresentation
+
+    /// Failed to decode a specific DICOM file
+    /// - Parameter URL: The file URL that failed to decode
     case failedToDecode(URL)
 }
 
+// MARK: - Volume Data Structure
+
 /// Represents a loaded DICOM volume assembled from a directory of slices.
+///
+/// Contains the assembled voxel data buffer along with geometric metadata required
+/// for 3D reconstruction, measurement, and visualization. The volume is assembled
+/// from individual 2D slices ordered by their Image Position (Patient) coordinates.
+///
+/// ## Usage Example
+/// ```swift
+/// let loader = DicomSeriesLoader()
+/// let volume = try loader.loadSeries(in: seriesDirectory) { progress, sliceCount, _, _ in
+///     print("Loading: \(Int(progress * 100))% - \(sliceCount) slices")
+/// }
+/// print("Volume: \(volume.width)×\(volume.height)×\(volume.depth)")
+/// print("Spacing: \(volume.spacing) mm")
+/// ```
 public struct DicomSeriesVolume: Sendable {
+    /// Raw voxel data as contiguous 16-bit signed integers
     public let voxels: Data
+
+    /// Volume width in pixels (X dimension)
     public let width: Int
+
+    /// Volume height in pixels (Y dimension)
     public let height: Int
+
+    /// Volume depth in slices (Z dimension)
     public let depth: Int
+
+    /// Physical spacing between voxels in millimeters (X, Y, Z)
     public let spacing: SIMD3<Double>
+
+    /// 3×3 orientation matrix defining anatomical axes
     public let orientation: simd_double3x3
+
+    /// 3D origin position in patient coordinate system (mm)
     public let origin: SIMD3<Double>
+
+    /// Rescale slope for converting to modality units (e.g., Hounsfield Units)
     public let rescaleSlope: Double
+
+    /// Rescale intercept for converting to modality units
     public let rescaleIntercept: Double
+
+    /// Bits allocated per pixel (typically 16)
     public let bitsAllocated: Int
+
+    /// Whether pixel values are signed integers
     public let isSignedPixel: Bool
+
+    /// Human-readable series description
     public let seriesDescription: String
 }
 
@@ -45,7 +106,105 @@ private struct SliceMeta {
     let projection: Double?
 }
 
+// MARK: - Series Loader
+
+/// High-level DICOM series loader with automatic slice ordering and volume assembly.
+///
+/// ## Overview
+///
+/// ``DicomSeriesLoader`` loads and assembles multi-slice DICOM volumes from directories.
+/// It automatically orders slices by Image Position (Patient) coordinates, validates
+/// geometric consistency, computes 3D spacing, and assembles a contiguous voxel buffer.
+///
+/// The loader uses protocol-based dependency injection for ``DicomDecoderProtocol``,
+/// enabling testability and customization. Slices are validated for consistency in
+/// dimensions, orientation, and pixel representation. The final volume includes complete
+/// geometric metadata for 3D reconstruction.
+///
+/// **Key Features:**
+/// - Automatic slice ordering by anatomical position
+/// - Geometric validation across slices
+/// - Computed Z-spacing from slice positions
+/// - Progress callbacks during assembly
+/// - Lightweight parallelism for buffer copying
+/// - Async/await support for non-blocking loading
+///
+/// ## Usage
+///
+/// Basic series loading:
+///
+/// ```swift
+/// let loader = DicomSeriesLoader()
+/// do {
+///     let volume = try loader.loadSeries(in: seriesDirectory)
+///     print("Loaded \(volume.depth) slices: \(volume.width)×\(volume.height)")
+/// } catch DicomSeriesLoaderError.noDicomFiles {
+///     print("No DICOM files found")
+/// } catch {
+///     print("Loading failed: \(error)")
+/// }
+/// ```
+///
+/// Loading with progress tracking:
+///
+/// ```swift
+/// let loader = DicomSeriesLoader()
+/// let volume = try loader.loadSeries(in: seriesDirectory) { progress, sliceCount, _, _ in
+///     DispatchQueue.main.async {
+///         progressView.progress = Float(progress)
+///         statusLabel.text = "Loading slice \(sliceCount)"
+///     }
+/// }
+/// ```
+///
+/// Async loading with progress stream:
+///
+/// ```swift
+/// Task {
+///     for try await progress in loader.loadSeriesWithProgress(in: seriesDirectory) {
+///         print("Progress: \(Int(progress.fractionComplete * 100))%")
+///     }
+/// }
+/// ```
+///
+/// Custom decoder injection for testing:
+///
+/// ```swift
+/// let loader = DicomSeriesLoader(decoderFactory: { MockDicomDecoder() })
+/// let volume = try loader.loadSeries(in: testDirectory)
+/// ```
+///
+/// ## Topics
+///
+/// ### Creating a Loader
+///
+/// - ``init()``
+/// - ``init(decoderFactory:)``
+///
+/// ### Loading Series
+///
+/// - ``loadSeries(in:progress:)``
+/// - ``loadSeries(in:progress:)-6zq7v``
+/// - ``loadSeriesWithProgress(in:)``
+/// - ``ProgressHandler``
+///
+/// ### Volume Data
+///
+/// - ``DicomSeriesVolume``
+/// - ``SeriesLoadProgress``
+///
+/// ### Error Handling
+///
+/// - ``DicomSeriesLoaderError``
+///
 public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
+    /// Progress callback invoked during volume assembly.
+    ///
+    /// - Parameters:
+    ///   - progress: Fraction complete (0.0 to 1.0)
+    ///   - sliceCount: Number of slices copied so far
+    ///   - intermediateData: Reserved for future use (currently nil)
+    ///   - volume: Partial volume descriptor with metadata
     public typealias ProgressHandler = (Double, Int, Data?, DicomSeriesVolume) -> Void
 
     // MARK: - Properties
@@ -355,11 +514,32 @@ private extension DicomSeriesLoader {
 
 // MARK: - Async/Await Extensions
 
-/// Progress update structure for async series loading
+/// Progress update structure for async series loading.
+///
+/// Provides real-time progress information during asynchronous series loading operations.
+/// Used by ``DicomSeriesLoader/loadSeriesWithProgress(in:)`` to report loading progress
+/// through an `AsyncStream`.
+///
+/// ## Usage Example
+/// ```swift
+/// for try await progress in loader.loadSeriesWithProgress(in: directory) {
+///     print("Loaded \(progress.slicesCopied) slices (\(Int(progress.fractionComplete * 100))%)")
+///     if progress.fractionComplete >= 1.0 {
+///         print("Final volume: \(progress.volumeInfo.width)×\(progress.volumeInfo.height)×\(progress.volumeInfo.depth)")
+///     }
+/// }
+/// ```
 public struct SeriesLoadProgress: Sendable {
+    /// Fraction of loading complete (0.0 to 1.0)
     public let fractionComplete: Double
+
+    /// Number of slices successfully copied to the volume buffer
     public let slicesCopied: Int
+
+    /// Optional pixel data for the current slice being processed
     public let currentSliceData: Data?
+
+    /// Volume descriptor with metadata (includes final data when loading is complete)
     public let volumeInfo: DicomSeriesVolume
 }
 
@@ -373,27 +553,28 @@ extension DicomSeriesLoader {
     /// blocking the calling thread.
     ///
     /// The file loading and volume assembly is performed on a background thread
-    /// using Task.detached to avoid blocking the calling thread.
+    /// using `Task.detached` to avoid blocking the calling thread. Progress callbacks
+    /// are still supported for monitoring loading progress.
     ///
-    /// Example usage:
-    ///
-    ///     Task {
-    ///         do {
-    ///             let directoryURL = URL(fileURLWithPath: "/path/to/series")
-    ///             let volume = try await loader.loadSeries(in: directoryURL) { fraction, slices, data, vol in
-    ///                 print("Loading: \(Int(fraction * 100))% (\(slices) slices)")
-    ///             }
-    ///             print("Loaded volume: \(volume.width) x \(volume.height) x \(volume.depth)")
-    ///         } catch {
-    ///             print("Failed to load series: \(error)")
+    /// ## Example
+    /// ```swift
+    /// Task {
+    ///     do {
+    ///         let volume = try await loader.loadSeries(in: directoryURL) { fraction, slices, _, _ in
+    ///             print("Loading: \(Int(fraction * 100))% (\(slices) slices)")
     ///         }
+    ///         print("Loaded volume: \(volume.width)×\(volume.height)×\(volume.depth)")
+    ///     } catch {
+    ///         print("Failed to load series: \(error)")
     ///     }
+    /// }
+    /// ```
     ///
     /// - Parameters:
-    ///   - directory: Directory containing DICOM slices.
+    ///   - directory: Directory containing DICOM slices
     ///   - progress: Optional callback invoked with (fractionComplete, slicesCopied, sliceData, volume)
-    /// - Returns: `DicomSeriesVolume` with voxel buffer and geometry metadata
-    /// - Throws: ``DicomSeriesLoaderError`` on validation or decoding failures.
+    /// - Returns: ``DicomSeriesVolume`` with voxel buffer and geometry metadata
+    /// - Throws: ``DicomSeriesLoaderError`` on validation or decoding failures
     public func loadSeries(
         in directory: URL,
         progress: ProgressHandler? = nil
@@ -407,33 +588,29 @@ extension DicomSeriesLoader {
     ///
     /// This async method provides the same functionality as the synchronous
     /// ``loadSeries(in:progress:)`` but can be called from async contexts and
-    /// provides progress updates through an AsyncStream.
+    /// provides progress updates through an `AsyncThrowingStream`.
     ///
     /// The file loading and volume assembly is performed on a background thread
-    /// using Task.detached to avoid blocking the calling thread. Progress updates
-    /// are yielded through the returned AsyncStream, allowing callers to monitor
-    /// loading progress in real-time.
+    /// using `Task.detached` to avoid blocking the calling thread. Progress updates
+    /// are yielded through the returned stream, allowing callers to monitor
+    /// loading progress in real-time using a `for try await` loop.
     ///
-    /// Example usage:
-    ///
-    ///     Task {
-    ///         do {
-    ///             let directoryURL = URL(fileURLWithPath: "/path/to/series")
-    ///             for try await progress in loader.loadSeriesWithProgress(in: directoryURL) {
-    ///                 print("Progress: \(progress.fractionComplete * 100)%")
-    ///                 if progress.fractionComplete >= 1.0 {
-    ///                     let volume = progress.volumeInfo
-    ///                     print("Loaded volume: \(volume.width)x\(volume.height)x\(volume.depth)")
-    ///                 }
-    ///             }
-    ///         } catch {
-    ///             print("Failed to load series: \(error)")
+    /// ## Example
+    /// ```swift
+    /// Task {
+    ///     for try await progress in loader.loadSeriesWithProgress(in: directoryURL) {
+    ///         print("Progress: \(Int(progress.fractionComplete * 100))%")
+    ///         if progress.fractionComplete >= 1.0 {
+    ///             let volume = progress.volumeInfo
+    ///             print("Volume: \(volume.width)×\(volume.height)×\(volume.depth)")
     ///         }
     ///     }
+    /// }
+    /// ```
     ///
-    /// - Parameter directory: Directory containing DICOM slices.
-    /// - Returns: AsyncThrowingStream that yields progress updates and final volume.
-    /// - Throws: ``DicomSeriesLoaderError`` on validation or decoding failures.
+    /// - Parameter directory: Directory containing DICOM slices
+    /// - Returns: `AsyncThrowingStream` that yields ``SeriesLoadProgress`` updates
+    /// - Throws: ``DicomSeriesLoaderError`` on validation or decoding failures
     public func loadSeriesWithProgress(
         in directory: URL
     ) -> AsyncThrowingStream<SeriesLoadProgress, Error> {

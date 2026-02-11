@@ -8,23 +8,92 @@ import Foundation
 
 // MARK: - DICOM Enumerations
 
-/// DICOM modality types
+/// DICOM modality types following the DICOM standard.
+///
+/// Represents the imaging modality used to acquire medical images. Each case corresponds
+/// to a standard DICOM modality code and provides display properties for UI presentation.
+///
+/// ## Overview
+///
+/// ``DICOMModality`` provides a type-safe enumeration of common medical imaging modalities.
+/// It includes factory methods for converting DICOM tag values to enum cases, display properties
+/// for UI presentation, and Codable conformance for persistence.
+///
+/// **Supported Modalities:**
+/// - CT (Computed Tomography)
+/// - MR (Magnetic Resonance)
+/// - DX/CR (Digital/Computed Radiography)
+/// - US (Ultrasound)
+/// - MG (Mammography)
+/// - PT (Positron Emission Tomography)
+/// - NM (Nuclear Medicine)
+/// - RF (Radiofluoroscopy)
+/// - XC/SC (Photography/Secondary Capture)
+///
+/// ## Usage Example
+/// ```swift
+/// let modality = DICOMModality.from(string: "CT")
+/// print(modality.displayName)  // "Computed Tomography"
+/// print(modality.iconName)     // "cross.case"
+/// ```
+///
+/// ## Topics
+///
+/// ### Modality Cases
+///
+/// - ``ct``
+/// - ``mr``
+/// - ``dx``
+/// - ``cr``
+/// - ``us``
+/// - ``mg``
+/// - ``pt``
+/// - ``nm``
+/// - ``rf``
+/// - ``xc``
+/// - ``sc``
+/// - ``unknown``
+///
+/// ### Factory Methods
+///
+/// - ``from(string:)``
+///
+/// ### Display Properties
+///
+/// - ``displayName``
+/// - ``iconName``
+/// - ``rawStringValue``
+/// - ``associatedModality``
+///
 @objc public enum DICOMModality: Int, CaseIterable, Codable, Sendable {
-    case ct = 0              // Computed Tomography
-    case mr = 1              // Magnetic Resonance
-    case dx = 2              // Digital Radiography
-    case cr = 3              // Computed Radiography
-    case us = 4              // Ultrasound
-    case mg = 5              // Mammography
-    case rf = 6              // Radiofluoroscopy
-    case xc = 7              // External-camera Photography
-    case sc = 8              // Secondary Capture
-    case pt = 9              // Positron Emission Tomography
-    case nm = 10             // Nuclear Medicine
+    /// Computed Tomography
+    case ct = 0
+    /// Magnetic Resonance
+    case mr = 1
+    /// Digital Radiography
+    case dx = 2
+    /// Computed Radiography
+    case cr = 3
+    /// Ultrasound
+    case us = 4
+    /// Mammography
+    case mg = 5
+    /// Radiofluoroscopy
+    case rf = 6
+    /// External-camera Photography
+    case xc = 7
+    /// Secondary Capture
+    case sc = 8
+    /// Positron Emission Tomography
+    case pt = 9
+    /// Nuclear Medicine
+    case nm = 10
+    /// Unknown or unsupported modality
     case unknown = 999
-    
+
     // MARK: - String Representation
-    
+
+    /// DICOM standard modality code (e.g., "CT", "MR", "XR")
     var rawStringValue: String {
         switch self {
         case .ct: return "CT"
@@ -43,7 +112,17 @@ import Foundation
     }
     
     // MARK: - Factory Methods
-    
+
+    /// Creates a modality enum from a DICOM modality string.
+    ///
+    /// - Parameter string: DICOM modality code (e.g., "CT", "MR", "XR")
+    /// - Returns: Corresponding ``DICOMModality`` case (defaults to ``unknown`` if unrecognized)
+    ///
+    /// ## Example
+    /// ```swift
+    /// let modality = DICOMModality.from(string: "CT")  // .ct
+    /// let unknown = DICOMModality.from(string: "ZZ")   // .unknown
+    /// ```
     static func from(string: String) -> DICOMModality {
         switch string.uppercased() {
         case "CT": return .ct
@@ -60,9 +139,12 @@ import Foundation
         default: return .unknown
         }
     }
-    
+
     // MARK: - Display Properties
-    
+
+    /// Human-readable modality name for UI display.
+    ///
+    /// Returns the full descriptive name of the modality (e.g., "Computed Tomography" for `.ct`).
     var displayName: String {
         switch self {
         case .ct: return "Computed Tomography"
@@ -79,7 +161,10 @@ import Foundation
         case .unknown: return "Unknown"
         }
     }
-    
+
+    /// SF Symbols icon name for visual representation.
+    ///
+    /// Returns an appropriate SF Symbols icon name for the modality.
     var iconName: String {
         switch self {
         case .ct: return "cross.case"
@@ -110,15 +195,59 @@ import Foundation
     }
 }
 
-/// Patient sex enumeration following DICOM standard
+/// Patient sex enumeration following the DICOM standard.
+///
+/// ## Overview
+///
+/// ``PatientSex`` provides a type-safe representation of patient sex values as defined
+/// in the DICOM standard (Tag 0010,0040). It includes factory methods for parsing DICOM
+/// tag values and display properties for UI presentation.
+///
+/// **Standard Values:**
+/// - M (Male)
+/// - F (Female)
+/// - O (Other)
+/// - U (Unknown)
+///
+/// ## Usage Example
+/// ```swift
+/// let sex = PatientSex.from(string: "M")  // .male
+/// print(sex.displayName)  // "Male"
+/// print(sex.iconName)     // "person.fill"
+/// ```
+///
+/// ## Topics
+///
+/// ### Sex Cases
+///
+/// - ``male``
+/// - ``female``
+/// - ``other``
+/// - ``unknown``
+///
+/// ### Factory Methods
+///
+/// - ``from(string:)``
+///
+/// ### Display Properties
+///
+/// - ``displayName``
+/// - ``iconName``
+/// - ``rawStringValue``
+///
 @objc public enum PatientSex: Int, CaseIterable, Codable {
+    /// Male patient
     case male = 0
+    /// Female patient
     case female = 1
+    /// Other or non-binary
     case other = 2
+    /// Unknown or not specified
     case unknown = 999
-    
+
     // MARK: - String Representation
-    
+
+    /// DICOM standard sex code ("M", "F", "O", "U")
     var rawStringValue: String {
         switch self {
         case .male: return "M"
@@ -129,7 +258,17 @@ import Foundation
     }
     
     // MARK: - Factory Methods
-    
+
+    /// Creates a sex enum from a DICOM sex string.
+    ///
+    /// - Parameter string: DICOM sex code ("M", "F", "O") or `nil`
+    /// - Returns: Corresponding ``PatientSex`` case (defaults to ``unknown`` if unrecognized)
+    ///
+    /// ## Example
+    /// ```swift
+    /// let sex = PatientSex.from(string: "M")    // .male
+    /// let unknown = PatientSex.from(string: nil) // .unknown
+    /// ```
     static func from(string: String?) -> PatientSex {
         guard let string = string, !string.isEmpty else { return .unknown }
         switch string.uppercased().trimmingCharacters(in: .whitespaces) {
@@ -139,9 +278,12 @@ import Foundation
         default: return .unknown
         }
     }
-    
+
     // MARK: - Display Properties
-    
+
+    /// Human-readable sex name for UI display.
+    ///
+    /// Returns the full descriptive name (e.g., "Male", "Female", "Other", "Unknown").
     var displayName: String {
         switch self {
         case .male: return "Male"
@@ -150,7 +292,10 @@ import Foundation
         case .unknown: return "Unknown"
         }
     }
-    
+
+    /// SF Symbols icon name for visual representation.
+    ///
+    /// Returns an appropriate SF Symbols icon name for the sex value.
     var iconName: String {
         switch self {
         case .male: return "person.fill"
@@ -176,8 +321,105 @@ import Foundation
 
 // MARK: - Patient Model
 
-/// Modern Swift representation of a DICOM patient with comprehensive medical information
-/// Now includes Objective-C compatibility methods for seamless interoperability
+/// Modern Swift representation of a DICOM patient with comprehensive medical information.
+///
+/// ## Overview
+///
+/// ``PatientModel`` provides a structured, type-safe model for DICOM patient and study data
+/// following the DICOM information hierarchy (Patient → Study → Series → Image). It includes
+/// comprehensive patient demographics, study metadata, and series information extracted from
+/// DICOM files.
+///
+/// The class conforms to `Codable` for JSON persistence, `Identifiable` for SwiftUI integration,
+/// and includes Objective-C compatibility for bridge applications. All DICOM groups are properly
+/// organized and documented with their corresponding tag numbers.
+///
+/// **Key Features:**
+/// - Complete patient demographics (Group 0010)
+/// - Study identification and timing (Groups 0008, 0020)
+/// - Series organization (Group 0020)
+/// - Modality-specific information
+/// - Type-safe enumerations for modality and sex
+/// - Codable JSON persistence
+/// - Objective-C interoperability
+///
+/// ## Usage
+///
+/// Create from DICOM metadata:
+///
+/// ```swift
+/// let patient = PatientModel(
+///     patientName: "Doe^John",
+///     patientID: "12345",
+///     studyInstanceUID: "1.2.840.113619...",
+///     modality: .ct
+/// )
+/// ```
+///
+/// Create from ``StudyDataService``:
+///
+/// ```swift
+/// let service = StudyDataService(decoderFactory: { DCMDecoder() })
+/// if let metadata = await service.extractStudyMetadata(from: filePath) {
+///     let patient = service.createPatientModel(from: metadata)
+///     print("\(patient.patientName) - \(patient.modality.displayName)")
+/// }
+/// ```
+///
+/// Encode to JSON:
+///
+/// ```swift
+/// let encoder = JSONEncoder()
+/// encoder.outputFormatting = .prettyPrinted
+/// let data = try encoder.encode(patient)
+/// print(String(data: data, encoding: .utf8)!)
+/// ```
+///
+/// ## Topics
+///
+/// ### Creating a Patient Model
+///
+/// - ``init(patientName:patientID:studyInstanceUID:modality:)``
+/// - ``init(patientName:patientID:patientBirthDate:patientSex:patientAge:patientWeight:patientSize:studyInstanceUID:studyDate:studyTime:studyDescription:accessionNumber:referringPhysicianName:performingPhysicianName:institutionName:modality:bodyPartExamined:manufacturerModelName:protocolName:stationName:seriesNumber:acquisitionNumber:imageNumber:)``
+///
+/// ### Patient Demographics
+///
+/// - ``patientName``
+/// - ``patientID``
+/// - ``patientBirthDate``
+/// - ``patientSex``
+/// - ``patientAge``
+/// - ``patientWeight``
+/// - ``patientSize``
+///
+/// ### Study Information
+///
+/// - ``studyInstanceUID``
+/// - ``studyDate``
+/// - ``studyTime``
+/// - ``studyDescription``
+/// - ``accessionNumber``
+///
+/// ### Series Information
+///
+/// - ``modality``
+/// - ``bodyPartExamined``
+/// - ``seriesNumber``
+/// - ``acquisitionNumber``
+/// - ``imageNumber``
+///
+/// ### Medical Personnel
+///
+/// - ``referringPhysicianName``
+/// - ``performingPhysicianName``
+///
+/// ### Equipment Information
+///
+/// - ``institutionName``
+/// - ``manufacturerModelName``
+/// - ``stationName``
+/// - ``protocolName``
+///
 @objc(SwiftPatientModel)
 public final class PatientModel: NSObject, Codable, Identifiable, @unchecked Sendable {
     

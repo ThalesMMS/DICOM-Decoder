@@ -48,83 +48,188 @@ private typealias VR = DicomVR
 
 // MARK: - Main Decoder Class
 
-/// Decoder for DICOM files.  Designed to work on uncompressed
-/// transfer syntaxes with both little and big endian byte order and
-/// explicit or implicit VR.  The public API mirrors the original
-/// Objective‑C class but uses Swift properties and throws away
-/// manual memory management.  Pixel buffers are returned as
-/// optional arrays; they will be ``nil`` until ``setDicomFilename``
-/// is invoked and decoding succeeds.
+/// Primary decoder for DICOM medical imaging files.
 ///
-/// **Thread Safety:** This class is fully thread‑safe.  All public
-/// methods and properties can be safely accessed from multiple
-/// threads concurrently.  Internal lock‑based synchronization
-/// protects all mutable state, ensuring safe concurrent operations
-/// without data races.  Performance impact is minimal (<10%) due to
-/// the I/O‑bound nature of DICOM decoding operations.
+/// ## Overview
 ///
-/// **Metadata Parsing Strategy:**
+/// ``DCMDecoder`` parses DICOM files encoded with little or big endian explicit or implicit VR
+/// and extracts metadata and pixel data. The decoder handles 8-bit and 16-bit grayscale images
+/// as well as 24-bit RGB images (common for ultrasound). Compressed transfer syntaxes including
+/// JPEG Lossless, JPEG Baseline, JPEG 2000, and JPEG-LS are supported via native decoders
+/// and ImageIO fallback.
 ///
-/// DCMDecoder uses a hybrid lazy/eager parsing strategy to optimize
-/// memory usage and performance.  DICOM files can contain 100+
-/// metadata tags, but typical applications access only 10‑15 tags
-/// (PatientName, Modality, WindowCenter, etc.).  Parsing all tags
-/// upfront creates unnecessary string allocations and dictionary
-/// operations.
+/// The public API mirrors the original Objective-C implementation but uses Swift properties
+/// and modern error handling. Pixel buffers are returned as optional arrays and remain `nil`
+/// until file loading succeeds.
 ///
-/// **Eager Parsing (Critical Tags):**
+/// ## Usage
 ///
-/// Tags that affect decoder behavior or are frequently accessed are
-/// parsed immediately during file loading (``setDicomFilename`` or
-/// ``loadDICOMFileAsync``):
+/// Create a decoder instance using throwing initializers (recommended):
 ///
-/// - **Parsing Control:** `transferSyntaxUID`, `pixelData` —
-///   determine compression handling and pixel data location
-/// - **Image Dimensions:** `rows`, `columns`, `bitsAllocated` —
-///   validated immediately to catch malformed files early
-/// - **Pixel Interpretation:** `samplesPerPixel`,
-///   `photometricInterpretation`, `pixelRepresentation` — control
-///   pixel buffer allocation and data interpretation
-/// - **Display Windowing:** `windowCenter`, `windowWidth` —
-///   frequently accessed for image display
-/// - **Geometry:** `imageOrientation`, `imagePosition` — used for
-///   3D reconstruction and series ordering
-/// - **Spatial Calibration:** `pixelSpacing`, `sliceThickness` —
-///   physical measurement conversion
-/// - **Value Mapping:** `rescaleIntercept`, `rescaleSlope` —
-///   Hounsfield unit conversion
-/// - **Palette Color:** `redPalette`, `greenPalette`, `bluePalette`
-///   — color lookup tables
-/// - **Multi‑frame:** `numberOfFrames`, `planarConfiguration` —
-///   frame handling
+/// ```swift
+/// do {
+///     let decoder = try DCMDecoder(contentsOf: url)
+///     print("Image: \(decoder.width) × \(decoder.height)")
+///     if let pixels = decoder.getPixels16() {
+///         // Process 16-bit grayscale pixel data
+///     }
+/// } catch DICOMError.fileNotFound(let path) {
+///     print("File not found: \(path)")
+/// } catch DICOMError.invalidDICOMFormat(let path, let reason) {
+///     print("Invalid DICOM: \(reason)")
+/// } catch {
+///     print("Error: \(error)")
+/// }
+/// ```
+///
+/// Access metadata using type-safe ``DicomTag`` enum:
+///
+/// ```swift
+/// let patientName = decoder.info(for: .patientName)
+/// let modality = decoder.info(for: .modality)
+/// let windowSettings = decoder.windowSettingsV2
+/// ```
+///
+/// For non-blocking file loading, use async variants:
+///
+/// ```swift
+/// Task {
+///     let decoder = try await DCMDecoder(contentsOf: url)
+///     // Process asynchronously
+/// }
+/// ```
+///
+/// ## Topics
+///
+/// ### Creating a Decoder
+///
+/// - ``init()``
+/// - ``init(contentsOf:)``
+/// - ``init(contentsOfFile:)``
+/// - ``load(from:)``
+/// - ``load(fromFile:)``
+///
+/// ### Loading Files (Legacy)
+///
+/// - ``setDicomFilename(_:)``
+/// - ``loadDICOMFileAsync(filename:)``
+/// - ``dicomFileReadSuccess``
+/// - ``dicomFound``
+///
+/// ### Accessing Metadata
+///
+/// - ``info(for:)``
+/// - ``intValue(for:)``
+/// - ``doubleValue(for:)``
+/// - ``windowSettingsV2``
+/// - ``pixelSpacingV2``
+/// - ``rescaleParametersV2``
+/// - ``windowSettings``
+/// - ``pixelSpacing``
+/// - ``rescaleParameters``
+///
+/// ### Accessing Pixel Data
+///
+/// - ``getPixels16()``
+/// - ``getPixels8()``
+/// - ``getPixels24()``
+///
+/// ### Image Properties
+///
+/// - ``width``
+/// - ``height``
+/// - ``bitDepth``
+/// - ``samplesPerPixel``
+/// - ``photometricInterpretation``
+/// - ``pixelDepth``
+/// - ``pixelWidth``
+/// - ``pixelHeight``
+///
+/// ### Geometric Properties
+///
+/// - ``imageOrientation``
+/// - ``imagePosition``
+///
+/// ### Display Properties
+///
+/// - ``windowCenter``
+/// - ``windowWidth``
+///
+/// ### Validation
+///
+/// - ``validateDICOMFile(_:)``
+/// - ``isValid()``
+/// - ``getValidationStatus()``
+///
+/// ### Status Properties
+///
+/// - ``compressedImage``
+/// - ``dicomDir``
+/// - ``signedImage``
+/// - ``pixelRepresentationTagValue``
+/// - ``isSignedPixelRepresentation``
+///
+/// ### Multi-Frame Support
+///
+/// - ``offset``
+/// - ``nImages``
+///
+/// ## Thread Safety
+///
+/// This class is fully thread-safe. All public methods and properties can be safely accessed
+/// from multiple threads concurrently. Internal lock-based synchronization protects all mutable
+/// state, ensuring safe concurrent operations without data races. Performance impact is minimal
+/// (<10%) due to the I/O-bound nature of DICOM decoding operations.
+///
+/// ## Metadata Parsing Strategy
+///
+/// DCMDecoder uses a hybrid lazy/eager parsing strategy to optimize memory usage and performance.
+/// DICOM files can contain 100+ metadata tags, but typical applications access only 10-15 tags
+/// (PatientName, Modality, WindowCenter, etc.). Parsing all tags upfront creates unnecessary
+/// string allocations and dictionary operations.
+///
+/// ### Eager Parsing (Critical Tags)
+///
+/// Tags that affect decoder behavior or are frequently accessed are parsed immediately during
+/// file loading (``setDicomFilename(_:)`` or ``loadDICOMFileAsync(filename:)``):
+///
+/// - **Parsing Control:** `transferSyntaxUID`, `pixelData` — determine compression handling
+///   and pixel data location
+/// - **Image Dimensions:** `rows`, `columns`, `bitsAllocated` — validated immediately to catch
+///   malformed files early
+/// - **Pixel Interpretation:** `samplesPerPixel`, `photometricInterpretation`,
+///   `pixelRepresentation` — control pixel buffer allocation and data interpretation
+/// - **Display Windowing:** `windowCenter`, `windowWidth` — frequently accessed for image display
+/// - **Geometry:** `imageOrientation`, `imagePosition` — used for 3D reconstruction and series
+///   ordering
+/// - **Spatial Calibration:** `pixelSpacing`, `sliceThickness` — physical measurement conversion
+/// - **Value Mapping:** `rescaleIntercept`, `rescaleSlope` — Hounsfield unit conversion
+/// - **Palette Color:** `redPalette`, `greenPalette`, `bluePalette` — color lookup tables
+/// - **Multi-frame:** `numberOfFrames`, `planarConfiguration` — frame handling
 /// - **Modality:** `modality` — frequently accessed identifier
 ///
-/// **Lazy Parsing (Metadata‑Only Tags):**
+/// ### Lazy Parsing (Metadata-Only Tags)
 ///
-/// All other tags (patient demographics, study information, private
-/// tags, etc.) are stored as raw metadata during file loading:
+/// All other tags (patient demographics, study information, private tags, etc.) are stored as
+/// raw metadata during file loading:
 ///
-/// 1. File parsing stores ``TagMetadata`` (tag ID, file offset, VR,
-///    length) in ``tagMetadataCache`` without reading values
-/// 2. First call to ``info(for:)`` triggers ``parseTagOnDemand``
-///    which reads and formats the tag value from the file
-/// 3. Parsed value is cached in ``dicomInfoDict`` for fast
-///    subsequent access
+/// 1. File parsing stores tag metadata (tag ID, file offset, VR, length) in an internal cache
+///    without reading values
+/// 2. First call to ``info(for:)`` triggers on-demand parsing which reads and formats the tag
+///    value from the file
+/// 3. Parsed value is cached for fast subsequent access
 ///
-/// **Performance Benefits:**
+/// ### Performance Benefits
 ///
-/// - **Reduced Memory:** Files with 100+ tags only allocate strings
-///   for accessed tags (~32 bytes metadata vs ~100+ bytes string)
-/// - **Faster Loading:** File parsing skips string formatting for
-///   unused tags
-/// - **Maintained Speed:** Cached values ensure no performance
-///   penalty for repeated access (<0.1ms per tag)
+/// - **Reduced Memory:** Files with 100+ tags only allocate strings for accessed tags
+///   (~32 bytes metadata vs ~100+ bytes string)
+/// - **Faster Loading:** File parsing skips string formatting for unused tags
+/// - **Maintained Speed:** Cached values ensure no performance penalty for repeated access
+///   (<0.1ms per tag)
 ///
-/// This strategy mirrors the existing lazy pixel loading pattern:
-/// pixel data is not decoded until ``getPixels16()`` or
-/// ``getPixels8()`` is called.  Both optimizations ensure that
-/// DCMDecoder only performs expensive operations when actually
-/// needed.
+/// This strategy mirrors the existing lazy pixel loading pattern: pixel data is not decoded
+/// until ``getPixels16()`` or ``getPixels8()`` is called. Both optimizations ensure that
+/// DCMDecoder only performs expensive operations when actually needed.
 public final class DCMDecoder: DicomDecoderProtocol {
     
     // MARK: - Properties
@@ -143,11 +248,15 @@ public final class DCMDecoder: DicomDecoderProtocol {
     /// original code stored a strong pointer to ``DCMDictionary``.
     private let dict = DCMDictionary.shared
 
-    private let logger = AnyLogger.make(subsystem: "com.dicomviewer", category: "DCMDecoder")
+    private let logger: LoggerProtocol = DicomLogger.make(subsystem: "com.dicomviewer", category: "DCMDecoder")
 
     /// Lock for thread-safe access to decoder state.
     /// Protects all mutable properties and ensures safe concurrent access.
     private let lock = DicomLock()
+
+    /// Tag handler registry for strategy-based tag processing.
+    /// Maps DICOM tag IDs to specialized handler implementations.
+    private lazy var handlerRegistry = TagHandlerRegistry()
 
     /// Raw filename used to open the file.  Kept for reference but
     /// never exposed directly.
@@ -790,6 +899,77 @@ public final class DCMDecoder: DicomDecoderProtocol {
         }
     }
 
+    /// Returns a downsampled 8-bit pixel buffer for thumbnail generation.
+    /// This method reads only every Nth pixel to dramatically speed up thumbnail creation.
+    /// - Parameter maxDimension: Maximum dimension for the thumbnail (default 150)
+    /// Creates an aspect-preserving downsampled 8-bit grayscale thumbnail from the image pixel data.
+    /// The result preserves the source aspect ratio, produces row-major UInt8 pixel values, and accounts for MONOCHROME1 inversion when present.
+    /// - Parameters:
+    ///   - maxDimension: The maximum width or height for the thumbnail in pixels; the other dimension is scaled to preserve aspect ratio.
+    /// - Returns: A tuple containing `pixels` (row-major downsampled `UInt8` values), `width`, and `height`; returns `nil` if the image is not 8-bit single-channel or pixel data is unavailable.
+    public func getDownsampledPixels8(maxDimension: Int = 150) -> (pixels: [UInt8], width: Int, height: Int)? {
+        return synchronized {
+            guard samplesPerPixel == 1 && bitDepth == 8 else { return nil }
+            guard offset > 0 else { return nil }
+
+            let startTime = CFAbsoluteTimeGetCurrent()
+
+            // Calculate proper aspect-preserving thumbnail dimensions
+            let aspectRatio = Double(width) / Double(height)
+            let thumbWidth: Int
+            let thumbHeight: Int
+
+            if width > height {
+                thumbWidth = min(width, maxDimension)
+                thumbHeight = Int(Double(thumbWidth) / aspectRatio)
+            } else {
+                thumbHeight = min(height, maxDimension)
+                thumbWidth = Int(Double(thumbHeight) * aspectRatio)
+            }
+
+            // Calculate actual sampling step (can be fractional)
+            let xStep = Double(width) / Double(thumbWidth)
+            let yStep = Double(height) / Double(thumbHeight)
+
+            logger.debug("Downsampling \(width)x\(height) -> \(thumbWidth)x\(thumbHeight) (step: \(String(format: "%.2f", xStep))x\(String(format: "%.2f", yStep)))")
+
+            var downsampledPixels = [UInt8](repeating: 0, count: thumbWidth * thumbHeight)
+
+            dicomData.withUnsafeBytes { dataBytes in
+                let basePtr = dataBytes.baseAddress!.advanced(by: offset)
+
+                for thumbY in 0..<thumbHeight {
+                    for thumbX in 0..<thumbWidth {
+                        // Calculate source pixel position
+                        let sourceX = Int(Double(thumbX) * xStep)
+                        let sourceY = Int(Double(thumbY) * yStep)
+
+                        // Ensure we don't go out of bounds
+                        let clampedX = min(sourceX, width - 1)
+                        let clampedY = min(sourceY, height - 1)
+
+                        let sourceIndex = clampedY * width + clampedX
+                        let thumbIndex = thumbY * thumbWidth + thumbX
+
+                        var value = basePtr.advanced(by: sourceIndex).assumingMemoryBound(to: UInt8.self).pointee
+
+                        // Handle MONOCHROME1 inversion
+                        if photometricInterpretation == "MONOCHROME1" {
+                            value = 255 - value
+                        }
+
+                        downsampledPixels[thumbIndex] = value
+                    }
+                }
+            }
+
+            let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+            debugPerfLog("[PERF] getDownsampledPixels8: \(String(format: "%.2f", elapsed))ms | thumbSize: \(thumbWidth)x\(thumbHeight)")
+
+            return (downsampledPixels, thumbWidth, thumbHeight)
+        }
+    }
+
     // MARK: - Range-Based Pixel Data Access Methods
 
     /// Returns a subset of 8-bit pixel data specified by a range of pixel indices.
@@ -1395,6 +1575,35 @@ public final class DCMDecoder: DicomDecoderProtocol {
     /// when first accessed through `info(for:)`. This defers string allocation and formatting
     /// for tags that may never be accessed, reducing memory overhead for files with hundreds
     /// of private or unused tags.
+    /// Helper class to provide addInfo functionality to tag handlers
+    /// without closure capture issues with inout parameters.
+    /// Buffers metadata additions and applies them after handler completes.
+    private final class InfoAdder {
+        private var stringMetadata: [(tag: Int, value: String?)] = []
+        private var intMetadata: [(tag: Int, value: Int)] = []
+
+        func addInfo(tag: Int, stringValue: String?) {
+            stringMetadata.append((tag, stringValue))
+        }
+
+        func addInfoInt(tag: Int, intValue: Int) {
+            intMetadata.append((tag, intValue))
+        }
+
+        func flush(to decoder: DCMDecoder, parser: DCMTagParser) {
+            // Apply all buffered metadata to the decoder's info dict
+            for (tag, value) in stringMetadata {
+                parser.addInfo(tag: tag, stringValue: value, location: &decoder.location, infoDict: &decoder.dicomInfoDict)
+            }
+            for (tag, value) in intMetadata {
+                parser.addInfo(tag: tag, intValue: value, location: &decoder.location, infoDict: &decoder.dicomInfoDict)
+            }
+            // Clear buffers
+            stringMetadata.removeAll()
+            intMetadata.removeAll()
+        }
+    }
+
     private func readFileInfoUnsafe() -> Bool {
         guard let initialReader = reader else { return false }
         var reader = initialReader
@@ -1413,13 +1622,15 @@ public final class DCMDecoder: DicomDecoderProtocol {
         }
         dicomFound = true
         samplesPerPixel = 1
-        // Temporary variables for planar configuration and modality
-        var planarConfiguration = 0
-        var modality: String? = nil
+        // Create decoder context for tag handlers
+        let context = DecoderContext()
+        // Create info adder helper for tag handlers
+        guard tagParser != nil else { return false }
+        let infoAdder = InfoAdder()
         var decodingTags = true
         var tagCount = 0
         let maxTags = 10000  // Safety limit to prevent infinite loops
-        
+
         while decodingTags && location < dicomData.count {
             tagCount += 1
             if tagCount > maxTags {
@@ -1445,155 +1656,73 @@ public final class DCMDecoder: DicomDecoderProtocol {
                 addInfo(tag: tag, stringValue: nil)
                 continue
             }
-            switch tag {
-            case Tag.transferSyntaxUID.rawValue:
-                // Read and store the transfer syntax UID
-                let elementLength = tagParser?.currentElementLength ?? 0
-                let s = reader.readString(length: elementLength, location: &location)
-                transferSyntaxUID = s
-                addInfo(tag: tag, stringValue: s)
-                // Detect compressed syntaxes and byte ordering using DicomTransferSyntax enum
-                if let syntax = DicomTransferSyntax(uid: s) {
-                    compressedImage = syntax.isCompressed
-                    bigEndianTransferSyntax = syntax.isBigEndian
-                } else {
-                    // Unknown transfer syntax - assume uncompressed and little endian
-                    compressedImage = false
-                    bigEndianTransferSyntax = false
+
+            // Use handler registry for tag processing
+            guard let parser = tagParser else { continue }
+
+            if let handler = handlerRegistry.getHandler(for: tag) {
+                // Tag has a registered handler - delegate processing
+                let shouldContinue = handler.handle(
+                    tag: tag,
+                    reader: reader,
+                    location: &location,
+                    parser: parser,
+                    context: context,
+                    addInfo: infoAdder.addInfo(tag:stringValue:),
+                    addInfoInt: infoAdder.addInfoInt(tag:intValue:)
+                )
+
+                // Flush buffered metadata after handler completes
+                // This avoids exclusivity conflicts with inout location parameter
+                infoAdder.flush(to: self, parser: parser)
+
+                // Check if handler signaled to stop decoding (e.g., PixelDataTagHandler)
+                if !shouldContinue || context.shouldStopDecoding {
+                    decodingTags = false
                 }
-            case Tag.modality.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                modality = reader.readString(length: elementLength, location: &location)
-                addInfo(tag: tag, stringValue: modality)
-            case Tag.numberOfFrames.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                let s = reader.readString(length: elementLength, location: &location)
-                addInfo(tag: tag, stringValue: s)
-                if let frames = Double(s), frames > 1.0 {
-                    nImages = Int(frames)
-                }
-            case Tag.samplesPerPixel.rawValue:
-                let spp = Int(reader.readShort(location: &location))
-                samplesPerPixel = spp
-                addInfo(tag: tag, intValue: spp)
-            case Tag.photometricInterpretation.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                let s = reader.readString(length: elementLength, location: &location)
-                photometricInterpretation = s
-                addInfo(tag: tag, stringValue: s)
-            case Tag.planarConfiguration.rawValue:
-                planarConfiguration = Int(reader.readShort(location: &location))
-                addInfo(tag: tag, intValue: planarConfiguration)
-            case Tag.rows.rawValue:
-                let h = Int(reader.readShort(location: &location))
-                height = h
-                addInfo(tag: tag, intValue: h)
-            case Tag.columns.rawValue:
-                let w = Int(reader.readShort(location: &location))
-                width = w
-                addInfo(tag: tag, intValue: w)
-            case Tag.pixelSpacing.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                let scale = reader.readString(length: elementLength, location: &location)
-                applySpatialScale(scale)
-                addInfo(tag: tag, stringValue: scale)
-            case Tag.imageOrientationPatient.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                let orientationString = reader.readString(length: elementLength, location: &location)
-                addInfo(tag: tag, stringValue: orientationString)
-                if let values = parseDoubleValues(orientationString, expectedCount: 6) {
-                    let row = SIMD3<Double>(values[0], values[1], values[2])
-                    let column = SIMD3<Double>(values[3], values[4], values[5])
-                    // Normalize to avoid drift from rounding
-                    let normalizedRow = simd_normalize(row)
-                    let normalizedCol = simd_normalize(column)
-                    imageOrientation = (row: normalizedRow, column: normalizedCol)
-                }
-            case Tag.imagePositionPatient.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                let positionString = reader.readString(length: elementLength, location: &location)
-                addInfo(tag: tag, stringValue: positionString)
-                if let values = parseDoubleValues(positionString, expectedCount: 3) {
-                    imagePosition = SIMD3<Double>(values[0], values[1], values[2])
-                }
-            case Tag.sliceThickness.rawValue, Tag.sliceSpacing.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                let spacing = reader.readString(length: elementLength, location: &location)
-                pixelDepth = Double(spacing) ?? pixelDepth
-                addInfo(tag: tag, stringValue: spacing)
-            case Tag.bitsAllocated.rawValue:
-                let depth = Int(reader.readShort(location: &location))
-                bitDepth = depth
-                addInfo(tag: tag, intValue: depth)
-            case Tag.pixelRepresentation.rawValue:
-                pixelRepresentation = Int(reader.readShort(location: &location))
-                addInfo(tag: tag, intValue: pixelRepresentation)
-            case Tag.windowCenter.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                var center = reader.readString(length: elementLength, location: &location)
-                if let index = center.firstIndex(of: "\\") {
-                    center = String(center[center.index(after: index)...])
-                }
-                windowCenter = Double(center) ?? 0.0
-                addInfo(tag: tag, stringValue: center)
-            case Tag.windowWidth.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                var widthS = reader.readString(length: elementLength, location: &location)
-                if let index = widthS.firstIndex(of: "\\") {
-                    widthS = String(widthS[widthS.index(after: index)...])
-                }
-                windowWidth = Double(widthS) ?? 0.0
-                addInfo(tag: tag, stringValue: widthS)
-            case Tag.rescaleIntercept.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                let intercept = reader.readString(length: elementLength, location: &location)
-                rescaleIntercept = Double(intercept) ?? 0.0
-                addInfo(tag: tag, stringValue: intercept)
-            case Tag.rescaleSlope.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                let slope = reader.readString(length: elementLength, location: &location)
-                rescaleSlope = Double(slope) ?? 1.0
-                addInfo(tag: tag, stringValue: slope)
-            case Tag.redPalette.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                if let table = reader.readLUT(length: elementLength, location: &location) {
-                    reds = table
-                    addInfo(tag: tag, intValue: table.count)
-                }
-            case Tag.greenPalette.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                if let table = reader.readLUT(length: elementLength, location: &location) {
-                    greens = table
-                    addInfo(tag: tag, intValue: table.count)
-                }
-            case Tag.bluePalette.rawValue:
-                let elementLength = tagParser?.currentElementLength ?? 0
-                if let table = reader.readLUT(length: elementLength, location: &location) {
-                    blues = table
-                    addInfo(tag: tag, intValue: table.count)
-                }
-            case Tag.pixelData.rawValue:
-                offset = location
-                addInfo(tag: tag, intValue: location)
-                // Logged when pixel data tag is found; keeping parsing fast in release builds.
-                decodingTags = false  // Stop processing after pixel data
-            default:
+            } else {
                 // Lazy parsing optimization: Store tag metadata for deferred parsing
                 // instead of eagerly parsing all tags to strings. The tag value will
                 // be parsed on first access via info(for:) using parseTagOnDemand().
-                if let parser = tagParser {
-                    let metadata = TagMetadata(
-                        tag: tag,
-                        offset: location,
-                        vr: parser.currentVR,
-                        elementLength: parser.currentElementLength
-                    )
-                    tagMetadataCache[tag] = metadata
-                    // Advance location to skip the element value
-                    location += parser.currentElementLength
-                }
+                let metadata = TagMetadata(
+                    tag: tag,
+                    offset: location,
+                    vr: parser.currentVR,
+                    elementLength: parser.currentElementLength
+                )
+                tagMetadataCache[tag] = metadata
+                // Advance location to skip the element value
+                location += parser.currentElementLength
             }
         }
+
+        // Copy context values back to decoder properties
+        width = context.width
+        height = context.height
+        bitDepth = context.bitDepth
+        transferSyntaxUID = context.transferSyntaxUID
+        compressedImage = context.compressedImage
+        bigEndianTransferSyntax = context.bigEndianTransferSyntax
+        samplesPerPixel = context.samplesPerPixel
+        photometricInterpretation = context.photometricInterpretation
+        pixelRepresentation = context.pixelRepresentation
+        windowCenter = context.windowCenter
+        windowWidth = context.windowWidth
+        pixelWidth = context.pixelWidth
+        pixelHeight = context.pixelHeight
+        pixelDepth = context.pixelDepth
+        imageOrientation = context.imageOrientation
+        imagePosition = context.imagePosition
+        rescaleIntercept = context.rescaleIntercept
+        rescaleSlope = context.rescaleSlope
+        reds = context.reds
+        greens = context.greens
+        blues = context.blues
+        offset = context.offset
+        nImages = context.nImages
+        // Note: modality and planarConfiguration are stored in context but not
+        // copied to decoder properties - they were temporary values in the original
+        // implementation, only used for passing to addInfo() metadata callbacks
 
         // Validate image dimensions and expected pixel buffer size
         if width <= 0 || height <= 0 {
@@ -1637,7 +1766,7 @@ public final class DCMDecoder: DicomDecoderProtocol {
                 return false
             }
         }
-        
+
         return true
     }
 
@@ -1750,18 +1879,81 @@ extension DCMDecoder {
     }
 
     /// Returns pixel spacing as a tuple
+    @available(*, deprecated, message: "Use pixelSpacingV2 for type-safe PixelSpacing struct")
     public var pixelSpacing: (width: Double, height: Double, depth: Double) {
         return (pixelWidth, pixelHeight, pixelDepth)
     }
 
     /// Returns window settings as a tuple
+    @available(*, deprecated, message: "Use windowSettingsV2 for type-safe WindowSettings struct")
     public var windowSettings: (center: Double, width: Double) {
         return (windowCenter, windowWidth)
     }
 
     /// Returns rescale parameters as a tuple
+    @available(*, deprecated, message: "Use rescaleParametersV2 for type-safe RescaleParameters struct")
     public var rescaleParameters: (intercept: Double, slope: Double) {
         return (rescaleIntercept, rescaleSlope)
+    }
+
+    // MARK: - Type-Safe Value Properties (V2 APIs)
+
+    /// Returns pixel spacing as a type-safe struct
+    ///
+    /// Provides physical spacing between pixels in three dimensions (x, y, z).
+    /// This is the recommended API for accessing pixel spacing with better type safety
+    /// and Codable support.
+    ///
+    /// - Returns: PixelSpacing struct with x, y, z spacing values in millimeters
+    ///
+    /// ## Example
+    /// ```swift
+    /// let spacing = decoder.pixelSpacingV2
+    /// if spacing.isValid {
+    ///     print("Pixel spacing: \(spacing.x) × \(spacing.y) × \(spacing.z) mm")
+    /// }
+    /// ```
+    public var pixelSpacingV2: PixelSpacing {
+        return PixelSpacing(x: pixelWidth, y: pixelHeight, z: pixelDepth)
+    }
+
+    /// Returns window settings as a type-safe struct
+    ///
+    /// Provides window center and width values for grayscale display adjustment.
+    /// This is the recommended API for accessing window settings with better type safety
+    /// and Codable support.
+    ///
+    /// - Returns: WindowSettings struct with center and width values
+    ///
+    /// ## Example
+    /// ```swift
+    /// let settings = decoder.windowSettingsV2
+    /// if settings.isValid {
+    ///     // Apply windowing with settings.center and settings.width
+    /// }
+    /// ```
+    public var windowSettingsV2: WindowSettings {
+        return WindowSettings(center: windowCenter, width: windowWidth)
+    }
+
+    /// Returns rescale parameters as a type-safe struct
+    ///
+    /// Provides rescale slope and intercept for converting stored pixel values
+    /// to modality units (e.g., Hounsfield Units in CT imaging).
+    /// This is the recommended API for accessing rescale parameters with better
+    /// type safety and Codable support.
+    ///
+    /// - Returns: RescaleParameters struct with intercept and slope values
+    ///
+    /// ## Example
+    /// ```swift
+    /// let rescale = decoder.rescaleParametersV2
+    /// if !rescale.isIdentity {
+    ///     let hounsfieldValue = rescale.apply(to: pixelValue)
+    /// }
+    /// ```
+    public var rescaleParametersV2: RescaleParameters {
+        return RescaleParameters(intercept: rescaleIntercept, slope: rescaleSlope)
     }
 
     /// Applies rescale slope and intercept to a pixel value
@@ -1773,11 +1965,40 @@ extension DCMDecoder {
 
     /// Calculates optimal window/level based on pixel data statistics
     /// - Returns: Tuple with calculated center and width, or nil if no pixel data
+    @available(*, deprecated, message: "Use calculateOptimalWindowV2() for type-safe WindowSettings struct")
     public func calculateOptimalWindow() -> (center: Double, width: Double)? {
         guard let pixels = getPixels16() else { return nil }
 
         let stats = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: pixels)
         return (stats.center, stats.width)
+    }
+
+    /// Calculates optimal window/level based on pixel data statistics (V2 API)
+    ///
+    /// Analyzes the pixel value distribution to determine optimal display window settings.
+    /// This is the recommended API for calculating window/level with better type safety
+    /// and Codable support.
+    ///
+    /// - Returns: WindowSettings struct with calculated center and width, or nil if no pixel data
+    ///
+    /// ## Example
+    /// ```swift
+    /// if let settings = decoder.calculateOptimalWindowV2() {
+    ///     if settings.isValid {
+    ///         // Apply optimal windowing
+    ///         let displayPixels = DCMWindowingProcessor.applyWindowLevel(
+    ///             pixels16: pixels,
+    ///             center: settings.center,
+    ///             width: settings.width
+    ///         )
+    ///     }
+    /// }
+    /// ```
+    public func calculateOptimalWindowV2() -> WindowSettings? {
+        guard let pixels = getPixels16() else { return nil }
+
+        let stats = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: pixels)
+        return WindowSettings(center: stats.center, width: stats.width)
     }
 
     /// Returns image quality metrics
