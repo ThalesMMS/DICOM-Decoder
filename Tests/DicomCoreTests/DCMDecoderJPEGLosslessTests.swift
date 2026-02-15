@@ -239,10 +239,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read JPEG Lossless DICOM file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read JPEG Lossless DICOM file")
         XCTAssertTrue(decoder.isValid(), "Decoder should be valid")
         XCTAssertGreaterThan(decoder.width, 0, "Width should be positive")
         XCTAssertGreaterThan(decoder.height, 0, "Height should be positive")
@@ -260,11 +259,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        let success = await decoder.loadDICOMFileAsync(fileURL.path)
+        let decoder = try await DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(success, "Should successfully load JPEG Lossless file asynchronously")
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should have read success flag set")
+        XCTAssertTrue(decoder.dicomFound, "Should have read success flag set")
         XCTAssertTrue(decoder.isValid(), "Decoder should be valid after async loading")
         XCTAssertGreaterThan(decoder.width, 0, "Width should be positive")
         XCTAssertGreaterThan(decoder.height, 0, "Height should be positive")
@@ -308,10 +305,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         // Verify basic structure
         XCTAssertGreaterThan(decoder.width, 0, "Should have valid width")
@@ -339,10 +335,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         // Note: Transfer syntax may not be fully extracted from synthetic files
         // The key test is that the file loads successfully
@@ -362,10 +357,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         let validationStatus = decoder.getValidationStatus()
         XCTAssertTrue(validationStatus.hasPixels, "Should have pixel data")
@@ -402,10 +396,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
             let fileURL = try writeTempDICOMFile(dicomData)
             defer { try? FileManager.default.removeItem(at: fileURL) }
 
-            let decoder = DCMDecoder()
-            decoder.setDicomFilename(fileURL.path)
+            let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-            XCTAssertTrue(decoder.dicomFileReadSuccess, "Should read \(width)x\(height) file")
+            XCTAssertTrue(decoder.dicomFound, "Should read \(width)x\(height) file")
 
             // Verify decoder extracted dimensions
             XCTAssertGreaterThan(decoder.width, 0, "Width should be positive")
@@ -431,10 +424,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read 8-bit JPEG Lossless file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read 8-bit JPEG Lossless file")
         // Note: DCMDecoder may report different bit depth based on DICOM tags vs JPEG headers
         XCTAssertGreaterThanOrEqual(decoder.bitDepth, 8, "Bit depth should be at least 8")
 
@@ -457,10 +449,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read 12-bit JPEG Lossless file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read 12-bit JPEG Lossless file")
         // Note: DCMDecoder may report different bit depth based on DICOM tags vs JPEG headers
         XCTAssertGreaterThanOrEqual(decoder.bitDepth, 12, "Bit depth should be at least 12")
 
@@ -486,10 +477,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read 1x1 image")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read 1x1 image")
         XCTAssertEqual(decoder.width, 1, "Width should be 1")
         XCTAssertEqual(decoder.height, 1, "Height should be 1")
 
@@ -509,10 +499,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read narrow image")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read narrow image")
         XCTAssertGreaterThan(decoder.width, 0, "Width should be positive")
         XCTAssertGreaterThan(decoder.height, 0, "Height should be positive")
     }
@@ -528,10 +517,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read wide image")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read wide image")
         XCTAssertGreaterThan(decoder.width, 0, "Width should be positive")
         XCTAssertGreaterThan(decoder.height, 0, "Height should be positive")
     }
@@ -548,10 +536,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         // Test convenience properties are consistent
         let dimensions = decoder.imageDimensions
@@ -573,10 +560,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         // Grayscale images should have 1 sample per pixel
         XCTAssertEqual(decoder.samplesPerPixel, 1, "Should be grayscale (1 sample per pixel)")
@@ -601,10 +587,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         let patientInfo = decoder.getPatientInfo()
         XCTAssertNotNil(patientInfo, "Should return patient info dictionary")
@@ -631,10 +616,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         let studyInfo = decoder.getStudyInfo()
         XCTAssertNotNil(studyInfo, "Should return study info dictionary")
@@ -659,10 +643,9 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
         let fileURL = try writeTempDICOMFile(dicomData)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         let seriesInfo = decoder.getSeriesInfo()
         XCTAssertNotNil(seriesInfo, "Should return series info dictionary")
@@ -686,36 +669,29 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
 
         // Load same file concurrently with multiple decoders
         async let result1 = Task {
-            let decoder = DCMDecoder()
-            let success = await decoder.loadDICOMFileAsync(fileURL.path)
-            return (decoder, success)
+            try await DCMDecoder(contentsOfFile: fileURL.path)
         }.value
 
         async let result2 = Task {
-            let decoder = DCMDecoder()
-            let success = await decoder.loadDICOMFileAsync(fileURL.path)
-            return (decoder, success)
+            try await DCMDecoder(contentsOfFile: fileURL.path)
         }.value
 
         async let result3 = Task {
-            let decoder = DCMDecoder()
-            let success = await decoder.loadDICOMFileAsync(fileURL.path)
-            return (decoder, success)
+            try await DCMDecoder(contentsOfFile: fileURL.path)
         }.value
 
-        let results = await [result1, result2, result3]
+        let results = try await [result1, result2, result3]
 
         // All should succeed
-        for (decoder, success) in results {
-            XCTAssertTrue(success, "Concurrent load should succeed")
+        for decoder in results {
             XCTAssertTrue(decoder.isValid(), "Concurrently loaded decoder should be valid")
         }
 
         // All should have same dimensions (get reference from first decoder)
-        let referenceWidth = results[0].0.width
-        let referenceHeight = results[0].0.height
-        let widths = results.map { $0.0.width }
-        let heights = results.map { $0.0.height }
+        let referenceWidth = results[0].width
+        let referenceHeight = results[0].height
+        let widths = results.map { $0.width }
+        let heights = results.map { $0.height }
         XCTAssertTrue(widths.allSatisfy { $0 == referenceWidth }, "All decoders should have same width")
         XCTAssertTrue(heights.allSatisfy { $0 == referenceHeight }, "All decoders should have same height")
     }

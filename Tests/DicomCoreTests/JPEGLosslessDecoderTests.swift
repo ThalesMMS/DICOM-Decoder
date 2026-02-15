@@ -246,41 +246,41 @@ final class JPEGLosslessDecoderTests: XCTestCase {
 
         // Test case 1: First pixel of first row (x=0, y=0)
         // Expected: default predictor (2^15 = 32768)
-        let pred1 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision)
+        let pred1 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 1)
         XCTAssertEqual(pred1, defaultPredictor, "First pixel should use default predictor 2^(P-1)")
 
         // Test case 2: Second pixel of first row (x=1, y=0)
         // Expected: left neighbor (pixels[0] = 32768)
-        let pred2 = decoder.computePredictor(x: 1, y: 0, pixels: pixels, width: width, precision: precision)
+        let pred2 = decoder.computePredictor(x: 1, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 1)
         XCTAssertEqual(pred2, 32768, "Second pixel should use left neighbor as predictor")
 
         // Test case 3: Third pixel of first row (x=2, y=0)
         // Expected: left neighbor (pixels[1] = 30000)
-        let pred3 = decoder.computePredictor(x: 2, y: 0, pixels: pixels, width: width, precision: precision)
+        let pred3 = decoder.computePredictor(x: 2, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 1)
         XCTAssertEqual(pred3, 30000, "Third pixel should use left neighbor as predictor")
 
         // Test case 4: First pixel of second row (x=0, y=1)
         // Expected: default predictor (2^15 = 32768)
-        let pred4 = decoder.computePredictor(x: 0, y: 1, pixels: pixels, width: width, precision: precision)
+        let pred4 = decoder.computePredictor(x: 0, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 1)
         XCTAssertEqual(pred4, defaultPredictor, "First pixel of each row should use default predictor")
 
         // Test case 5: Second pixel of second row (x=1, y=1)
         // Expected: left neighbor (pixels[4] = 35000)
-        let pred5 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision)
+        let pred5 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 1)
         XCTAssertEqual(pred5, 35000, "Second pixel of row should use left neighbor as predictor")
 
         // Test with different precision (12-bit)
         let precision12 = 12
         let defaultPredictor12 = 1 << (precision12 - 1)  // 2^11 = 2048 for 12-bit
 
-        let pred6 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision12)
+        let pred6 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision12, selectionValue: 1)
         XCTAssertEqual(pred6, defaultPredictor12, "12-bit precision should use 2^11 = 2048 as default predictor")
 
         // Test with different precision (8-bit)
         let precision8 = 8
         let defaultPredictor8 = 1 << (precision8 - 1)  // 2^7 = 128 for 8-bit
 
-        let pred7 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision8)
+        let pred7 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision8, selectionValue: 1)
         XCTAssertEqual(pred7, defaultPredictor8, "8-bit precision should use 2^7 = 128 as default predictor")
     }
 
@@ -300,19 +300,478 @@ final class JPEGLosslessDecoderTests: XCTestCase {
 
         // All pixels in a single-column image should use default predictor
         for y in 0..<height1 {
-            let pred = decoder.computePredictor(x: 0, y: y, pixels: pixels1, width: width1, precision: precision)
+            let pred = decoder.computePredictor(x: 0, y: y, pixels: pixels1, width: width1, precision: precision, selectionValue: 1)
             XCTAssertEqual(pred, defaultPredictor, "Single-column image should always use default predictor")
         }
 
         // Test with maximum precision values
         let pixels16bit = [UInt16](repeating: 65535, count: 10)
-        let pred16 = decoder.computePredictor(x: 1, y: 0, pixels: pixels16bit, width: 5, precision: 16)
+        let pred16 = decoder.computePredictor(x: 1, y: 0, pixels: pixels16bit, width: 5, precision: 16, selectionValue: 1)
         XCTAssertEqual(pred16, 65535, "Should handle maximum 16-bit value")
 
         // Test with minimum precision values
         let pixels16bitMin = [UInt16](repeating: 0, count: 10)
-        let predMin = decoder.computePredictor(x: 1, y: 0, pixels: pixels16bitMin, width: 5, precision: 16)
+        let predMin = decoder.computePredictor(x: 1, y: 0, pixels: pixels16bitMin, width: 5, precision: 16, selectionValue: 1)
         XCTAssertEqual(predMin, 0, "Should handle minimum value (0)")
+    }
+
+    // MARK: - Selection Value Tests
+
+    func testSelectionValue0NoPrediction() throws {
+        // Test selection value 0: No prediction (direct coding)
+        // Expected: predictor = 0 (no prediction)
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 3
+        let height = 3
+        let precision = 16
+        var pixels = [UInt16](repeating: 0, count: width * height)
+
+        // Populate some test pixels
+        pixels[0] = 32768
+        pixels[1] = 30000
+        pixels[4] = 35000
+
+        // Test various positions - all should return 0 (no prediction)
+        let pred1 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 0)
+        XCTAssertEqual(pred1, 0, "Selection value 0 should always return 0 (no prediction)")
+
+        let pred2 = decoder.computePredictor(x: 1, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 0)
+        XCTAssertEqual(pred2, 0, "Selection value 0 should always return 0 (no prediction)")
+
+        let pred3 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 0)
+        XCTAssertEqual(pred3, 0, "Selection value 0 should always return 0 (no prediction)")
+    }
+
+    func testSelectionValue1PredictorA() throws {
+        // Test selection value 1: Prediction from pixel A (left neighbor)
+        // This is already tested in testFirstOrderPrediction, but included here for completeness
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 4
+        let height = 2
+        let precision = 16
+        let defaultPredictor = 1 << (precision - 1)
+
+        var pixels = [UInt16](repeating: 0, count: width * height)
+        pixels[0] = 32768
+        pixels[1] = 30000
+        pixels[4] = 35000
+
+        // First pixel: default predictor
+        let pred1 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 1)
+        XCTAssertEqual(pred1, defaultPredictor, "First pixel should use default predictor 2^(P-1)")
+
+        // Second pixel: left neighbor (A)
+        let pred2 = decoder.computePredictor(x: 1, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 1)
+        XCTAssertEqual(pred2, 32768, "Should use left neighbor (A) as predictor")
+
+        // First pixel of second row: default predictor
+        let pred3 = decoder.computePredictor(x: 0, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 1)
+        XCTAssertEqual(pred3, defaultPredictor, "First pixel of row should use default predictor")
+    }
+
+    func testSelectionValue2PredictorB() throws {
+        // Test selection value 2: Prediction from pixel B (above neighbor)
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 3
+        let height = 3
+        let precision = 16
+        let defaultPredictor = 1 << (precision - 1)
+
+        var pixels = [UInt16](repeating: 0, count: width * height)
+        pixels[0] = 32768  // Row 0, col 0
+        pixels[1] = 30000  // Row 0, col 1
+        pixels[2] = 28000  // Row 0, col 2
+        pixels[3] = 35000  // Row 1, col 0
+
+        // First row: default predictor
+        let pred1 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 2)
+        XCTAssertEqual(pred1, defaultPredictor, "First row should use default predictor")
+
+        let pred2 = decoder.computePredictor(x: 1, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 2)
+        XCTAssertEqual(pred2, defaultPredictor, "First row should use default predictor")
+
+        // Second row: should use pixel above (B)
+        let pred3 = decoder.computePredictor(x: 0, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 2)
+        XCTAssertEqual(pred3, 32768, "Should use pixel above (B) as predictor")
+
+        let pred4 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 2)
+        XCTAssertEqual(pred4, 30000, "Should use pixel above (B) as predictor")
+    }
+
+    func testSelectionValue3PredictorC() throws {
+        // Test selection value 3: Prediction from pixel C (diagonal upper-left)
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 3
+        let height = 3
+        let precision = 16
+        let defaultPredictor = 1 << (precision - 1)
+
+        var pixels = [UInt16](repeating: 0, count: width * height)
+        pixels[0] = 32768  // Row 0, col 0
+        pixels[1] = 30000  // Row 0, col 1
+        pixels[2] = 28000  // Row 0, col 2
+
+        // First row: default predictor
+        let pred1 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 3)
+        XCTAssertEqual(pred1, defaultPredictor, "First row should use default predictor")
+
+        let pred2 = decoder.computePredictor(x: 1, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 3)
+        XCTAssertEqual(pred2, defaultPredictor, "First row should use default predictor")
+
+        // First column of second row: default predictor
+        let pred3 = decoder.computePredictor(x: 0, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 3)
+        XCTAssertEqual(pred3, defaultPredictor, "First column should use default predictor")
+
+        // Interior pixel: should use diagonal upper-left (C)
+        let pred4 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 3)
+        XCTAssertEqual(pred4, 32768, "Should use diagonal upper-left (C) as predictor")
+
+        let pred5 = decoder.computePredictor(x: 2, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 3)
+        XCTAssertEqual(pred5, 30000, "Should use diagonal upper-left (C) as predictor")
+    }
+
+    func testSelectionValue4PredictorAPlusBMinusC() throws {
+        // Test selection value 4: Prediction = A + B - C
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 3
+        let height = 3
+        let precision = 16
+        let defaultPredictor = 1 << (precision - 1)
+
+        var pixels = [UInt16](repeating: 0, count: width * height)
+        pixels[0] = 100   // C (row 0, col 0)
+        pixels[1] = 200   // B for (1,1) (row 0, col 1)
+        pixels[3] = 150   // A for (1,1) (row 1, col 0)
+
+        // First row, first column: default predictor
+        let pred1 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 4)
+        XCTAssertEqual(pred1, defaultPredictor, "First pixel should use default predictor")
+
+        // First row: default predictor
+        let pred2 = decoder.computePredictor(x: 1, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 4)
+        XCTAssertEqual(pred2, defaultPredictor, "First row should use default predictor")
+
+        // First column: default predictor
+        let pred3 = decoder.computePredictor(x: 0, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 4)
+        XCTAssertEqual(pred3, defaultPredictor, "First column should use default predictor")
+
+        // Interior pixel: A + B - C = 150 + 200 - 100 = 250
+        let pred4 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 4)
+        XCTAssertEqual(pred4, 250, "Should compute A + B - C = 150 + 200 - 100 = 250")
+    }
+
+    func testSelectionValue5PredictorAPlusHalfBMinusC() throws {
+        // Test selection value 5: Prediction = A + ((B - C) >> 1)
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 3
+        let height = 3
+        let precision = 16
+        let defaultPredictor = 1 << (precision - 1)
+
+        var pixels = [UInt16](repeating: 0, count: width * height)
+        pixels[0] = 100   // C (row 0, col 0)
+        pixels[1] = 200   // B for (1,1) (row 0, col 1)
+        pixels[3] = 150   // A for (1,1) (row 1, col 0)
+
+        // First row, first column: default predictor
+        let pred1 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 5)
+        XCTAssertEqual(pred1, defaultPredictor, "First pixel should use default predictor")
+
+        // Interior pixel: A + ((B - C) >> 1) = 150 + ((200 - 100) >> 1) = 150 + 50 = 200
+        let pred2 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 5)
+        XCTAssertEqual(pred2, 200, "Should compute A + ((B - C) >> 1) = 150 + ((200 - 100) >> 1) = 200")
+
+        // Test with odd difference
+        pixels[0] = 100   // C
+        pixels[1] = 201   // B (B - C = 101, >> 1 = 50)
+        pixels[3] = 150   // A
+
+        let pred3 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 5)
+        XCTAssertEqual(pred3, 200, "Should compute A + ((B - C) >> 1) = 150 + ((201 - 100) >> 1) = 200")
+    }
+
+    func testSelectionValue6PredictorBPlusHalfAMinusC() throws {
+        // Test selection value 6: Prediction = B + ((A - C) >> 1)
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 3
+        let height = 3
+        let precision = 16
+        let defaultPredictor = 1 << (precision - 1)
+
+        var pixels = [UInt16](repeating: 0, count: width * height)
+        pixels[0] = 100   // C (row 0, col 0)
+        pixels[1] = 200   // B for (1,1) (row 0, col 1)
+        pixels[3] = 150   // A for (1,1) (row 1, col 0)
+
+        // First row, first column: default predictor
+        let pred1 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 6)
+        XCTAssertEqual(pred1, defaultPredictor, "First pixel should use default predictor")
+
+        // Interior pixel: B + ((A - C) >> 1) = 200 + ((150 - 100) >> 1) = 200 + 25 = 225
+        let pred2 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 6)
+        XCTAssertEqual(pred2, 225, "Should compute B + ((A - C) >> 1) = 200 + ((150 - 100) >> 1) = 225")
+
+        // Test with odd difference
+        pixels[0] = 100   // C
+        pixels[1] = 200   // B
+        pixels[3] = 151   // A (A - C = 51, >> 1 = 25)
+
+        let pred3 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 6)
+        XCTAssertEqual(pred3, 225, "Should compute B + ((A - C) >> 1) = 200 + ((151 - 100) >> 1) = 225")
+    }
+
+    func testSelectionValue7PredictorAveragePlusB() throws {
+        // Test selection value 7: Prediction = (A + B) / 2
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 3
+        let height = 3
+        let precision = 16
+        let defaultPredictor = 1 << (precision - 1)
+
+        var pixels = [UInt16](repeating: 0, count: width * height)
+        pixels[0] = 100   // C (row 0, col 0)
+        pixels[1] = 200   // B for (1,1) (row 0, col 1)
+        pixels[3] = 150   // A for (1,1) (row 1, col 0)
+
+        // First row, first column: default predictor
+        let pred1 = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 7)
+        XCTAssertEqual(pred1, defaultPredictor, "First pixel should use default predictor")
+
+        // First row (y=0): default predictor (implementation behavior)
+        let pred2 = decoder.computePredictor(x: 1, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 7)
+        XCTAssertEqual(pred2, defaultPredictor, "First row should use default predictor")
+
+        // First column (x=0): default predictor (implementation behavior)
+        let pred3 = decoder.computePredictor(x: 0, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 7)
+        XCTAssertEqual(pred3, defaultPredictor, "First column should use default predictor")
+
+        // Interior pixel: (A + B) / 2 = (150 + 200) / 2 = 175
+        let pred4 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 7)
+        XCTAssertEqual(pred4, 175, "Should compute (A + B) / 2 = (150 + 200) / 2 = 175")
+
+        // Test with odd sum
+        pixels[1] = 201   // B (A + B = 351, / 2 = 175)
+        let pred5 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 7)
+        XCTAssertEqual(pred5, 175, "Should compute (A + B) / 2 = (150 + 201) / 2 = 175")
+    }
+
+    func testSelectionValueInvalidValue() throws {
+        // Test that invalid selection values (> 7) are handled gracefully
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 3
+        let height = 3
+        let precision = 16
+        let pixels = [UInt16](repeating: 0, count: width * height)
+
+        // Selection value 8 (invalid) - should return 0 or handle gracefully
+        let pred1 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 8)
+        // We expect this to either return 0 or throw, depending on implementation
+        // For now, just verify it doesn't crash
+        _ = pred1
+
+        // Selection value 15 (invalid)
+        let pred2 = decoder.computePredictor(x: 1, y: 1, pixels: pixels, width: width, precision: precision, selectionValue: 15)
+        _ = pred2
+    }
+
+    func testAllSelectionValuesWithEdgeCases() throws {
+        // Test all selection values with edge case pixel values
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 3
+        let height = 3
+        let precision = 16
+
+        // Test with maximum pixel values
+        let pixelsMax = [UInt16](repeating: 65535, count: width * height)
+
+        for selectionValue in 0...7 {
+            let pred = decoder.computePredictor(x: 2, y: 2, pixels: pixelsMax, width: width, precision: precision, selectionValue: selectionValue)
+            // Should not crash and produce a value
+            XCTAssertGreaterThanOrEqual(pred, 0, "Selection value \(selectionValue) should produce valid predictor")
+        }
+
+        // Test with minimum pixel values
+        let pixelsMin = [UInt16](repeating: 0, count: width * height)
+
+        for selectionValue in 0...7 {
+            let pred = decoder.computePredictor(x: 2, y: 2, pixels: pixelsMin, width: width, precision: precision, selectionValue: selectionValue)
+            // Should not crash and produce a value
+            XCTAssertGreaterThanOrEqual(pred, 0, "Selection value \(selectionValue) should produce valid predictor")
+        }
+
+        // Test with mixed pixel values
+        var pixelsMixed = [UInt16](repeating: 0, count: width * height)
+        pixelsMixed[0] = 10000  // C
+        pixelsMixed[1] = 20000  // B
+        pixelsMixed[3] = 30000  // A
+
+        for selectionValue in 0...7 {
+            let pred = decoder.computePredictor(x: 1, y: 1, pixels: pixelsMixed, width: width, precision: precision, selectionValue: selectionValue)
+            // Should not crash and produce a value
+            XCTAssertGreaterThanOrEqual(pred, 0, "Selection value \(selectionValue) should produce valid predictor")
+        }
+    }
+
+    // MARK: - Edge Case Tests
+
+    func testEdgeCaseFirstRow() throws {
+        // Test that first row (y=0) correctly handles missing pixels above
+        // All predictors that need pixel B should use default predictor
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 5
+        let height = 3
+        let precision = 16
+        let defaultPredictor = 1 << (precision - 1)
+
+        var pixels = [UInt16](repeating: 0, count: width * height)
+        pixels[0] = 1000
+        pixels[1] = 2000
+        pixels[2] = 3000
+        pixels[3] = 4000
+        pixels[4] = 5000
+
+        // Test all selection values for first row
+        for x in 0..<width {
+            // Selection value 0: No prediction (always 0)
+            let pred0 = decoder.computePredictor(x: x, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 0)
+            XCTAssertEqual(pred0, 0, "Selection value 0 should return 0 for first row at x=\(x)")
+
+            // Selection value 1: Predictor A (left)
+            // First column uses default, others use left pixel
+            if x == 0 {
+                let pred1 = decoder.computePredictor(x: x, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 1)
+                XCTAssertEqual(pred1, defaultPredictor, "Selection value 1 should use default predictor for first pixel")
+            } else {
+                let pred1 = decoder.computePredictor(x: x, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 1)
+                XCTAssertEqual(pred1, Int(pixels[x - 1]), "Selection value 1 should use left pixel for first row at x=\(x)")
+            }
+
+            // Selection value 2: Predictor B (above) - should use default for first row
+            let pred2 = decoder.computePredictor(x: x, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 2)
+            XCTAssertEqual(pred2, defaultPredictor, "Selection value 2 should use default predictor for first row at x=\(x)")
+
+            // Selection value 3: Predictor C (diagonal) - should use default for first row
+            let pred3 = decoder.computePredictor(x: x, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 3)
+            XCTAssertEqual(pred3, defaultPredictor, "Selection value 3 should use default predictor for first row at x=\(x)")
+
+            // Selection value 4: A + B - C - should use default for first row
+            let pred4 = decoder.computePredictor(x: x, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 4)
+            XCTAssertEqual(pred4, defaultPredictor, "Selection value 4 should use default predictor for first row at x=\(x)")
+
+            // Selection value 5: A + ((B - C) >> 1) - should use default for first row
+            let pred5 = decoder.computePredictor(x: x, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 5)
+            XCTAssertEqual(pred5, defaultPredictor, "Selection value 5 should use default predictor for first row at x=\(x)")
+
+            // Selection value 6: B + ((A - C) >> 1) - should use default for first row
+            let pred6 = decoder.computePredictor(x: x, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 6)
+            XCTAssertEqual(pred6, defaultPredictor, "Selection value 6 should use default predictor for first row at x=\(x)")
+
+            // Selection value 7: (A + B) / 2 - should use default for first row
+            let pred7 = decoder.computePredictor(x: x, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: 7)
+            XCTAssertEqual(pred7, defaultPredictor, "Selection value 7 should use default predictor for first row at x=\(x)")
+        }
+    }
+
+    func testEdgeCaseFirstColumn() throws {
+        // Test that first column (x=0) correctly handles missing pixels to the left
+        // All predictors that need pixel A should use default predictor
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 3
+        let height = 5
+        let precision = 16
+        let defaultPredictor = 1 << (precision - 1)
+
+        var pixels = [UInt16](repeating: 0, count: width * height)
+        pixels[0] = 1000  // Row 0, col 0
+        pixels[3] = 2000  // Row 1, col 0
+        pixels[6] = 3000  // Row 2, col 0
+        pixels[9] = 4000  // Row 3, col 0
+        pixels[12] = 5000  // Row 4, col 0
+
+        // Test all selection values for first column (excluding first pixel which is tested separately)
+        for y in 1..<height {
+            // Selection value 0: No prediction (always 0)
+            let pred0 = decoder.computePredictor(x: 0, y: y, pixels: pixels, width: width, precision: precision, selectionValue: 0)
+            XCTAssertEqual(pred0, 0, "Selection value 0 should return 0 for first column at y=\(y)")
+
+            // Selection value 1: Predictor A (left) - should use default for first column
+            let pred1 = decoder.computePredictor(x: 0, y: y, pixels: pixels, width: width, precision: precision, selectionValue: 1)
+            XCTAssertEqual(pred1, defaultPredictor, "Selection value 1 should use default predictor for first column at y=\(y)")
+
+            // Selection value 2: Predictor B (above) - should use pixel above
+            let pred2 = decoder.computePredictor(x: 0, y: y, pixels: pixels, width: width, precision: precision, selectionValue: 2)
+            XCTAssertEqual(pred2, Int(pixels[(y - 1) * width]), "Selection value 2 should use pixel above for first column at y=\(y)")
+
+            // Selection value 3: Predictor C (diagonal) - should use default for first column
+            let pred3 = decoder.computePredictor(x: 0, y: y, pixels: pixels, width: width, precision: precision, selectionValue: 3)
+            XCTAssertEqual(pred3, defaultPredictor, "Selection value 3 should use default predictor for first column at y=\(y)")
+
+            // Selection value 4: A + B - C - should use default for first column
+            let pred4 = decoder.computePredictor(x: 0, y: y, pixels: pixels, width: width, precision: precision, selectionValue: 4)
+            XCTAssertEqual(pred4, defaultPredictor, "Selection value 4 should use default predictor for first column at y=\(y)")
+
+            // Selection value 5: A + ((B - C) >> 1) - should use default for first column
+            let pred5 = decoder.computePredictor(x: 0, y: y, pixels: pixels, width: width, precision: precision, selectionValue: 5)
+            XCTAssertEqual(pred5, defaultPredictor, "Selection value 5 should use default predictor for first column at y=\(y)")
+
+            // Selection value 6: B + ((A - C) >> 1) - should use default for first column
+            let pred6 = decoder.computePredictor(x: 0, y: y, pixels: pixels, width: width, precision: precision, selectionValue: 6)
+            XCTAssertEqual(pred6, defaultPredictor, "Selection value 6 should use default predictor for first column at y=\(y)")
+
+            // Selection value 7: (A + B) / 2 - should use default for first column
+            let pred7 = decoder.computePredictor(x: 0, y: y, pixels: pixels, width: width, precision: precision, selectionValue: 7)
+            XCTAssertEqual(pred7, defaultPredictor, "Selection value 7 should use default predictor for first column at y=\(y)")
+        }
+    }
+
+    func testEdgeCaseSinglePixel() throws {
+        // Test that a 1x1 image correctly handles all selection values
+        // All should use the default predictor since there are no neighbors
+
+        let decoder = JPEGLosslessDecoder()
+
+        let width = 1
+        let precision = 16
+        let defaultPredictor = 1 << (precision - 1)
+
+        let pixels = [UInt16](repeating: 0, count: 1)
+
+        // Test all selection values for single pixel image
+        for selectionValue in 0...7 {
+            let pred = decoder.computePredictor(x: 0, y: 0, pixels: pixels, width: width, precision: precision, selectionValue: selectionValue)
+
+            if selectionValue == 0 {
+                // Selection value 0 always returns 0 (no prediction)
+                XCTAssertEqual(pred, 0, "Selection value 0 should return 0 for single pixel")
+            } else {
+                // All other selection values should use default predictor
+                XCTAssertEqual(pred, defaultPredictor, "Selection value \(selectionValue) should use default predictor for single pixel")
+            }
+        }
     }
 
     // MARK: - Marker Parsing Tests

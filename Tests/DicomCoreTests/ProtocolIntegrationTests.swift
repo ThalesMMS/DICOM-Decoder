@@ -9,14 +9,24 @@ final class ProtocolIntegrationTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Creates a decoder factory that returns real DCMDecoder instances
-    private func makeRealDecoderFactory() -> () -> DicomDecoderProtocol {
-        return { DCMDecoder() }
+    /// Creates a decoder factory for StudyDataService that returns real DCMDecoder instances
+    private func makeRealDecoderFactory() -> (String) throws -> DicomDecoderProtocol {
+        return { path in try DCMDecoder(contentsOfFile: path) }
     }
 
-    /// Creates a decoder factory that returns mock instances
-    private func makeMockDecoderFactory(mock: MockDicomDecoder) -> () -> DicomDecoderProtocol {
-        return { mock }
+    /// Creates a decoder factory for StudyDataService that returns mock instances
+    private func makeMockDecoderFactory(mock: MockDicomDecoder) -> (String) throws -> DicomDecoderProtocol {
+        return { _ in mock }
+    }
+
+    /// Creates a decoder factory for DicomSeriesLoader that returns real DCMDecoder instances
+    private func makeRealSeriesLoaderFactory() -> (String) throws -> DicomDecoderProtocol {
+        return { path in try DCMDecoder(contentsOfFile: path) }
+    }
+
+    /// Creates a decoder factory for DicomSeriesLoader that returns mock instances
+    private func makeMockSeriesLoaderFactory(mock: MockDicomDecoder) -> (String) throws -> DicomDecoderProtocol {
+        return { _ in mock }
     }
 
     /// Creates a fully configured mock decoder with typical CT scan metadata
@@ -35,8 +45,24 @@ final class ProtocolIntegrationTests: XCTestCase {
         mock.setTag(DicomTag.instanceNumber.rawValue, value: "1")
         mock.setTag(DicomTag.columns.rawValue, value: "512")
         mock.setTag(DicomTag.rows.rawValue, value: "512")
+
+        // Add window settings tags for V2 API testing
+        mock.setTag(DicomTag.windowCenter.rawValue, value: "50")
+        mock.setTag(DicomTag.windowWidth.rawValue, value: "400")
+
+        // Add pixel spacing tag for V2 API testing
+        mock.setTag(DicomTag.pixelSpacing.rawValue, value: "0.5\\0.5")
+
+        // Set window settings properties directly (mock uses properties, not tags for these)
+        mock.windowCenter = 50.0
+        mock.windowWidth = 400.0
+
+        // Configure width and height for pixel spacing V2 API
+        mock.width = 512
+        mock.height = 512
+
         mock.dicomFound = true
-        mock.dicomFileReadSuccess = true
+        // Mock decoder configured as valid
         return mock
     }
 
@@ -108,7 +134,7 @@ final class ProtocolIntegrationTests: XCTestCase {
 
     func testDicomSeriesLoaderWithRealDecoder() {
         // Create loader with real decoder factory
-        let loader = DicomSeriesLoader(decoderFactory: makeRealDecoderFactory())
+        let loader = DicomSeriesLoader(decoderFactory: makeRealSeriesLoaderFactory())
         XCTAssertNotNil(loader, "Loader should initialize with real decoder factory")
 
         // Loader should handle non-existent directories gracefully
@@ -130,7 +156,7 @@ final class ProtocolIntegrationTests: XCTestCase {
             column: SIMD3<Double>(0, 1, 0)
         )
 
-        let loader = DicomSeriesLoader(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+        let loader = DicomSeriesLoader(decoderFactory: makeMockSeriesLoaderFactory(mock: mockDecoder))
         XCTAssertNotNil(loader, "Loader should initialize with mock decoder factory")
 
         // Loader should handle empty directories gracefully
@@ -156,12 +182,13 @@ final class ProtocolIntegrationTests: XCTestCase {
             seriesUID: "1.2.3.shared.1"
         )
 
-        // Create factory that returns the same mock
-        let sharedFactory = makeMockDecoderFactory(mock: sharedMock)
+        // Create factories - note: StudyDataService and DicomSeriesLoader have different factory signatures
+        let studyFactory = makeMockDecoderFactory(mock: sharedMock)
+        let seriesFactory = makeMockSeriesLoaderFactory(mock: sharedMock)
 
-        // Create multiple services using the same factory
-        let studyService = StudyDataService(decoderFactory: sharedFactory)
-        let seriesLoader = DicomSeriesLoader(decoderFactory: sharedFactory)
+        // Create multiple services using appropriate factories
+        let studyService = StudyDataService(decoderFactory: studyFactory)
+        let seriesLoader = DicomSeriesLoader(decoderFactory: seriesFactory)
 
         // Verify both services work with the shared factory
         let metadata = await studyService.extractStudyMetadata(from: "/test/shared.dcm")
@@ -226,10 +253,10 @@ final class ProtocolIntegrationTests: XCTestCase {
         var useReal = true
 
         // Factory that alternates between real and mock implementations
-        let alternatingFactory: () -> DicomDecoderProtocol = {
+        let alternatingFactory: (String) throws -> DicomDecoderProtocol = { path in
             defer { useReal.toggle() }
             if useReal {
-                return DCMDecoder()
+                return try DCMDecoder(contentsOfFile: path)
             } else {
                 let mock = MockDicomDecoder()
                 mock.setTag(DicomTag.patientName.rawValue, value: "Mock Patient")
@@ -319,7 +346,7 @@ final class ProtocolIntegrationTests: XCTestCase {
         // Create mock with invalid data
         let mockDecoder = MockDicomDecoder()
         mockDecoder.dicomFound = false
-        mockDecoder.dicomFileReadSuccess = false
+        // Mock decoder configured as invalid
         mockDecoder.setValidationResult(isValid: false, issues: ["Invalid DICOM file"])
 
         let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
@@ -342,7 +369,7 @@ final class ProtocolIntegrationTests: XCTestCase {
         // Create mock with no tag data
         let mockDecoder = MockDicomDecoder()
         mockDecoder.dicomFound = true
-        mockDecoder.dicomFileReadSuccess = true
+        // Mock decoder configured as valid
         // Don't set any tags - decoder will return empty strings
 
         let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
@@ -438,7 +465,7 @@ final class ProtocolIntegrationTests: XCTestCase {
 
         // Status properties
         XCTAssertTrue(decoder.dicomFound, "dicomFound should be accessible")
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "dicomFileReadSuccess should be accessible")
+        XCTAssertTrue(decoder.isValid(), "isValid() should be callable")
         XCTAssertNotNil(decoder.compressedImage, "compressedImage should be accessible")
         XCTAssertNotNil(decoder.dicomDir, "dicomDir should be accessible")
         XCTAssertNotNil(decoder.signedImage, "signedImage should be accessible")
@@ -453,14 +480,14 @@ final class ProtocolIntegrationTests: XCTestCase {
         let dimensions = decoder.imageDimensions
         XCTAssertGreaterThan(dimensions.width, 0, "imageDimensions should be accessible")
 
-        let spacing = decoder.pixelSpacing
-        XCTAssertGreaterThan(spacing.width, 0, "pixelSpacing should be accessible")
+        let spacing = decoder.pixelSpacingV2
+        XCTAssertGreaterThan(spacing.x, 0, "pixelSpacingV2 should be accessible")
 
-        let window = decoder.windowSettings
-        XCTAssertNotNil(window.center, "windowSettings should be accessible")
+        let window = decoder.windowSettingsV2
+        XCTAssertGreaterThan(window.center, 0, "windowSettingsV2 should be accessible")
 
-        let rescale = decoder.rescaleParameters
-        XCTAssertNotNil(rescale.intercept, "rescaleParameters should be accessible")
+        let rescale = decoder.rescaleParametersV2
+        XCTAssertNotNil(rescale.intercept, "rescaleParametersV2 should be accessible")
     }
 
     func testAllProtocolMethodsCallable() {
@@ -477,8 +504,8 @@ final class ProtocolIntegrationTests: XCTestCase {
         let status = decoder.getValidationStatus()
         XCTAssertNotNil(status.isValid, "getValidationStatus should be callable")
 
-        // File loading methods
-        decoder.setDicomFilename("/test.dcm")  // Should not crash
+        // Modern file loading API (throwing initializer)
+        let _ = try? DCMDecoder(contentsOfFile: "/test.dcm")  // Should not crash
 
         // Pixel data methods
         let pixels8 = decoder.getPixels8()
@@ -519,8 +546,8 @@ final class ProtocolIntegrationTests: XCTestCase {
         let rescaledValue = decoder.applyRescale(to: 100.0)
         XCTAssertNotNil(rescaledValue, "applyRescale should be callable")
 
-        let optimalWindow = decoder.calculateOptimalWindow()
-        XCTAssertTrue(optimalWindow == nil || optimalWindow != nil, "calculateOptimalWindow should be callable")
+        let optimalWindow = decoder.calculateOptimalWindowV2()
+        XCTAssertTrue(optimalWindow == nil || optimalWindow != nil, "calculateOptimalWindowV2 should be callable")
 
         let metrics = decoder.getQualityMetrics()
         XCTAssertTrue(metrics == nil || metrics != nil, "getQualityMetrics should be callable")

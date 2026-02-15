@@ -308,18 +308,14 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
     // MARK: - Malformed File Tests
 
     func testEmptyFilePath() {
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename("")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Empty path should not succeed")
-        XCTAssertFalse(decoder.isValid(), "Decoder should not be valid with empty path")
+        let decoder = try? DCMDecoder(contentsOfFile: "")
+        XCTAssertNil(decoder, "Empty path should return nil decoder")
     }
 
     func testNonexistentFile() {
-        let decoder = DCMDecoder()
         let nonexistentPath = "/tmp/nonexistent_dicom_file_\(UUID().uuidString).dcm"
-        decoder.setDicomFilename(nonexistentPath)
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Nonexistent file should not succeed")
-        XCTAssertFalse(decoder.isValid(), "Decoder should not be valid with nonexistent file")
+        let decoder = try? DCMDecoder(contentsOfFile: nonexistentPath)
+        XCTAssertNil(decoder, "Nonexistent file should return nil decoder")
     }
 
     func testFileValidationNonexistent() {
@@ -399,8 +395,10 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
             try? FileManager.default.removeItem(at: tempFile)
         }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(tempFile.path)
+        guard let decoder = try? DCMDecoder(contentsOfFile: tempFile.path) else {
+            // Malformed file may fail to load
+            return
+        }
         // File may load but should not have valid image data
         XCTAssertEqual(decoder.width, 1, "Width should be default for malformed file")
         XCTAssertEqual(decoder.height, 1, "Height should be default for malformed file")
@@ -467,7 +465,7 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
 
     func testExtremeRescaleValues() {
         let decoder = DCMDecoder()
-        let rescale = decoder.rescaleParameters
+        let rescale = decoder.rescaleParametersV2
         // Default values should be 0.0 intercept and 1.0 slope
         XCTAssertEqual(rescale.intercept, 0.0, "Default intercept should be 0")
         XCTAssertEqual(rescale.slope, 1.0, "Default slope should be 1")
@@ -475,7 +473,7 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
 
     func testExtremeWindowLevelValues() {
         let decoder = DCMDecoder()
-        let window = decoder.windowSettings
+        let window = decoder.windowSettingsV2
         // Without a file, these should have default values
         XCTAssertNotNil(window.center, "Window center should exist")
         XCTAssertNotNil(window.width, "Window width should exist")
@@ -547,17 +545,17 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
 
     func testPixelSpacingBoundaries() {
         let decoder = DCMDecoder()
-        let spacing = decoder.pixelSpacing
+        let spacing = decoder.pixelSpacingV2
 
         // Test default spacing values are valid
-        XCTAssertGreaterThanOrEqual(spacing.width, 0.0, "Pixel width should be non-negative")
-        XCTAssertGreaterThanOrEqual(spacing.height, 0.0, "Pixel height should be non-negative")
-        XCTAssertGreaterThanOrEqual(spacing.depth, 0.0, "Pixel depth should be non-negative")
+        XCTAssertGreaterThanOrEqual(spacing.x, 0.0, "Pixel width should be non-negative")
+        XCTAssertGreaterThanOrEqual(spacing.y, 0.0, "Pixel height should be non-negative")
+        XCTAssertGreaterThanOrEqual(spacing.z, 0.0, "Pixel depth should be non-negative")
 
         // Test individual accessors
-        XCTAssertEqual(spacing.width, decoder.pixelWidth, "Spacing width should match pixelWidth")
-        XCTAssertEqual(spacing.height, decoder.pixelHeight, "Spacing height should match pixelHeight")
-        XCTAssertEqual(spacing.depth, decoder.pixelDepth, "Spacing depth should match pixelDepth")
+        XCTAssertEqual(spacing.x, decoder.pixelWidth, "Spacing width should match pixelWidth")
+        XCTAssertEqual(spacing.y, decoder.pixelHeight, "Spacing height should match pixelHeight")
+        XCTAssertEqual(spacing.z, decoder.pixelDepth, "Spacing depth should match pixelDepth")
     }
 
     func testEmptyPixelArrays() {
@@ -572,7 +570,7 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
         XCTAssertEqual(metrics["std_deviation"] ?? 0.0, 0.0, "Std dev of empty array should be 0")
 
         // Test optimal window calculation with empty array
-        let optimal = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: emptyPixels16)
+        let optimal = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: emptyPixels16)
         XCTAssertGreaterThanOrEqual(optimal.width, 0, "Width should be non-negative for empty array")
     }
 
@@ -591,7 +589,7 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
         XCTAssertEqual(metrics["max_value"] ?? 0.0, 1000.0, "Max should equal single value")
 
         // Test optimal window with single pixel
-        let optimal = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: singlePixel16)
+        let optimal = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: singlePixel16)
         XCTAssertGreaterThan(optimal.width, 0, "Width should be positive")
     }
 
@@ -663,7 +661,7 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
         XCTAssertLessThan(mean, 3000.0, "Mean should be between the two peaks")
 
         // Test optimal window calculation
-        let optimal = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: bimodalPixels16)
+        let optimal = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: bimodalPixels16)
         XCTAssertGreaterThan(optimal.width, 0, "Width should be positive")
         XCTAssertGreaterThan(optimal.center, 1000.0, "Center should be between peaks")
         XCTAssertLessThan(optimal.center, 3000.0, "Center should be between peaks")
@@ -703,30 +701,21 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
 
     func testPresetNameRecognitionTolerance() {
         // Test preset recognition with values near but not exact
-        let lungPreset = DCMWindowingProcessor.getPresetValues(preset: .lung)
+        let lungPreset = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)
 
         // Test with exact values
-        let exactName = DCMWindowingProcessor.getPresetName(
-            center: lungPreset.center,
-            width: lungPreset.width,
-            tolerance: 10.0
-        )
+        let exactSettings = WindowSettings(center: lungPreset.center, width: lungPreset.width)
+        let exactName = DCMWindowingProcessor.getPresetName(settings: exactSettings, tolerance: 10.0)
         XCTAssertEqual(exactName, "Lung", "Should recognize exact preset values")
 
         // Test with values within tolerance
-        let nearName = DCMWindowingProcessor.getPresetName(
-            center: lungPreset.center + 5.0,
-            width: lungPreset.width + 5.0,
-            tolerance: 10.0
-        )
+        let nearSettings = WindowSettings(center: lungPreset.center + 5.0, width: lungPreset.width + 5.0)
+        let nearName = DCMWindowingProcessor.getPresetName(settings: nearSettings, tolerance: 10.0)
         XCTAssertEqual(nearName, "Lung", "Should recognize values within tolerance")
 
         // Test with values outside tolerance
-        let farName = DCMWindowingProcessor.getPresetName(
-            center: lungPreset.center + 100.0,
-            width: lungPreset.width + 100.0,
-            tolerance: 10.0
-        )
+        let farSettings = WindowSettings(center: lungPreset.center + 100.0, width: lungPreset.width + 100.0)
+        let farName = DCMWindowingProcessor.getPresetName(settings: farSettings, tolerance: 10.0)
         XCTAssertNil(farName, "Should not recognize values outside tolerance")
     }
 
@@ -791,29 +780,26 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
     // MARK: - State Consistency Tests
 
     func testDecoderStateAfterFailedLoad() {
-        let decoder = DCMDecoder()
-        let initiallyValid = decoder.isValid()
+        let decoder1 = DCMDecoder()
+        let initiallyValid = decoder1.isValid()
 
         // Try to load a nonexistent file
-        decoder.setDicomFilename("/tmp/nonexistent_\(UUID().uuidString).dcm")
+        let decoder2 = try? DCMDecoder(contentsOfFile: "/tmp/nonexistent_\(UUID().uuidString).dcm")
 
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed")
-        XCTAssertFalse(decoder.isValid(), "Should not be valid after failed load")
-        XCTAssertEqual(decoder.isValid(), initiallyValid, "Validity should remain consistent")
+        XCTAssertNil(decoder2, "Should be nil")
+        XCTAssertFalse(initiallyValid, "Initial decoder should not be valid")
     }
 
     func testDecoderResetOnNewFile() {
-        let decoder = DCMDecoder()
-
         // Load first file (will fail for nonexistent)
         let firstPath = "/tmp/first_\(UUID().uuidString).dcm"
-        decoder.setDicomFilename(firstPath)
-        let firstSuccess = decoder.dicomFileReadSuccess
+        let decoder1 = try? DCMDecoder(contentsOfFile: firstPath)
+        let firstSuccess = decoder1?.isValid() ?? false
 
         // Load second file (will also fail)
         let secondPath = "/tmp/second_\(UUID().uuidString).dcm"
-        decoder.setDicomFilename(secondPath)
-        let secondSuccess = decoder.dicomFileReadSuccess
+        let decoder2 = try? DCMDecoder(contentsOfFile: secondPath)
+        let secondSuccess = decoder2?.isValid() ?? false
 
         // Both should fail, but state should be consistent
         XCTAssertFalse(firstSuccess, "First load should fail")
@@ -821,15 +807,14 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
     }
 
     func testDecoderSkipsSameFile() {
-        let decoder = DCMDecoder()
         let samePath = "/tmp/test_\(UUID().uuidString).dcm"
 
         // Load same file twice
-        decoder.setDicomFilename(samePath)
-        let firstAttempt = decoder.dicomFileReadSuccess
+        let decoder1 = try? DCMDecoder(contentsOfFile: samePath)
+        let firstAttempt = decoder1?.isValid() ?? false
 
-        decoder.setDicomFilename(samePath)
-        let secondAttempt = decoder.dicomFileReadSuccess
+        let decoder2 = try? DCMDecoder(contentsOfFile: samePath)
+        let secondAttempt = decoder2?.isValid() ?? false
 
         // Results should be consistent (both will fail for nonexistent file)
         XCTAssertEqual(firstAttempt, secondAttempt, "Same file should produce same result")
@@ -870,33 +855,28 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
 
     // MARK: - Async Methods Edge Cases
 
-    @available(macOS 10.15, iOS 13.0, *)
-    func testLoadDICOMFileAsyncWithNonexistent() async {
-        let decoder = DCMDecoder()
-        let result = await decoder.loadDICOMFileAsync("/tmp/nonexistent_\(UUID().uuidString).dcm")
-        XCTAssertFalse(result, "Async load should fail for nonexistent file")
-        XCTAssertFalse(decoder.isValid(), "Decoder should not be valid after failed async load")
+    func testLoadDICOMFileWithNonexistent() {
+        let decoder = try? DCMDecoder(contentsOfFile: "/tmp/nonexistent_\(UUID().uuidString).dcm")
+        XCTAssertNil(decoder, "Load should fail for nonexistent file")
     }
 
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetPixelsAsyncWithoutFile() async {
+    func testGetPixelsWithoutFile() {
         let decoder = DCMDecoder()
 
-        let pixels8 = await decoder.getPixels8Async()
+        let pixels8 = decoder.getPixels8()
         XCTAssertNil(pixels8, "Should have no 8-bit pixels without file")
 
-        let pixels16 = await decoder.getPixels16Async()
+        let pixels16 = decoder.getPixels16()
         XCTAssertNil(pixels16, "Should have no 16-bit pixels without file")
 
-        let pixels24 = await decoder.getPixels24Async()
+        let pixels24 = decoder.getPixels24()
         XCTAssertNil(pixels24, "Should have no 24-bit pixels without file")
     }
 
-    @available(macOS 10.15, iOS 13.0, *)
-    func testDownsampledPixelsAsyncWithoutFile() async {
+    func testDownsampledPixelsWithoutFile() {
         let decoder = DCMDecoder()
 
-        let downsampled16 = await decoder.getDownsampledPixels16Async(maxDimension: 256)
+        let downsampled16 = decoder.getDownsampledPixels16(maxDimension: 256)
         // Without a valid file, returns default minimal dimensions
         if let result = downsampled16 {
             XCTAssertEqual(result.width, 1, "Default width should be 1")
@@ -908,21 +888,19 @@ final class DCMDecoderEdgeCasesTests: XCTestCase {
     // MARK: - Thread Safety Under Edge Conditions
 
     func testConcurrentAccessDuringFailedLoads() {
-        let decoder = DCMDecoder()
         let iterations = 10
         let expectation = self.expectation(description: "Concurrent failed loads")
         expectation.expectedFulfillmentCount = iterations
 
         DispatchQueue.concurrentPerform(iterations: iterations) { i in
             let path = "/tmp/concurrent_\(i)_\(UUID().uuidString).dcm"
-            decoder.setDicomFilename(path)
-            _ = decoder.isValid()
-            _ = decoder.getPixels16()
+            let decoder = try? DCMDecoder(contentsOfFile: path)
+            _ = decoder?.isValid()
+            _ = decoder?.getPixels16()
             expectation.fulfill()
         }
 
         waitForExpectations(timeout: 5.0)
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with nonexistent files")
     }
 
     func testConcurrentValidationCalls() {

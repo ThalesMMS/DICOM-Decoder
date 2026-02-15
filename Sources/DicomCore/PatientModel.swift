@@ -359,7 +359,7 @@ import Foundation
 /// Create from ``StudyDataService``:
 ///
 /// ```swift
-/// let service = StudyDataService(decoderFactory: { DCMDecoder() })
+/// let service = StudyDataService(decoderFactory: { path in try DCMDecoder(contentsOfFile: path) })
 /// if let metadata = await service.extractStudyMetadata(from: filePath) {
 ///     let patient = service.createPatientModel(from: metadata)
 ///     print("\(patient.patientName) - \(patient.modality.displayName)")

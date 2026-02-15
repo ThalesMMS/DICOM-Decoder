@@ -37,11 +37,11 @@ do {
     print("Image dimensions: \(decoder.width) x \(decoder.height)")
     print("Bit depth: \(decoder.bitDepth)")
 
-    // ✅ Recommended: Use type-safe DicomTag enum
+    // Recommended: Use type-safe DicomTag enum
     print("Modality: \(decoder.info(for: .modality))")
     print("Patient: \(decoder.info(for: .patientName))")
 
-    // ⚠️ Legacy: Raw hex values (still supported for custom/private tags)
+    // Legacy (deprecated): Raw hex values (still supported for custom/private tags)
     // print("Modality: \(decoder.info(for: 0x00080060))")
 
     // Get pixels
@@ -147,7 +147,7 @@ The legacy `setDicomFilename()` + `dicomFileReadSuccess` pattern is deprecated. 
 ### Old Pattern (Deprecated)
 
 ```swift
-// ❌ Old pattern - deprecated
+// Deprecated pattern
 let decoder = DCMDecoder()
 decoder.setDicomFilename("/path/to/image.dcm")
 
@@ -162,7 +162,7 @@ print("Dimensions: \(decoder.width) x \(decoder.height)")
 ### New Pattern (Recommended)
 
 ```swift
-// ✅ New pattern - recommended
+// Recommended pattern
 do {
     let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
     print("Dimensions: \(decoder.width) x \(decoder.height)")
@@ -204,7 +204,7 @@ import DicomCore
 do {
     let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
 
-    // ✅ Recommended: Type-safe DicomTag enum
+    // Recommended: Type-safe DicomTag enum
     let patientName = decoder.info(for: .patientName)
     let modality = decoder.info(for: .modality)
     let studyUID = decoder.info(for: .studyInstanceUID)
@@ -310,13 +310,13 @@ decoder.intValue(for: .samplesPerPixel)    // (0028,0002) Samples Per Pixel
 For custom or private tags not in the standard enum, use raw hex values:
 
 ```swift
-// ⚠️ Use raw hex for custom/private tags
+// Use raw hex for custom/private tags
 let manufacturerTag = decoder.info(for: 0x00091001)  // Private tag
 let customData = decoder.info(for: 0x00111234)       // Custom tag
 
 // Standard tags should use the enum
-let patientName = decoder.info(for: .patientName)  // ✅ Preferred
-// Not: decoder.info(for: 0x00100010)               // ❌ Discouraged for standard tags
+let patientName = decoder.info(for: .patientName)  // Preferred
+// Not: decoder.info(for: 0x00100010)               // Discouraged for standard tags
 ```
 
 ### Migration from Hex Values
@@ -324,13 +324,13 @@ let patientName = decoder.info(for: .patientName)  // ✅ Preferred
 Replace hex values with semantic enum cases:
 
 ```swift
-// ❌ Old: Magic hex numbers
+// Deprecated: Magic hex numbers
 let patient = decoder.info(for: 0x00100010)
 let modality = decoder.info(for: 0x00080060)
 let rows = decoder.intValue(for: 0x00280010)
 let columns = decoder.intValue(for: 0x00280011)
 
-// ✅ New: Semantic, discoverable tag names
+// Recommended: Semantic, discoverable tag names
 let patient = decoder.info(for: .patientName)
 let modality = decoder.info(for: .modality)
 let rows = decoder.intValue(for: .rows)
@@ -426,7 +426,7 @@ import DicomCore
 do {
     let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
 
-    // ✅ Recommended: Use windowSettingsV2
+    // Recommended: Use windowSettingsV2
     let settings = decoder.windowSettingsV2  // Returns WindowSettings struct
 
     if settings.isValid {
@@ -440,7 +440,7 @@ do {
         // Output: {"center":50.0,"width":400.0}
     }
 
-    // ⚠️ Legacy: Tuple-based API (deprecated)
+    // Legacy (deprecated): Tuple-based API (deprecated)
     let (center, width) = decoder.windowSettings  // Returns tuple
 
 } catch {
@@ -456,7 +456,7 @@ Represents physical spacing between pixels in millimeters:
 do {
     let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
 
-    // ✅ Recommended: Use pixelSpacingV2
+    // Recommended: Use pixelSpacingV2
     let spacing = decoder.pixelSpacingV2  // Returns PixelSpacing struct
 
     if spacing.isValid {
@@ -475,7 +475,7 @@ do {
         // Output: {"x":0.5,"y":0.5,"z":1.0}
     }
 
-    // ⚠️ Legacy: Tuple-based API (deprecated)
+    // Legacy (deprecated): Tuple-based API (deprecated)
     let (width, height, depth) = decoder.pixelSpacing  // Returns tuple
 
 } catch {
@@ -491,7 +491,7 @@ Represents rescale slope and intercept for converting pixel values to modality u
 do {
     let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
 
-    // ✅ Recommended: Use rescaleParametersV2
+    // Recommended: Use rescaleParametersV2
     let rescale = decoder.rescaleParametersV2  // Returns RescaleParameters struct
 
     if !rescale.isIdentity {
@@ -515,7 +515,7 @@ do {
         print("No rescale needed (identity transformation)")
     }
 
-    // ⚠️ Legacy: Tuple-based API (deprecated)
+    // Legacy (deprecated): Tuple-based API (deprecated)
     let (intercept, slope) = decoder.rescaleParameters  // Returns tuple
 
 } catch {
@@ -540,7 +540,7 @@ do {
         return
     }
 
-    // ✅ Recommended: V2 method returns WindowSettings
+    // Recommended: V2 method returns WindowSettings
     let optimal = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
 
     if optimal.isValid {
@@ -554,7 +554,7 @@ do {
         )
     }
 
-    // ⚠️ Legacy: Tuple-based method (deprecated)
+    // Legacy (deprecated): Tuple-based method (deprecated)
     let (center, width) = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: pixels)
 
 } catch {
@@ -565,12 +565,12 @@ do {
 #### Get Medical Presets
 
 ```swift
-// ✅ Recommended: V2 method with enum parameter
+// Recommended: V2 method with enum parameter
 let lungSettings = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)
 print("Lung preset: center=\(lungSettings.center), width=\(lungSettings.width)")
 // Output: center=-600.0, width=1500.0
 
-// ✅ V2 method with string name
+// V2 method with string name
 if let boneSettings = DCMWindowingProcessor.getPresetValuesV2(named: "Bone") {
     print("Bone preset: center=\(boneSettings.center), width=\(boneSettings.width)")
     // Output: center=400.0, width=1800.0
@@ -583,7 +583,7 @@ if let invalidSettings = DCMWindowingProcessor.getPresetValuesV2(named: "Invalid
     print("Preset not found")  // This will be printed
 }
 
-// ⚠️ Legacy: Tuple-based methods (deprecated)
+// Legacy (deprecated): Tuple-based methods (deprecated)
 let (center, width) = DCMWindowingProcessor.getPresetValues(preset: .lung)
 let (c2, w2) = DCMWindowingProcessor.getPresetValues(named: "Bone") ?? (0, 0)
 ```
@@ -606,7 +606,7 @@ for path in paths {
     }
 }
 
-// ✅ Recommended: V2 batch method returns [WindowSettings]
+// Recommended: V2 batch method returns [WindowSettings]
 let batchSettings = DCMWindowingProcessor.batchCalculateOptimalWindowLevelV2(
     imagePixels: imagePixels
 )
@@ -623,14 +623,14 @@ for (index, settings) in batchSettings.enumerated() {
     }
 }
 
-// ⚠️ Legacy: Tuple-based method (deprecated)
+// Legacy (deprecated): Tuple-based method (deprecated)
 let tupleResults = DCMWindowingProcessor.batchCalculateOptimalWindowLevel(imagePixels: imagePixels)
 ```
 
 #### Preset Matching
 
 ```swift
-// ✅ Recommended: V2 method accepts WindowSettings struct
+// Recommended: V2 method accepts WindowSettings struct
 let settings = WindowSettings(center: -600.0, width: 1500.0)
 
 if let presetName = DCMWindowingProcessor.getPresetName(settings: settings, tolerance: 50.0) {
@@ -647,7 +647,7 @@ if let strictMatch = DCMWindowingProcessor.getPresetName(settings: strictSetting
     print("No match with strict tolerance")  // This will be printed
 }
 
-// ⚠️ Legacy: Separate center and width parameters (deprecated)
+// Legacy (deprecated): Separate center and width parameters (deprecated)
 let presetName = DCMWindowingProcessor.getPresetName(center: -600.0, width: 1500.0, tolerance: 50.0)
 ```
 
@@ -664,7 +664,7 @@ func processDICOMWithV2APIs(path: String) throws {
     print("Dimensions: \(decoder.width) × \(decoder.height)")
     print("Modality: \(decoder.info(for: .modality))")
 
-    // ✅ Use V2 APIs for type-safe value access
+    // Use V2 APIs for type-safe value access
 
     // 1. Window Settings
     let windowSettings = decoder.windowSettingsV2
@@ -760,7 +760,7 @@ do {
 Replace tuple-based APIs with struct-based V2 variants:
 
 ```swift
-// ❌ Old: Tuple-based APIs (deprecated)
+// Deprecated: Tuple-based APIs (deprecated)
 let (center, width) = decoder.windowSettings
 let (x, y, z) = decoder.pixelSpacing
 let (intercept, slope) = decoder.rescaleParameters
@@ -769,7 +769,7 @@ let (presetC, presetW) = DCMWindowingProcessor.getPresetValues(preset: .lung)
 let batchTuples = DCMWindowingProcessor.batchCalculateOptimalWindowLevel(imagePixels: images)
 let name = DCMWindowingProcessor.getPresetName(center: 50, width: 400)
 
-// ✅ New: Struct-based V2 APIs (recommended)
+// Recommended: Struct-based V2 APIs (recommended)
 let settings = decoder.windowSettingsV2  // WindowSettings
 let spacing = decoder.pixelSpacingV2     // PixelSpacing
 let rescale = decoder.rescaleParametersV2  // RescaleParameters
@@ -783,13 +783,13 @@ let name = DCMWindowingProcessor.getPresetName(settings: settings)  // String?
 
 **Type Safety:**
 ```swift
-// ❌ Tuple: Easy to swap parameters
+// Deprecated: Easy to swap parameters
 func applyWindow(settings: (center: Double, width: Double)) {
     // What if we accidentally swap center and width?
     applyWindowLevel(center: settings.width, width: settings.center)  // Bug!
 }
 
-// ✅ Struct: Type-safe property access
+// Recommended: Type-safe property access
 func applyWindow(settings: WindowSettings) {
     // Named properties prevent mistakes
     applyWindowLevel(center: settings.center, width: settings.width)  // Correct
@@ -798,7 +798,7 @@ func applyWindow(settings: WindowSettings) {
 
 **Codable Support:**
 ```swift
-// ✅ Serialize to JSON for storage or networking
+// Serialize to JSON for storage or networking
 let settings = decoder.windowSettingsV2
 let jsonData = try JSONEncoder().encode(settings)
 UserDefaults.standard.set(jsonData, forKey: "lastWindowSettings")
@@ -812,7 +812,7 @@ if let savedData = UserDefaults.standard.data(forKey: "lastWindowSettings") {
 
 **Validation:**
 ```swift
-// ✅ Built-in validation
+// Built-in validation
 let settings = WindowSettings(center: 50.0, width: -100.0)
 if !settings.isValid {
     print("Invalid window width (must be positive)")  // This will be printed
@@ -826,7 +826,7 @@ if rescale.isIdentity {
 
 **Sendable Conformance:**
 ```swift
-// ✅ Safe to pass across concurrency boundaries
+// Safe to pass across concurrency boundaries
 Task {
     let settings = decoder.windowSettingsV2  // WindowSettings is Sendable
     await processImage(with: settings)  // Safe to pass to async context
@@ -846,7 +846,7 @@ func processImage(with settings: WindowSettings) async {
 ```swift
 import DicomCore
 
-// ⚠️ Legacy pattern - still works but deprecated
+// Legacy pattern - still works but deprecated
 let decoder = DCMDecoder()
 decoder.setDicomFilename("/path/to/image.dcm")
 
@@ -859,7 +859,7 @@ guard decoder.dicomFileReadSuccess else {
 print("Image dimensions: \(decoder.width) x \(decoder.height)")
 print("Bit depth: \(decoder.bitDepth)")
 
-// ✅ Use type-safe DicomTag enum (recommended)
+// Use type-safe DicomTag enum (recommended)
 print("Modality: \(decoder.info(for: .modality))")
 // Or legacy hex values: decoder.info(for: 0x00080060)
 ```
@@ -899,7 +899,7 @@ import DicomCore
 
 func loadDICOMAsync(path: String) async {
     do {
-        // ✅ Recommended: Use async throwing initializer
+        // Recommended: Use async throwing initializer
         let decoder = try await DCMDecoder(contentsOfFile: path)
 
         print("Loaded \(decoder.width) x \(decoder.height)")
@@ -933,7 +933,7 @@ import DicomCore
 func loadDICOMAsyncLegacy(path: String) async {
     let decoder = DCMDecoder()
 
-    // ⚠️ Legacy pattern - deprecated
+    // Legacy pattern (deprecated)
     let success = await decoder.loadDICOMFileAsync(path)
 
     guard success else {
@@ -990,10 +990,10 @@ if !validation.isValid {
 }
 
 // Load the validated file
-decoder.setDicomFilename("/path/to/image.dcm")
+let loadedDecoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
 
 // Check detailed validation status
-let status = decoder.getValidationStatus()
+let status = loadedDecoder.getValidationStatus()
 print("Valid: \(status.isValid)")
 print("Dimensions: \(status.width) x \(status.height)")
 print("Has pixels: \(status.hasPixels)")
@@ -1089,7 +1089,7 @@ let brainWindowed = DCMWindowingProcessor.applyWindowLevel(
 ### Auto-Suggesting Presets
 
 ```swift
-// ✅ Use type-safe DicomTag enum for metadata access
+// Use type-safe DicomTag enum for metadata access
 let modality = decoder.info(for: .modality)
 let bodyPart = decoder.info(for: .bodyPartExamined)
 
@@ -1153,7 +1153,7 @@ print("Description: \(seriesInfo["SeriesDescription"] ?? "")")
 ### Accessing Individual Tags
 
 ```swift
-// ✅ Recommended: Use type-safe DicomTag enum
+// Recommended: Use type-safe DicomTag enum
 
 // String values
 let patientName = decoder.info(for: .patientName)
@@ -1177,7 +1177,7 @@ if let windowCenter = decoder.doubleValue(for: .windowCenter) {
     print("Window center: \(windowCenter)")
 }
 
-// ⚠️ Legacy: Raw hex values (use only for custom/private tags)
+// Legacy (deprecated): Raw hex values (use only for custom/private tags)
 let privateTag = decoder.info(for: 0x00091001)  // Private manufacturer tag
 
 // Get all tags
@@ -1232,62 +1232,517 @@ if let metrics = decoder.getQualityMetrics() {
 
 ## Batch Processing
 
-### Processing Multiple Images
+The library provides powerful batch loading APIs that enable concurrent processing of multiple DICOM files using Swift's structured concurrency. These APIs are thread-safe, Sendable-compliant, and optimized for modern Swift concurrency patterns.
+
+### Concurrent Batch Loading with DCMDecoder
+
+The `DCMDecoder.loadBatch()` method loads multiple DICOM files concurrently using TaskGroup:
 
 ```swift
-let filePaths = [
-    "/path/to/image1.dcm",
-    "/path/to/image2.dcm",
-    "/path/to/image3.dcm"
+import DicomCore
+
+// Concurrent batch loading (recommended)
+let urls = [
+    URL(fileURLWithPath: "/path/to/image1.dcm"),
+    URL(fileURLWithPath: "/path/to/image2.dcm"),
+    URL(fileURLWithPath: "/path/to/image3.dcm"),
+    URL(fileURLWithPath: "/path/to/image4.dcm")
 ]
 
-// Sequential processing
-for path in filePaths {
-    let decoder = DCMDecoder()
-    decoder.setDicomFilename(path)
+// Load files concurrently with maxConcurrency limit
+let results = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 4)
 
-    if decoder.dicomFileReadSuccess {
-        print("Processed: \(path)")
-        // Process image...
+// Process results - ordering matches input URLs
+for result in results {
+    if let decoder = result.decoder {
+        print("✓ Loaded: \(decoder.width) x \(decoder.height)")
+
+        // Access metadata
+        let modality = decoder.info(for: .modality)
+        let patientName = decoder.info(for: .patientName)
+        print("  Patient: \(patientName), Modality: \(modality)")
+
+        // Get pixels
+        if let pixels = decoder.getPixels16() {
+            print("  Pixels: \(pixels.count)")
+        }
+    } else if let error = result.error {
+        print("✗ Failed to load \(result.url.lastPathComponent): \(error)")
     }
 }
 
-// Parallel processing with async/await
-await withTaskGroup(of: Bool.self) { group in
-    for path in filePaths {
-        group.addTask {
-            let decoder = DCMDecoder()
-            return await decoder.loadDICOMFileAsync(path)
+// Filter successful results
+let successfulDecoders = results.compactMap { $0.decoder }
+print("\nSuccessfully loaded \(successfulDecoders.count) of \(results.count) files")
+```
+
+### Batch Loading with Partial Failure Handling
+
+The batch loading API handles partial failures gracefully:
+
+```swift
+// Load files from directory with error handling
+func loadDicomDirectory(at url: URL) async {
+    do {
+        // Get all DICOM file URLs
+        let fileManager = FileManager.default
+        let urls = try fileManager.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: nil
+        ).filter { $0.pathExtension.lowercased() == "dcm" }
+
+        print("Found \(urls.count) DICOM files")
+
+        // Load with concurrency limit
+        let results = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 4)
+
+        // Separate successes and failures
+        var successes: [(URL, DCMDecoder)] = []
+        var failures: [(URL, Error)] = []
+
+        for result in results {
+            if let decoder = result.decoder {
+                successes.append((result.url, decoder))
+            } else if let error = result.error {
+                failures.append((result.url, error))
+            }
+        }
+
+        // Report results
+        print("\n✓ Successfully loaded: \(successes.count) files")
+        print("✗ Failed to load: \(failures.count) files")
+
+        // Log failures
+        for (url, error) in failures {
+            print("  - \(url.lastPathComponent): \(error.localizedDescription)")
+        }
+
+        // Process successful files
+        for (url, decoder) in successes {
+            print("Processing: \(url.lastPathComponent)")
+            // Process decoder...
+        }
+    } catch {
+        print("Error reading directory: \(error)")
+    }
+}
+
+// Usage
+await loadDicomDirectory(at: URL(fileURLWithPath: "/path/to/dicom/files"))
+```
+
+### Batch Series Loading with Progress
+
+Load multiple DICOM series concurrently with progress tracking:
+
+```swift
+import DicomCore
+
+// Load multiple series with progress tracking
+let seriesDirectories = [
+    URL(fileURLWithPath: "/path/to/series1"),
+    URL(fileURLWithPath: "/path/to/series2"),
+    URL(fileURLWithPath: "/path/to/series3")
+]
+
+let loader = DicomSeriesLoader()
+
+do {
+    // Load series concurrently with progress callbacks
+    let volumes = try await loader.batchLoadSeries(
+        seriesDirectories: seriesDirectories,
+        maxConcurrency: 2,
+        progressHandler: { fractionComplete, seriesCompleted in
+            let percentage = Int(fractionComplete * 100)
+            print("Progress: \(percentage)% (\(seriesCompleted) series completed)")
+        }
+    )
+
+    // Process loaded volumes
+    for (index, volume) in volumes.enumerated() {
+        print("\nSeries \(index + 1):")
+        print("  Dimensions: \(volume.width) × \(volume.height) × \(volume.depth)")
+        print("  Spacing: \(volume.spacing.x) × \(volume.spacing.y) × \(volume.spacing.z) mm")
+        print("  Description: \(volume.seriesDescription)")
+        print("  Voxel count: \(volume.voxels.count)")
+    }
+
+    print("\nSuccessfully loaded \(volumes.count) series")
+} catch {
+    print("Failed to load series: \(error)")
+}
+```
+
+### Batch File Loading with DicomSeriesLoader
+
+Load multiple individual files without assembling into volumes:
+
+```swift
+let loader = DicomSeriesLoader()
+
+// Get file URLs
+let fileManager = FileManager.default
+let urls = try fileManager.contentsOfDirectory(
+    at: URL(fileURLWithPath: "/path/to/dicom/files"),
+    includingPropertiesForKeys: nil
+).filter { $0.pathExtension.lowercased() == "dcm" }
+
+// Load files concurrently
+let results = await loader.batchLoadFiles(urls: urls, maxConcurrency: 4)
+
+// Process results
+let successfulDecoders = results.compactMap { result -> (any DicomDecoderProtocol)? in
+    if result.success, let decoder = result.decoder {
+        return decoder
+    }
+
+    if let error = result.error {
+        print("Failed to load \(result.url.lastPathComponent): \(error)")
+    }
+
+    return nil
+}
+
+print("Loaded \(successfulDecoders.count) of \(results.count) files")
+
+// Process decoders
+for decoder in successfulDecoders {
+    let studyUID = decoder.info(for: .studyInstanceUID)
+    let seriesUID = decoder.info(for: .seriesInstanceUID)
+    print("Study: \(studyUID), Series: \(seriesUID)")
+}
+```
+
+### Actor-Isolated DICOM Processing
+
+The library's Sendable conformance enables safe usage within actors:
+
+```swift
+import DicomCore
+
+// Actor for managing DICOM files
+actor DicomRepository {
+    private var decoders: [String: DCMDecoder] = [:]
+
+    // Load and store decoder
+    func loadFile(at url: URL) async throws {
+        let decoder = try await DCMDecoder(contentsOf: url)
+        let studyUID = decoder.info(for: .studyInstanceUID)
+        decoders[studyUID] = decoder
+    }
+
+    // Batch load multiple files
+    func loadFiles(urls: [URL]) async {
+        let results = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 4)
+
+        for result in results {
+            if let decoder = result.decoder {
+                let studyUID = decoder.info(for: .studyInstanceUID)
+                decoders[studyUID] = decoder
+            }
         }
     }
 
-    for await success in group {
-        if success {
-            print("Successfully loaded a file")
+    // Get decoder by study UID
+    func decoder(forStudy studyUID: String) -> DCMDecoder? {
+        return decoders[studyUID]
+    }
+
+    // Get all patient names
+    func getAllPatientNames() -> [String] {
+        return decoders.values.map { $0.info(for: .patientName) }
+    }
+
+    // Get image dimensions for study
+    func getDimensions(forStudy studyUID: String) -> (width: Int, height: Int)? {
+        guard let decoder = decoders[studyUID] else { return nil }
+        return (decoder.width, decoder.height)
+    }
+
+    // Get pixel data for study
+    func getPixels(forStudy studyUID: String) -> [UInt16]? {
+        guard let decoder = decoders[studyUID] else { return nil }
+        return decoder.getPixels16()
+    }
+
+    // Clear cache
+    func clearCache() {
+        decoders.removeAll()
+    }
+}
+
+// Usage
+let repository = DicomRepository()
+
+// Load files into actor-isolated storage
+let urls = [
+    URL(fileURLWithPath: "/path/to/image1.dcm"),
+    URL(fileURLWithPath: "/path/to/image2.dcm")
+]
+
+await repository.loadFiles(urls: urls)
+
+// Access data safely through actor
+let patientNames = await repository.getAllPatientNames()
+print("Patients: \(patientNames)")
+
+if let dimensions = await repository.getDimensions(forStudy: "1.2.3.4.5") {
+    print("Image size: \(dimensions.width) × \(dimensions.height)")
+}
+```
+
+### Concurrent Processing with Task Groups
+
+Process DICOM files using structured concurrency patterns:
+
+```swift
+import DicomCore
+
+// Process files with custom TaskGroup logic
+func processDicomFilesWithCustomLogic(urls: [URL]) async {
+    await withTaskGroup(of: (URL, Result<DCMDecoder, Error>).self) { group in
+        // Add tasks for each file
+        for url in urls {
+            group.addTask {
+                do {
+                    let decoder = try await DCMDecoder(contentsOf: url)
+                    return (url, .success(decoder))
+                } catch {
+                    return (url, .failure(error))
+                }
+            }
+        }
+
+        // Process results as they complete
+        for await (url, result) in group {
+            switch result {
+            case .success(let decoder):
+                print("✓ \(url.lastPathComponent): \(decoder.width)×\(decoder.height)")
+
+                // Calculate optimal window/level
+                if let pixels = decoder.getPixels16() {
+                    let optimal = DCMWindowingProcessor.calculateOptimalWindowLevelV2(
+                        pixels16: pixels
+                    )
+                    print("  Optimal window: C=\(optimal.center) W=\(optimal.width)")
+                }
+
+            case .failure(let error):
+                print("✗ \(url.lastPathComponent): \(error.localizedDescription)")
+            }
         }
     }
 }
+
+// Usage
+let urls = [
+    URL(fileURLWithPath: "/path/to/image1.dcm"),
+    URL(fileURLWithPath: "/path/to/image2.dcm"),
+    URL(fileURLWithPath: "/path/to/image3.dcm")
+]
+
+await processDicomFilesWithCustomLogic(urls: urls)
+```
+
+### Controlling Concurrency
+
+Adjust concurrency levels based on your system resources:
+
+```swift
+// Low concurrency for memory-constrained environments
+let results = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 2)
+
+// Moderate concurrency (default)
+let results = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 4)
+
+// High concurrency for powerful systems
+let results = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 8)
+
+// Series loading with limited concurrency
+let volumes = try await loader.batchLoadSeries(
+    seriesDirectories: directories,
+    maxConcurrency: 2  // Recommended: 2-3 for series loading
+)
+```
+
+### Sequential vs Concurrent Processing Comparison
+
+```swift
+import DicomCore
+
+// Sequential processing (slower, but predictable)
+func loadSequentially(urls: [URL]) async -> [DCMDecoder] {
+    var decoders: [DCMDecoder] = []
+
+    for url in urls {
+        do {
+            let decoder = try await DCMDecoder(contentsOf: url)
+            decoders.append(decoder)
+        } catch {
+            print("Failed: \(url.lastPathComponent)")
+        }
+    }
+
+    return decoders
+}
+
+// Concurrent processing (faster, utilizing multiple cores)
+func loadConcurrently(urls: [URL]) async -> [DCMDecoder] {
+    let results = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 4)
+    return results.compactMap { $0.decoder }
+}
+
+// Performance comparison
+let urls = /* array of 20 DICOM files */
+
+let startSequential = Date()
+let sequentialResults = await loadSequentially(urls: urls)
+let sequentialTime = Date().timeIntervalSince(startSequential)
+print("Sequential: \(sequentialResults.count) files in \(sequentialTime)s")
+
+let startConcurrent = Date()
+let concurrentResults = await loadConcurrently(urls: urls)
+let concurrentTime = Date().timeIntervalSince(startConcurrent)
+print("Concurrent: \(concurrentResults.count) files in \(concurrentTime)s")
+
+let speedup = sequentialTime / concurrentTime
+print("Speedup: \(String(format: "%.2f", speedup))x")
 ```
 
 ### Batch Window/Level Application
 
-```swift
-// Process multiple images with different window settings
-let imagePixels: [[UInt16]] = [/* array of pixel arrays */]
-let centers = [40.0, 50.0, 60.0]  // Different centers for each image
-let widths = [80.0, 350.0, 400.0]  // Different widths for each image
+Process multiple images with different window settings:
 
-let results = DCMWindowingProcessor.batchApplyWindowLevel(
-    imagePixels: imagePixels,
-    centers: centers,
-    widths: widths
+```swift
+// Load multiple images
+let urls = [
+    URL(fileURLWithPath: "/path/to/ct1.dcm"),
+    URL(fileURLWithPath: "/path/to/ct2.dcm"),
+    URL(fileURLWithPath: "/path/to/ct3.dcm")
+]
+
+let results = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 4)
+let decoders = results.compactMap { $0.decoder }
+
+// Get pixel arrays
+let imagePixels: [[UInt16]] = decoders.compactMap { $0.getPixels16() }
+
+// Calculate optimal window/level for each image
+let optimalSettings = DCMWindowingProcessor.batchCalculateOptimalWindowLevelV2(
+    imagePixels: imagePixels
 )
 
-for (index, result) in results.enumerated() {
-    if let windowed = result {
-        print("Image \(index): \(windowed.count) bytes")
+// Apply windowing to each image
+for (index, settings) in optimalSettings.enumerated() {
+    print("Image \(index + 1): center=\(settings.center), width=\(settings.width)")
+
+    if settings.isValid, let pixels = imagePixels[safe: index] {
+        let windowed = DCMWindowingProcessor.applyWindowLevel(
+            pixels16: pixels,
+            center: settings.center,
+            width: settings.width
+        )
+
+        if let windowedData = windowed {
+            print("  Converted to 8-bit: \(windowedData.count) bytes")
+            // Use windowedData for display...
+        }
     }
 }
+
+// Safe array subscript extension (add to your code)
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        return indices.contains(index) ? self[index] : nil
+    }
+}
+```
+
+### Complete Batch Processing Example
+
+```swift
+import DicomCore
+import Foundation
+
+// Complete batch processing workflow
+func processDicomBatch(directoryPath: String) async {
+    print("=== Batch DICOM Processing ===\n")
+
+    // 1. Find all DICOM files
+    let directoryURL = URL(fileURLWithPath: directoryPath)
+    let fileManager = FileManager.default
+
+    guard let urls = try? fileManager.contentsOfDirectory(
+        at: directoryURL,
+        includingPropertiesForKeys: nil
+    ).filter({ $0.pathExtension.lowercased() == "dcm" }) else {
+        print("Failed to read directory")
+        return
+    }
+
+    print("Found \(urls.count) DICOM files\n")
+
+    // 2. Load files concurrently
+    print("Loading files concurrently...")
+    let startTime = Date()
+    let results = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 4)
+    let loadTime = Date().timeIntervalSince(startTime)
+
+    // 3. Analyze results
+    let successfulDecoders = results.compactMap { $0.decoder }
+    let failures = results.filter { $0.isFailure }
+
+    print("Loaded in \(String(format: "%.2f", loadTime))s")
+    print("✓ Success: \(successfulDecoders.count)")
+    print("✗ Failures: \(failures.count)\n")
+
+    // 4. Group by study
+    var studyGroups: [String: [DCMDecoder]] = [:]
+    for decoder in successfulDecoders {
+        let studyUID = decoder.info(for: .studyInstanceUID)
+        studyGroups[studyUID, default: []].append(decoder)
+    }
+
+    print("Found \(studyGroups.count) studies\n")
+
+    // 5. Process each study
+    for (studyUID, decoders) in studyGroups {
+        guard let firstDecoder = decoders.first else { continue }
+
+        print("Study: \(studyUID)")
+        print("  Patient: \(firstDecoder.info(for: .patientName))")
+        print("  Modality: \(firstDecoder.info(for: .modality))")
+        print("  Images: \(decoders.count)")
+
+        // Calculate optimal window/level for study
+        let pixels = decoders.compactMap { $0.getPixels16() }
+        if !pixels.isEmpty {
+            let optimalSettings = DCMWindowingProcessor.batchCalculateOptimalWindowLevelV2(
+                imagePixels: pixels
+            )
+
+            if let firstSettings = optimalSettings.first, firstSettings.isValid {
+                print("  Optimal window: C=\(Int(firstSettings.center)) W=\(Int(firstSettings.width))")
+            }
+        }
+
+        print()
+    }
+
+    // 6. Log failures
+    if !failures.isEmpty {
+        print("Failed files:")
+        for result in failures {
+            print("  - \(result.url.lastPathComponent)")
+            if let error = result.error {
+                print("    Error: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
+// Usage
+await processDicomBatch(directoryPath: "/path/to/dicom/files")
 ```
 
 ## Protocol-Based Dependency Injection
@@ -1380,11 +1835,11 @@ class MyDicomTests: XCTestCase {
 Services use factories instead of single instances to ensure clean state per file:
 
 ```swift
-// ❌ Wrong: Single decoder instance (state leakage)
+// Wrong: Single decoder instance (state leakage)
 let decoder = DCMDecoder()
 let service = StudyDataService(decoder: decoder)  // Not the actual API!
 
-// ✅ Correct: Factory creates fresh decoder per file
+// Correct: Factory creates fresh decoder per file
 let service = StudyDataService(
     decoderFactory: { DCMDecoder() }
 )
@@ -1698,27 +2153,9 @@ if let thumbnail = decoder.getDownsampledPixels16(maxDimension: 150) {
 ```swift
 import DicomCore
 
-func loadDICOM(path: String) throws {
-    let decoder = DCMDecoder()
-
-    // Validate file first
-    let validation = decoder.validateDICOMFile(path)
-    if !validation.isValid {
-        throw DICOMError.invalidFileFormat(
-            path: path,
-            expectedFormat: "Valid DICOM file with proper header"
-        )
-    }
-
-    // Load file
-    decoder.setDicomFilename(path)
-
-    guard decoder.dicomFileReadSuccess else {
-        throw DICOMError.fileReadError(
-            path: path,
-            underlyingError: "Failed to parse DICOM data"
-        )
-    }
+func loadDICOM(path: String) throws -> DCMDecoder {
+    // Throwing initializer handles validation and loading
+    let decoder = try DCMDecoder(contentsOfFile: path)
 
     // Check for compressed images
     if decoder.compressedImage {
@@ -1735,6 +2172,8 @@ func loadDICOM(path: String) throws {
             description: "Study Instance UID"
         )
     }
+
+    return decoder
 }
 
 // Usage with error handling
@@ -1758,26 +2197,10 @@ import DicomCore
 import Foundation
 
 class DICOMImageProcessor {
-    private let decoder = DCMDecoder()
 
     func loadAndProcess(path: String) async throws -> ProcessedImage {
-        // Validate file
-        let validation = decoder.validateDICOMFile(path)
-        guard validation.isValid else {
-            throw DICOMError.invalidFileFormat(
-                path: path,
-                expectedFormat: "Valid DICOM file"
-            )
-        }
-
-        // Load file asynchronously
-        let success = await decoder.loadDICOMFileAsync(path)
-        guard success else {
-            throw DICOMError.fileReadError(
-                path: path,
-                underlyingError: "Failed to load DICOM data"
-            )
-        }
+        // Load file asynchronously with throwing initializer
+        let decoder = try await DCMDecoder(contentsOfFile: path)
 
         // Get metadata
         let patientInfo = decoder.getPatientInfo()

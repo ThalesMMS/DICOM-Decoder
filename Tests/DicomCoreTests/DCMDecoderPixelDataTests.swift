@@ -15,15 +15,11 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testPixelBuffersNilAfterFailedLoad() {
-        let decoder = DCMDecoder()
+        // Modern API: throwing initializer returns nil for nonexistent file
+        let decoder = try? DCMDecoder(contentsOfFile: "/nonexistent/file.dcm")
 
-        // Attempt to load nonexistent file
-        decoder.setDicomFilename("/nonexistent/file.dcm")
-
-        // Pixel buffers should remain nil
-        XCTAssertNil(decoder.getPixels8(), "pixels8 should be nil after failed load")
-        XCTAssertNil(decoder.getPixels16(), "pixels16 should be nil after failed load")
-        XCTAssertNil(decoder.getPixels24(), "pixels24 should be nil after failed load")
+        // Failed initialization should return nil
+        XCTAssertNil(decoder, "Decoder should be nil when file doesn't exist")
     }
 
     func testPixelBuffersConsistentAfterMultipleAccesses() {
@@ -53,17 +49,15 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testGetPixels8AfterInvalidFileLoad() {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("/invalid/path/file.dcm")
-        XCTAssertNil(decoder.getPixels8(), "Should have nil pixels8 after invalid file load")
+        // Modern API: throwing initializer returns nil for invalid file
+        let decoder = try? DCMDecoder(contentsOfFile: "/invalid/path/file.dcm")
+        XCTAssertNil(decoder, "Decoder should be nil for invalid file path")
     }
 
     func testGetPixels8AfterEmptyFileLoad() {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("")
-        XCTAssertNil(decoder.getPixels8(), "Should have nil pixels8 after empty filename")
+        // Modern API: throwing initializer returns nil for empty filename
+        let decoder = try? DCMDecoder(contentsOfFile: "")
+        XCTAssertNil(decoder, "Decoder should be nil for empty filename")
     }
 
     // MARK: - Grayscale 16-bit Pixel Tests
@@ -76,31 +70,27 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testGetPixels16AfterInvalidFileLoad() {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("/invalid/path/file.dcm")
-        XCTAssertNil(decoder.getPixels16(), "Should have nil pixels16 after invalid file load")
+        // Modern API: throwing initializer returns nil for invalid file
+        let decoder = try? DCMDecoder(contentsOfFile: "/invalid/path/file.dcm")
+        XCTAssertNil(decoder, "Decoder should be nil for invalid file path")
     }
 
     func testGetPixels16AfterEmptyFileLoad() {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("")
-        XCTAssertNil(decoder.getPixels16(), "Should have nil pixels16 after empty filename")
+        // Modern API: throwing initializer returns nil for empty filename
+        let decoder = try? DCMDecoder(contentsOfFile: "")
+        XCTAssertNil(decoder, "Decoder should be nil for empty filename")
     }
 
     func testGetPixels16AfterMultipleFailedLoads() {
-        let decoder = DCMDecoder()
+        // Modern API: each throwing initializer attempt returns nil for nonexistent files
+        let decoder1 = try? DCMDecoder(contentsOfFile: "/nonexistent/file1.dcm")
+        XCTAssertNil(decoder1, "First decoder should be nil for nonexistent file")
 
-        // Try multiple failed loads
-        decoder.setDicomFilename("/nonexistent/file1.dcm")
-        XCTAssertNil(decoder.getPixels16(), "Should have nil pixels16 after first failed load")
+        let decoder2 = try? DCMDecoder(contentsOfFile: "/nonexistent/file2.dcm")
+        XCTAssertNil(decoder2, "Second decoder should be nil for nonexistent file")
 
-        decoder.setDicomFilename("/nonexistent/file2.dcm")
-        XCTAssertNil(decoder.getPixels16(), "Should have nil pixels16 after second failed load")
-
-        decoder.setDicomFilename("/nonexistent/file3.dcm")
-        XCTAssertNil(decoder.getPixels16(), "Should have nil pixels16 after third failed load")
+        let decoder3 = try? DCMDecoder(contentsOfFile: "/nonexistent/file3.dcm")
+        XCTAssertNil(decoder3, "Third decoder should be nil for nonexistent file")
     }
 
     // MARK: - Color 24-bit Pixel Tests
@@ -113,17 +103,15 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testGetPixels24AfterInvalidFileLoad() {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("/invalid/path/file.dcm")
-        XCTAssertNil(decoder.getPixels24(), "Should have nil pixels24 after invalid file load")
+        // Modern API: throwing initializer returns nil for invalid file
+        let decoder = try? DCMDecoder(contentsOfFile: "/invalid/path/file.dcm")
+        XCTAssertNil(decoder, "Decoder should be nil for invalid file path")
     }
 
     func testGetPixels24AfterEmptyFileLoad() {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("")
-        XCTAssertNil(decoder.getPixels24(), "Should have nil pixels24 after empty filename")
+        // Modern API: throwing initializer returns nil for empty filename
+        let decoder = try? DCMDecoder(contentsOfFile: "")
+        XCTAssertNil(decoder, "Decoder should be nil for empty filename")
     }
 
     // MARK: - Pixel Data Type Tests
@@ -168,7 +156,9 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     func testValidationStatusHasPixelsAfterFailedLoad() {
         let decoder = DCMDecoder()
 
-        decoder.setDicomFilename("/nonexistent/file.dcm")
+        // Modern API: use throwing initializer (will fail for nonexistent file)
+        // Test that a fresh decoder has nil pixels
+        let _ = try? DCMDecoder(contentsOfFile: "/nonexistent/file.dcm")
 
         let status = decoder.getValidationStatus()
         XCTAssertFalse(status.hasPixels, "Failed load should not have pixels")
@@ -195,16 +185,11 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     // MARK: - Pixel Data Edge Cases
 
     func testZeroSizedImage() {
-        let decoder = DCMDecoder()
+        // Modern API: throwing initializer returns nil for nonexistent file
+        let decoder = try? DCMDecoder(contentsOfFile: "/nonexistent/zerosized.dcm")
 
-        // Test with zero dimensions (before proper file load)
-        // Default dimensions are 1x1, but let's test the pixel access behavior
-        decoder.setDicomFilename("/nonexistent/zerosized.dcm")
-
-        // Pixel buffers should be nil for invalid files
-        XCTAssertNil(decoder.getPixels8(), "Zero-sized image should have nil pixels8")
-        XCTAssertNil(decoder.getPixels16(), "Zero-sized image should have nil pixels16")
-        XCTAssertNil(decoder.getPixels24(), "Zero-sized image should have nil pixels24")
+        // Decoder should be nil for invalid files
+        XCTAssertNil(decoder, "Decoder should be nil for nonexistent file")
     }
 
     func testExtremeImageDimensions() {
@@ -258,9 +243,7 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testPixelDataAfterSequentialFailedLoads() {
-        let decoder = DCMDecoder()
-
-        // Try loading multiple invalid files
+        // Modern API: test that throwing initializer returns nil for each invalid path
         let invalidPaths = [
             "/nonexistent/file1.dcm",
             "/invalid/path/file2.dcm",
@@ -270,30 +253,21 @@ final class DCMDecoderPixelDataTests: XCTestCase {
         ]
 
         for path in invalidPaths {
-            decoder.setDicomFilename(path)
-
-            // All pixel buffers should remain nil
-            XCTAssertNil(decoder.getPixels8(), "pixels8 should be nil for invalid path: \(path)")
-            XCTAssertNil(decoder.getPixels16(), "pixels16 should be nil for invalid path: \(path)")
-            XCTAssertNil(decoder.getPixels24(), "pixels24 should be nil for invalid path: \(path)")
-            XCTAssertFalse(decoder.getValidationStatus().hasPixels, "Should not have pixels for: \(path)")
+            let decoder = try? DCMDecoder(contentsOfFile: path)
+            XCTAssertNil(decoder, "Decoder should be nil for invalid path: \(path)")
         }
     }
 
     func testPixelDataConsistencyAfterReset() {
-        let decoder = DCMDecoder()
+        // Modern API: test multiple failed loads
+        let decoder1 = try? DCMDecoder(contentsOfFile: "/nonexistent/file.dcm")
+        XCTAssertNil(decoder1, "First decoder should be nil for nonexistent file")
 
-        // Load invalid file
-        decoder.setDicomFilename("/nonexistent/file.dcm")
-        XCTAssertNil(decoder.getPixels16(), "Should have nil pixels after failed load")
+        let decoder2 = try? DCMDecoder(contentsOfFile: "/another/invalid/path.dcm")
+        XCTAssertNil(decoder2, "Second decoder should be nil for nonexistent file")
 
-        // Try another invalid file
-        decoder.setDicomFilename("/another/invalid/path.dcm")
-        XCTAssertNil(decoder.getPixels16(), "Should still have nil pixels after another failed load")
-
-        // Try a third time
-        decoder.setDicomFilename("")
-        XCTAssertNil(decoder.getPixels16(), "Should still have nil pixels after empty path")
+        let decoder3 = try? DCMDecoder(contentsOfFile: "")
+        XCTAssertNil(decoder3, "Third decoder should be nil for empty path")
     }
 
     func testPixelBufferBitDepthMismatch() {
@@ -317,8 +291,6 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testPixelDataWithSpecialCharactersInPath() {
-        let decoder = DCMDecoder()
-
         // Test paths with special characters
         let specialPaths = [
             "/path/with spaces/file.dcm",
@@ -329,23 +301,19 @@ final class DCMDecoderPixelDataTests: XCTestCase {
         ]
 
         for path in specialPaths {
-            decoder.setDicomFilename(path)
+            let decoder = try? DCMDecoder(contentsOfFile: path)
             // Should handle gracefully without crashing
-            XCTAssertNil(decoder.getPixels16(), "Should handle special characters in path: \(path)")
-            XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with nonexistent path")
+            XCTAssertNil(decoder, "Should return nil for nonexistent path: \(path)")
         }
     }
 
     func testPixelDataWithVeryLongPath() {
-        let decoder = DCMDecoder()
-
-        // Create a very long path
+        // Modern API: test that throwing initializer handles very long paths
         let longPath = "/" + String(repeating: "subdirectory/", count: 50) + "file.dcm"
-        decoder.setDicomFilename(longPath)
+        let decoder = try? DCMDecoder(contentsOfFile: longPath)
 
-        // Should handle gracefully
-        XCTAssertNil(decoder.getPixels16(), "Should handle very long paths")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with nonexistent long path")
+        // Should handle gracefully by returning nil
+        XCTAssertNil(decoder, "Should handle very long paths gracefully")
     }
 
     func testPixelDataAccessWithoutPriorValidation() {
@@ -393,20 +361,13 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testPixelDataWithNilFilePath() {
-        let decoder = DCMDecoder()
-
         // Test with empty/nil path
-        decoder.setDicomFilename("")
+        let decoder = try? DCMDecoder(contentsOfFile: "")
 
-        XCTAssertNil(decoder.getPixels8(), "Empty path should result in nil pixels8")
-        XCTAssertNil(decoder.getPixels16(), "Empty path should result in nil pixels16")
-        XCTAssertNil(decoder.getPixels24(), "Empty path should result in nil pixels24")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with empty path")
+        XCTAssertNil(decoder, "Decoder should be nil for empty path")
     }
 
     func testPixelDataWithRelativePaths() {
-        let decoder = DCMDecoder()
-
         // Test relative paths
         let relativePaths = [
             "./file.dcm",
@@ -417,9 +378,9 @@ final class DCMDecoderPixelDataTests: XCTestCase {
         ]
 
         for path in relativePaths {
-            decoder.setDicomFilename(path)
+            let decoder = try? DCMDecoder(contentsOfFile: path)
             // Should handle relative paths (they will fail to load but shouldn't crash)
-            XCTAssertNil(decoder.getPixels16(), "Should handle relative path: \(path)")
+            XCTAssertNil(decoder, "Should return nil for relative path: \(path)")
         }
     }
 
@@ -460,19 +421,11 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testPixelDataAfterMultipleReinitialization() {
-        let decoder = DCMDecoder()
-
-        // Try reinitializing multiple times with different invalid paths
+        // Try creating multiple decoders with different invalid paths
         for i in 0..<5 {
-            decoder.setDicomFilename("/nonexistent/file\(i).dcm")
-            XCTAssertNil(decoder.getPixels16(), "Should have nil pixels after reinitialization \(i)")
-            XCTAssertFalse(decoder.getValidationStatus().hasPixels, "Should not have pixels")
+            let decoder = try? DCMDecoder(contentsOfFile: "/nonexistent/file\(i).dcm")
+            XCTAssertNil(decoder, "Should return nil for nonexistent file \(i)")
         }
-
-        // Final state should be clean
-        XCTAssertNil(decoder.getPixels8(), "Final pixels8 should be nil")
-        XCTAssertNil(decoder.getPixels16(), "Final pixels16 should be nil")
-        XCTAssertNil(decoder.getPixels24(), "Final pixels24 should be nil")
     }
 
     func testPixelDataMemoryConsistency() {
@@ -492,8 +445,6 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testPixelDataWithInvalidFileExtensions() {
-        let decoder = DCMDecoder()
-
         // Test files with incorrect or missing extensions
         let invalidExtensions = [
             "/path/file.txt",
@@ -505,8 +456,8 @@ final class DCMDecoderPixelDataTests: XCTestCase {
         ]
 
         for path in invalidExtensions {
-            decoder.setDicomFilename(path)
-            XCTAssertNil(decoder.getPixels16(), "Should handle invalid extension: \(path)")
+            let decoder = try? DCMDecoder(contentsOfFile: path)
+            XCTAssertNil(decoder, "Should return nil for invalid extension: \(path)")
         }
     }
 
@@ -668,110 +619,25 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testConcurrentLoadAndPixelAccess() {
-        let decoder = DCMDecoder()
         let expectation = self.expectation(description: "Concurrent load and pixel access")
         expectation.expectedFulfillmentCount = 10
 
-        // Test concurrent file loading and pixel access
+        // Test concurrent file loading attempts
         for i in 0..<10 {
             DispatchQueue.global().async {
-                decoder.setDicomFilename("/nonexistent/file\(i).dcm")
-                _ = decoder.getPixels16()
-                _ = decoder.getValidationStatus()
+                let decoder = try? DCMDecoder(contentsOfFile: "/nonexistent/file\(i).dcm")
+                XCTAssertNil(decoder, "Decoder should be nil for nonexistent file")
                 expectation.fulfill()
             }
         }
 
-        waitForExpectations(timeout: 5.0) { _ in
-            // Final state should be consistent
-            XCTAssertNil(decoder.getPixels16(), "pixels16 should be nil after concurrent failed loads")
-            XCTAssertFalse(decoder.getValidationStatus().hasPixels, "Should not have pixels")
-        }
+        waitForExpectations(timeout: 5.0, handler: nil)
     }
 
     // MARK: - Async Pixel Access Tests
 
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetPixels16Async() async {
-        let decoder = DCMDecoder()
-
-        let pixels = await decoder.getPixels16Async()
-        XCTAssertNil(pixels, "Async pixels16 should be nil for uninitialized decoder")
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetPixels8Async() async {
-        let decoder = DCMDecoder()
-
-        let pixels = await decoder.getPixels8Async()
-        XCTAssertNil(pixels, "Async pixels8 should be nil for uninitialized decoder")
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetPixels24Async() async {
-        let decoder = DCMDecoder()
-
-        let pixels = await decoder.getPixels24Async()
-        XCTAssertNil(pixels, "Async pixels24 should be nil for uninitialized decoder")
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testAsyncPixelAccessAfterFailedLoad() async {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("/nonexistent/file.dcm")
-
-        let pixels16 = await decoder.getPixels16Async()
-        let pixels8 = await decoder.getPixels8Async()
-        let pixels24 = await decoder.getPixels24Async()
-
-        XCTAssertNil(pixels16, "Async pixels16 should be nil after failed load")
-        XCTAssertNil(pixels8, "Async pixels8 should be nil after failed load")
-        XCTAssertNil(pixels24, "Async pixels24 should be nil after failed load")
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testAsyncPixelAccessConsistency() async {
-        let decoder = DCMDecoder()
-
-        // Multiple async calls should return consistent results
-        let pixels16_1 = await decoder.getPixels16Async()
-        let pixels16_2 = await decoder.getPixels16Async()
-
-        XCTAssertEqual(pixels16_1, pixels16_2, "Multiple async getPixels16 calls should be consistent")
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testConcurrentAsyncPixelAccess() async {
-        let decoder = DCMDecoder()
-
-        // Test concurrent async pixel access
-        async let pixels16_1 = decoder.getPixels16Async()
-        async let pixels16_2 = decoder.getPixels16Async()
-        async let pixels8_1 = decoder.getPixels8Async()
-        async let pixels24_1 = decoder.getPixels24Async()
-
-        let result1 = await pixels16_1
-        let result2 = await pixels16_2
-        let result3 = await pixels8_1
-        let result4 = await pixels24_1
-
-        // All should be nil
-        XCTAssertNil(result1, "Concurrent async pixels16 access should return nil")
-        XCTAssertNil(result2, "Concurrent async pixels16 access should return nil")
-        XCTAssertNil(result3, "Concurrent async pixels8 access should return nil")
-        XCTAssertNil(result4, "Concurrent async pixels24 access should return nil")
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testAsyncAndSyncPixelAccessConsistency() async {
-        let decoder = DCMDecoder()
-
-        let syncPixels = decoder.getPixels16()
-        let asyncPixels = await decoder.getPixels16Async()
-
-        XCTAssertEqual(syncPixels, asyncPixels, "Sync and async pixel access should be consistent")
-    }
+    // Async pixel access methods have been removed as they were deprecated.
+    // Pixel access is now synchronous only via getPixels8(), getPixels16(), getPixels24().
 
     // MARK: - Pixel Data State Preservation Tests
 
@@ -789,20 +655,13 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testPixelDataClearingAfterFailedLoad() {
-        let decoder = DCMDecoder()
-
         // First failed load
-        decoder.setDicomFilename("/nonexistent/file1.dcm")
-        XCTAssertNil(decoder.getPixels16(), "pixels16 should be nil after first failed load")
+        let decoder1 = try? DCMDecoder(contentsOfFile: "/nonexistent/file1.dcm")
+        XCTAssertNil(decoder1, "Decoder should be nil after first failed load")
 
-        // Second failed load should clear any previous state
-        decoder.setDicomFilename("/nonexistent/file2.dcm")
-        XCTAssertNil(decoder.getPixels16(), "pixels16 should be nil after second failed load")
-
-        // Verify clean state
-        XCTAssertFalse(decoder.getValidationStatus().hasPixels, "Should have no pixels")
-        XCTAssertNil(decoder.getPixels8(), "pixels8 should be nil")
-        XCTAssertNil(decoder.getPixels24(), "pixels24 should be nil")
+        // Second failed load
+        let decoder2 = try? DCMDecoder(contentsOfFile: "/nonexistent/file2.dcm")
+        XCTAssertNil(decoder2, "Decoder should be nil after second failed load")
     }
 
     // MARK: - Edge Case Tests
@@ -827,18 +686,13 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testPixelAccessAfterDecoderReuse() {
-        let decoder = DCMDecoder()
-
         // First use
-        decoder.setDicomFilename("/nonexistent/file1.dcm")
-        XCTAssertNil(decoder.getPixels16(), "pixels16 should be nil after first use")
+        let decoder1 = try? DCMDecoder(contentsOfFile: "/nonexistent/file1.dcm")
+        XCTAssertNil(decoder1, "Decoder should be nil after first use")
 
-        // Reuse decoder with different file
-        decoder.setDicomFilename("/nonexistent/file2.dcm")
-        XCTAssertNil(decoder.getPixels16(), "pixels16 should be nil after reuse")
-
-        // State should be clean
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not have read success")
+        // Second use with different file
+        let decoder2 = try? DCMDecoder(contentsOfFile: "/nonexistent/file2.dcm")
+        XCTAssertNil(decoder2, "Decoder should be nil after second use")
     }
 
     func testPixelBufferReturnTypeConsistency() {
@@ -918,10 +772,8 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     }
 
     func testGetPixels24ReturnsNilAfterFailedLoad() {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("/nonexistent/rgb_image.dcm")
-        XCTAssertNil(decoder.getPixels24(), "pixels24 should be nil after failed load")
+        let decoder = try? DCMDecoder(contentsOfFile: "/nonexistent/rgb_image.dcm")
+        XCTAssertNil(decoder, "Decoder should be nil for nonexistent file")
     }
 
     func testGetPixels24ConsistencyAcrossMultipleCalls() {
@@ -944,23 +796,6 @@ final class DCMDecoderPixelDataTests: XCTestCase {
         }
     }
 
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetPixels24AsyncReturnsNilForUninitializedDecoder() async {
-        let decoder = DCMDecoder()
-
-        let pixels = await decoder.getPixels24Async()
-        XCTAssertNil(pixels, "Async pixels24 should be nil for uninitialized decoder")
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetPixels24AsyncReturnsNilAfterFailedLoad() async {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("/invalid/rgb_image.dcm")
-
-        let pixels = await decoder.getPixels24Async()
-        XCTAssertNil(pixels, "Async pixels24 should be nil after failed load")
-    }
 
     // MARK: - Downsampling Tests
 
@@ -980,14 +815,16 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     func testGetDownsampledPixels16AfterFailedLoad() {
         let decoder = DCMDecoder()
 
-        decoder.setDicomFilename("/nonexistent/file.dcm")
+        // Modern API: use throwing initializer (will fail for nonexistent file)
+        // Test that a fresh decoder has nil pixels
+        let _ = try? DCMDecoder(contentsOfFile: "/nonexistent/file.dcm")
 
         // After failed load, decoder still has default dimensions
         // Downsampling may return a minimal result or nil depending on state
         let result = decoder.getDownsampledPixels16()
 
         // Verify file load was not successful
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "File load should not succeed")
+        XCTAssertFalse(decoder.isValid(), "File load should not succeed")
 
         // If result exists, verify it's minimal (default dimensions)
         if let (pixels, width, height) = result {
@@ -1142,64 +979,9 @@ final class DCMDecoderPixelDataTests: XCTestCase {
         }
     }
 
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetDownsampledPixels16AsyncWithUninitializedDecoder() async {
-        let decoder = DCMDecoder()
+    // Async downsampled pixel methods have been removed as they were deprecated.
 
-        let result = await decoder.getDownsampledPixels16Async()
 
-        // Uninitialized decoder may return minimal default dimensions (1x1)
-        if let (pixels, width, height) = result {
-            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
-            XCTAssertLessThanOrEqual(width, 1, "Width should be minimal for uninitialized decoder")
-            XCTAssertLessThanOrEqual(height, 1, "Height should be minimal for uninitialized decoder")
-        }
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetDownsampledPixels16AsyncAfterFailedLoad() async {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("/invalid/path.dcm")
-
-        // After failed load, decoder still has default dimensions
-        let result = await decoder.getDownsampledPixels16Async()
-
-        // Verify file load was not successful
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "File load should not succeed")
-
-        // If result exists, verify it's minimal (default dimensions)
-        if let (pixels, width, height) = result {
-            XCTAssertEqual(width * height, pixels.count, "Pixel count should match dimensions")
-            XCTAssertLessThanOrEqual(width, 1, "Width should be minimal after failed load")
-            XCTAssertLessThanOrEqual(height, 1, "Height should be minimal after failed load")
-        }
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetDownsampledPixels16AsyncWithCustomMaxDimension() async {
-        let decoder = DCMDecoder()
-
-        let result = await decoder.getDownsampledPixels16Async(maxDimension: 200)
-
-        // For uninitialized decoder, may return minimal result or nil
-        if let (pixels, width, height) = result {
-            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
-            XCTAssertGreaterThan(pixels.count, 0, "Should have at least one pixel if result exists")
-        }
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetDownsampledPixels16AsyncConsistencyWithSync() async {
-        let decoder = DCMDecoder()
-
-        let syncResult = decoder.getDownsampledPixels16(maxDimension: 150)
-        let asyncResult = await decoder.getDownsampledPixels16Async(maxDimension: 150)
-
-        // Both should be nil for uninitialized decoder
-        XCTAssertEqual(syncResult == nil, asyncResult == nil,
-                      "Sync and async downsampling should be consistent")
-    }
 
     func testDownsamplingExcludesColorImages() {
         let decoder = DCMDecoder()
@@ -1239,14 +1021,16 @@ final class DCMDecoderPixelDataTests: XCTestCase {
     func testGetDownsampledPixels8AfterFailedLoad() {
         let decoder = DCMDecoder()
 
-        decoder.setDicomFilename("/nonexistent/file.dcm")
+        // Modern API: use throwing initializer (will fail for nonexistent file)
+        // Test that a fresh decoder has nil pixels
+        let _ = try? DCMDecoder(contentsOfFile: "/nonexistent/file.dcm")
 
         // After failed load, decoder still has default dimensions
         // Downsampling may return a minimal result or nil depending on state
         let result = decoder.getDownsampledPixels8()
 
         // Verify file load was not successful
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "File load should not succeed")
+        XCTAssertFalse(decoder.isValid(), "File load should not succeed")
 
         // If result exists, verify it's minimal (default dimensions)
         if let (pixels, width, height) = result {
@@ -1401,64 +1185,7 @@ final class DCMDecoderPixelDataTests: XCTestCase {
         }
     }
 
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetDownsampledPixels8AsyncWithUninitializedDecoder() async {
-        let decoder = DCMDecoder()
 
-        let result = await decoder.getDownsampledPixels8Async()
-
-        // Uninitialized decoder may return minimal default dimensions (1x1)
-        if let (pixels, width, height) = result {
-            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
-            XCTAssertLessThanOrEqual(width, 1, "Width should be minimal for uninitialized decoder")
-            XCTAssertLessThanOrEqual(height, 1, "Height should be minimal for uninitialized decoder")
-        }
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetDownsampledPixels8AsyncAfterFailedLoad() async {
-        let decoder = DCMDecoder()
-
-        decoder.setDicomFilename("/invalid/path.dcm")
-
-        // After failed load, decoder still has default dimensions
-        let result = await decoder.getDownsampledPixels8Async()
-
-        // Verify file load was not successful
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "File load should not succeed")
-
-        // If result exists, verify it's minimal (default dimensions)
-        if let (pixels, width, height) = result {
-            XCTAssertEqual(width * height, pixels.count, "Pixel count should match dimensions")
-            XCTAssertLessThanOrEqual(width, 1, "Width should be minimal after failed load")
-            XCTAssertLessThanOrEqual(height, 1, "Height should be minimal after failed load")
-        }
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetDownsampledPixels8AsyncWithCustomMaxDimension() async {
-        let decoder = DCMDecoder()
-
-        let result = await decoder.getDownsampledPixels8Async(maxDimension: 200)
-
-        // For uninitialized decoder, may return minimal result or nil
-        if let (pixels, width, height) = result {
-            XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
-            XCTAssertGreaterThan(pixels.count, 0, "Should have at least one pixel if result exists")
-        }
-    }
-
-    @available(macOS 10.15, iOS 13.0, *)
-    func testGetDownsampledPixels8AsyncConsistencyWithSync() async {
-        let decoder = DCMDecoder()
-
-        let syncResult = decoder.getDownsampledPixels8(maxDimension: 150)
-        let asyncResult = await decoder.getDownsampledPixels8Async(maxDimension: 150)
-
-        // Both should be nil for uninitialized decoder
-        XCTAssertEqual(syncResult == nil, asyncResult == nil,
-                      "Sync and async downsampling should be consistent")
-    }
 
     func testDownsamplingExcludes16BitImagesForPixels8() {
         let decoder = DCMDecoder()

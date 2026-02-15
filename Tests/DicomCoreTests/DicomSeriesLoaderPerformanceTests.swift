@@ -15,23 +15,23 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         // Create a mock decoder that tracks instantiation count
         var decoderInstantiationCount = 0
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             decoderInstantiationCount += 1
             let mock = MockDicomDecoder()
             mock.width = 512
             mock.height = 512
             mock.bitDepth = 16
-            mock.dicomFileReadSuccess = true
-            mock.setTag(0x00280010, value: "512")  // Rows
-            mock.setTag(0x00280011, value: "512")  // Columns
-            mock.setTag(0x00280100, value: "16")   // Bits Allocated
-            mock.setTag(0x00280103, value: "0")    // Pixel Representation
-            mock.setTag(0x00280030, value: "1.0\\1.0") // Pixel Spacing
-            mock.setTag(0x00200032, value: "0.0\\0.0\\0.0") // Image Position
-            mock.setTag(0x00200037, value: "1\\0\\0\\0\\1\\0") // Image Orientation
-            mock.setTag(0x00281052, value: "0")    // Rescale Intercept
-            mock.setTag(0x00281053, value: "1")    // Rescale Slope
-            mock.setTag(0x0008103e, value: "Test Series") // Series Description
+            // Mock decoder configured as valid
+            mock.setTag(DicomTag.rows.rawValue, value: "512")
+            mock.setTag(DicomTag.columns.rawValue, value: "512")
+            mock.setTag(DicomTag.bitsAllocated.rawValue, value: "16")
+            mock.setTag(DicomTag.pixelRepresentation.rawValue, value: "0")
+            mock.setTag(DicomTag.pixelSpacing.rawValue, value: "1.0\\1.0")
+            mock.setTag(DicomTag.imagePositionPatient.rawValue, value: "0.0\\0.0\\0.0")
+            mock.setTag(DicomTag.imageOrientationPatient.rawValue, value: "1\\0\\0\\0\\1\\0")
+            mock.setTag(DicomTag.rescaleIntercept.rawValue, value: "0")
+            mock.setTag(DicomTag.rescaleSlope.rawValue, value: "1")
+            mock.setTag(DicomTag.seriesDescription.rawValue, value: "Test Series")
 
             // Simulate pixel data
             let pixelCount = 512 * 512
@@ -99,13 +99,13 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         for _ in 0..<iterations {
             var instantiationCount = 0
 
-            let mockFactory: () -> DicomDecoderProtocol = {
+            let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
                 instantiationCount += 1
                 let mock = MockDicomDecoder()
                 mock.width = 512
                 mock.height = 512
                 mock.bitDepth = 16
-                mock.dicomFileReadSuccess = true
+                // Mock decoder configured as valid
                 mock.setTag(0x00280010, value: "512")
                 mock.setTag(0x00280011, value: "512")
                 mock.setTag(0x00280100, value: "16")
@@ -160,7 +160,7 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         var decoderInstantiations = 0
         var activeDecoders = Set<ObjectIdentifier>()
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             decoderInstantiations += 1
             let mock = MockDicomDecoder()
             activeDecoders.insert(ObjectIdentifier(mock))
@@ -168,7 +168,7 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
             mock.width = 256
             mock.height = 256
             mock.bitDepth = 16
-            mock.dicomFileReadSuccess = true
+            // Mock decoder configured as valid
             mock.setTag(0x00280010, value: "256")
             mock.setTag(0x00280011, value: "256")
             mock.setTag(0x00280100, value: "16")
@@ -199,7 +199,7 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
 
             // Simulate series loading (creates decoders and caches them)
             for _ in 0..<slicesPerSeries {
-                _ = mockFactory() // Simulate decoder creation during loadSeries
+                _ = try? mockFactory("/dummy/path.dcm") // Simulate decoder creation during loadSeries
             }
 
             let decodersForThisCycle = decoderInstantiations
@@ -319,11 +319,11 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         var totalDirectTime: CFAbsoluteTime = 0
 
         // Measure factory pattern overhead
-        let factory: () -> DicomDecoderProtocol = { DCMDecoder() }
+        let factory: (String) throws -> DicomDecoderProtocol = { _ in DCMDecoder() }
 
         let factoryStart = CFAbsoluteTimeGetCurrent()
         for _ in 0..<iterations {
-            _ = factory()
+            _ = try? factory("/dummy/path.dcm")
         }
         totalFactoryTime = CFAbsoluteTimeGetCurrent() - factoryStart
 
@@ -367,14 +367,14 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         var cacheMisses = 0
         var decoderInstantiations = 0
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             decoderInstantiations += 1
             cacheMisses += 1
             let mock = MockDicomDecoder()
             mock.width = 128
             mock.height = 128
             mock.bitDepth = 16
-            mock.dicomFileReadSuccess = true
+            // Mock decoder configured as valid
             mock.setTag(0x00280010, value: "128")
             mock.setTag(0x00280011, value: "128")
             mock.setTag(0x00280100, value: "16")
@@ -398,7 +398,7 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         // Simulate first pass: header reading (creates and caches decoders)
         let sliceCount = 100
         for _ in 0..<sliceCount {
-            _ = mockFactory() // Creates decoder, would be cached
+            _ = try? mockFactory("/dummy/path.dcm") // Creates decoder, would be cached
         }
 
         let firstPassDecoders = decoderInstantiations
@@ -489,5 +489,125 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         """)
 
         XCTAssertTrue(true, "Real-world performance simulation completed")
+    }
+
+    // MARK: - Batch Loading Performance Benchmark
+
+    /// Benchmarks batch loading performance with concurrent vs sequential processing.
+    /// Expected: Concurrent loading shows measurable speedup over sequential loading.
+    func testBatchLoadingPerformance() {
+        let processorCount = ProcessInfo.processInfo.processorCount
+        let fileCount = 100
+        let iterations = 3
+
+        var sequentialTimes: [CFAbsoluteTime] = []
+        var concurrentTimes: [CFAbsoluteTime] = []
+
+        for iteration in 1...iterations {
+            // Create mock factory with simulated I/O delay
+            let mockFactory: () -> DicomDecoderProtocol = {
+                let mock = MockDicomDecoder()
+                mock.width = 512
+                mock.height = 512
+                mock.bitDepth = 16
+                mock.dicomFileReadSuccess = true
+                mock.setTag(0x00280010, value: "512")
+                mock.setTag(0x00280011, value: "512")
+                mock.setTag(0x00280100, value: "16")
+                mock.setTag(0x00280103, value: "0")
+                mock.setTag(0x00280030, value: "1.0\\1.0")
+                mock.setTag(0x00200032, value: "0.0\\0.0\\0.0")
+                mock.setTag(0x00200037, value: "1\\0\\0\\0\\1\\0")
+                mock.setTag(0x00281052, value: "0")
+                mock.setTag(0x00281053, value: "1")
+                mock.setTag(0x0008103e, value: "Test Series")
+
+                let pixelCount = 512 * 512
+                let pixels = [UInt16](repeating: 1000, count: pixelCount)
+                mock.setPixels16(pixels)
+
+                // Simulate I/O delay (file reading, header parsing)
+                Thread.sleep(forTimeInterval: 0.001) // 1.0ms per file
+
+                return mock
+            }
+
+            // Test 1: Sequential Loading
+            let sequentialStart = CFAbsoluteTimeGetCurrent()
+            for _ in 0..<fileCount {
+                _ = mockFactory()
+            }
+            let sequentialElapsed = CFAbsoluteTimeGetCurrent() - sequentialStart
+            sequentialTimes.append(sequentialElapsed)
+
+            // Test 2: Concurrent Loading (simulate parallel processing)
+            let concurrentStart = CFAbsoluteTimeGetCurrent()
+            let group = DispatchGroup()
+            let queue = DispatchQueue(label: "test.concurrent.loading", attributes: .concurrent)
+
+            for _ in 0..<fileCount {
+                group.enter()
+                queue.async {
+                    _ = mockFactory()
+                    group.leave()
+                }
+            }
+
+            group.wait()
+            let concurrentElapsed = CFAbsoluteTimeGetCurrent() - concurrentStart
+            concurrentTimes.append(concurrentElapsed)
+
+            print("""
+            Iteration \(iteration):
+              Sequential: \(String(format: "%.4f", sequentialElapsed))s
+              Concurrent: \(String(format: "%.4f", concurrentElapsed))s
+              Speedup: \(String(format: "%.2f", sequentialElapsed / concurrentElapsed))x
+            """)
+        }
+
+        // Calculate averages
+        let avgSequential = sequentialTimes.reduce(0, +) / Double(sequentialTimes.count)
+        let avgConcurrent = concurrentTimes.reduce(0, +) / Double(concurrentTimes.count)
+        let avgSpeedup = avgSequential / avgConcurrent
+        let minSpeedup = processorCount > 1 ? 1.2 : 1.0
+        let minSpeedupString = String(format: "%.1f", minSpeedup)
+
+        print("""
+
+        ========== Batch Loading Performance Benchmark ==========
+        Processor count: \(processorCount)
+        File count: \(fileCount)
+        Iterations: \(iterations)
+
+        Average times:
+          Sequential loading: \(String(format: "%.4f", avgSequential))s
+          Concurrent loading: \(String(format: "%.4f", avgConcurrent))s
+          Speedup: \(String(format: "%.2f", avgSpeedup))x
+
+        Performance Characteristics:
+        - Concurrent processing enables parallel file I/O
+        - Speedup increases with available CPU cores
+        - Thread-safe decoder instantiation is critical
+        - Optimal for loading large series (100+ slices)
+
+        Expected Impact:
+        - Small series (50 slices): ~1.5-2x speedup
+        - Medium series (150 slices): ~2-3x speedup
+        - Large series (300+ slices): ~2-4x speedup
+        - Speedup limited by CPU core count and I/O bandwidth
+        ==========================================================
+
+        """)
+
+        // Use core-aware threshold: keep strict speedup on multi-core systems, but avoid
+        // flaky assertions on single-core CI where concurrency cannot provide real parallelism.
+        XCTAssertGreaterThanOrEqual(avgSpeedup, minSpeedup,
+                                   "Expected at least \(minSpeedupString)x speedup on \(processorCount)-core system")
+
+        // Verify times are reasonable (not negative or extreme)
+        XCTAssertGreaterThan(avgSequential, 0.0, "Sequential time should be positive")
+        XCTAssertGreaterThan(avgConcurrent, 0.0, "Concurrent time should be positive")
+        XCTAssertLessThan(avgSequential, 60.0, "Sequential time should be reasonable (<60s)")
+        XCTAssertLessThan(avgConcurrent, 60.0, "Concurrent time should be reasonable (<60s)")
     }
 }

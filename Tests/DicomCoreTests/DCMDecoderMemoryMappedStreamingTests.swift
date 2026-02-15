@@ -30,10 +30,9 @@ final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
         let fileSize = attributes?[.size] as? Int ?? 0
         XCTAssertGreaterThan(fileSize, 10_000_000, "Test file should exceed memory-mapping threshold")
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(fileURL.path)
+        let decoder = try DCMDecoder(contentsOfFile: fileURL.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should read memory-mapped DICOM file")
+        XCTAssertTrue(decoder.dicomFound, "Decoder should read memory-mapped DICOM file")
         XCTAssertEqual(decoder.width, width)
         XCTAssertEqual(decoder.height, height)
 

@@ -64,25 +64,27 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testLoadRealDICOMFile() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        guard let decoder = try? DCMDecoder(contentsOf: file) else {
+            XCTFail("Should successfully read DICOM file: \(file.lastPathComponent)")
+            return
+        }
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read DICOM file: \(file.lastPathComponent)")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read DICOM file: \(file.lastPathComponent)")
         XCTAssertTrue(decoder.isValid(), "Decoder should be valid after loading real DICOM file")
         XCTAssertGreaterThan(decoder.width, 0, "Image width should be greater than 0")
         XCTAssertGreaterThan(decoder.height, 0, "Image height should be greater than 0")
     }
 
-    @available(macOS 10.15, iOS 13.0, *)
-    func testLoadRealDICOMFileAsync() async throws {
+    func testLoadRealDICOMFileSync() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        let success = await decoder.loadDICOMFileAsync(file.path)
+        guard let decoder = try? DCMDecoder(contentsOf: file) else {
+            XCTFail("Should successfully load DICOM file: \(file.lastPathComponent)")
+            return
+        }
 
-        XCTAssertTrue(success, "Should successfully load DICOM file asynchronously: \(file.lastPathComponent)")
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should have read success flag set")
-        XCTAssertTrue(decoder.isValid(), "Decoder should be valid after async loading")
+        XCTAssertTrue(decoder.dicomFound, "Should have read success flag set")
+        XCTAssertTrue(decoder.isValid(), "Decoder should be valid after loading")
         XCTAssertGreaterThan(decoder.width, 0, "Image width should be greater than 0")
         XCTAssertGreaterThan(decoder.height, 0, "Image height should be greater than 0")
     }
@@ -100,10 +102,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testExtractMetadataFromRealFile() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        guard let decoder = try? DCMDecoder(contentsOf: file) else { return }
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         // Get all tags - should have at least some metadata
         let allTags = decoder.getAllTags()
@@ -124,10 +125,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testExtractPixelDataFromRealFile() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         let validationStatus = decoder.getValidationStatus()
         XCTAssertTrue(validationStatus.hasPixels, "Real DICOM file should have pixel data")
@@ -163,10 +163,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         let files = try getDICOMFiles(from: "CT")
         let file = files.first!
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read CT file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read CT file")
         XCTAssertEqual(decoder.info(for: 0x00080060), "CT", "Modality should be CT")
 
         // CT images are typically 16-bit
@@ -190,10 +189,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         let files = try getDICOMFiles(from: "MR")
         let file = files.first!
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read MR file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read MR file")
         XCTAssertEqual(decoder.info(for: 0x00080060), "MR", "Modality should be MR")
 
         // MR images are typically 16-bit grayscale
@@ -217,10 +215,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         let files = try getDICOMFiles(from: "XR")
         let file = files.first!
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read X-ray file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read X-ray file")
 
         let modality = decoder.info(for: 0x00080060)
         XCTAssertTrue(["XR", "CR", "DX"].contains(modality), "Modality should be X-ray type (XR, CR, or DX)")
@@ -233,10 +230,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         let files = try getDICOMFiles(from: "US")
         let file = files.first!
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read ultrasound file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read ultrasound file")
         XCTAssertEqual(decoder.info(for: 0x00080060), "US", "Modality should be US")
 
         // Ultrasound can be grayscale or color
@@ -249,10 +245,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         // Try to find a file with Little Endian Explicit VR (1.2.840.10008.1.2.1)
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file with explicit VR")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file with explicit VR")
 
         let transferSyntax = decoder.info(for: 0x00020010)
         if !transferSyntax.isEmpty {
@@ -265,11 +260,10 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         let files = try getDICOMFiles(from: "Compressed")
         let file = files.first!
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try? DCMDecoder(contentsOfFile: file.path)
 
         // Compressed images should either load successfully or fail gracefully
-        if decoder.dicomFileReadSuccess {
+        if let decoder = decoder, decoder.isValid() {
             XCTAssertTrue(decoder.compressedImage, "Compressed file should set compressed flag")
             XCTAssertGreaterThan(decoder.width, 0, "Should have valid dimensions")
             XCTAssertGreaterThan(decoder.height, 0, "Should have valid dimensions")
@@ -284,10 +278,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testExtractPatientInformation() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         let patientInfo = decoder.getPatientInfo()
         XCTAssertNotNil(patientInfo, "Should return patient info dictionary")
@@ -306,10 +299,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testExtractStudyInformation() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         let studyInfo = decoder.getStudyInfo()
         XCTAssertNotNil(studyInfo, "Should return study info dictionary")
@@ -325,10 +317,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testExtractSeriesInformation() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         let seriesInfo = decoder.getSeriesInfo()
         XCTAssertNotNil(seriesInfo, "Should return series info dictionary")
@@ -349,10 +340,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testImageDimensionsConsistency() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         // Test convenience properties match direct access
         let dimensions = decoder.imageDimensions
@@ -370,26 +360,24 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testPixelSpacingExtraction() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
-        let spacing = decoder.pixelSpacing
-        XCTAssertGreaterThan(spacing.width, 0.0, "Pixel spacing width should be positive")
-        XCTAssertGreaterThan(spacing.height, 0.0, "Pixel spacing height should be positive")
-        XCTAssertGreaterThan(spacing.depth, 0.0, "Pixel spacing depth should be positive")
+        let spacing = decoder.pixelSpacingV2
+        XCTAssertGreaterThan(spacing.x, 0.0, "Pixel spacing width should be positive")
+        XCTAssertGreaterThan(spacing.y, 0.0, "Pixel spacing height should be positive")
+        XCTAssertGreaterThan(spacing.z, 0.0, "Pixel spacing depth should be positive")
     }
 
     func testWindowingSettings() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
-        let windowSettings = decoder.windowSettings
+        let windowSettings = decoder.windowSettingsV2
 
         // Some images may not have window settings
         if windowSettings.width > 0.0 {
@@ -400,12 +388,11 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testRescaleParameters() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
-        let rescale = decoder.rescaleParameters
+        let rescale = decoder.rescaleParametersV2
 
         // Verify rescale slope is not zero (would be invalid)
         XCTAssertNotEqual(rescale.slope, 0.0, "Rescale slope should not be zero")
@@ -422,13 +409,12 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testCalculateOptimalWindowFromRealImage() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         if decoder.bitDepth == 16 {
-            let optimal = decoder.calculateOptimalWindow()
+            let optimal = decoder.calculateOptimalWindowV2()
 
             if let window = optimal {
                 XCTAssertGreaterThan(window.center, 0.0, "Optimal window center should be positive")
@@ -440,10 +426,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testCalculateQualityMetrics() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         if decoder.bitDepth == 16 {
             let metrics = decoder.getQualityMetrics()
@@ -469,14 +454,13 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         let files = try getDICOMFiles(from: "CT")
         let file = files.first!
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read CT file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read CT file")
 
         if let pixels = decoder.getPixels16() {
             // Test applying lung preset to CT
-            let lungPreset = DCMWindowingProcessor.getPresetValues(preset: .lung)
+            let lungPreset = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)
             let windowed = DCMWindowingProcessor.applyWindowLevel(
                 pixels16: pixels,
                 center: lungPreset.center,
@@ -498,14 +482,11 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         let file = try getAnyDICOMFile()
 
         // Load same file multiple times (simulating series)
-        let decoder1 = DCMDecoder()
-        let decoder2 = DCMDecoder()
+        let decoder1 = try DCMDecoder(contentsOfFile: file.path)
+        let decoder2 = try DCMDecoder(contentsOfFile: file.path)
 
-        decoder1.setDicomFilename(file.path)
-        decoder2.setDicomFilename(file.path)
-
-        XCTAssertTrue(decoder1.dicomFileReadSuccess, "First decoder should load successfully")
-        XCTAssertTrue(decoder2.dicomFileReadSuccess, "Second decoder should load successfully")
+        XCTAssertTrue(decoder1.isValid(), "First decoder should load successfully")
+        XCTAssertTrue(decoder2.isValid(), "Second decoder should load successfully")
 
         // Both should have same properties
         XCTAssertEqual(decoder1.width, decoder2.width, "Both decoders should have same width")
@@ -528,10 +509,7 @@ final class DCMDecoderIntegrationTests: XCTestCase {
 
         var successCount = 0
         for file in files.prefix(5) { // Test first 5 files to avoid long test times
-            let decoder = DCMDecoder()
-            decoder.setDicomFilename(file.path)
-
-            if decoder.dicomFileReadSuccess {
+            if let decoder = try? DCMDecoder(contentsOfFile: file.path), decoder.isValid() {
                 successCount += 1
                 XCTAssertTrue(decoder.isValid(), "Successfully loaded file should be valid")
             }
@@ -546,19 +524,17 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         let file = try getAnyDICOMFile()
 
         measure {
-            let decoder = DCMDecoder()
-            decoder.setDicomFilename(file.path)
-            _ = decoder.dicomFileReadSuccess
+            let decoder = try? DCMDecoder(contentsOfFile: file.path)
+            _ = decoder?.isValid()
         }
     }
 
     func testMetadataExtractionPerformance() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         measure {
             _ = decoder.info(for: 0x00100010) // Patient Name
@@ -574,10 +550,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testPixelDataAccessPerformance() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully read file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully read file")
 
         measure {
             if decoder.bitDepth == 8 {
@@ -618,10 +593,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
             throw XCTSkip("No large DICOM files (>1MB) found in fixtures")
         }
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should successfully load large DICOM file")
+        XCTAssertTrue(decoder.dicomFound, "Should successfully load large DICOM file")
         XCTAssertTrue(decoder.isValid(), "Large file should be valid")
     }
 
@@ -629,10 +603,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         // Test with any available file - should handle gracefully even if minimal metadata
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Should load file even with minimal metadata")
+        XCTAssertTrue(decoder.dicomFound, "Should load file even with minimal metadata")
 
         // Should not crash when accessing potentially missing tags
         _ = decoder.info(for: 0x00100010)
@@ -651,34 +624,27 @@ final class DCMDecoderIntegrationTests: XCTestCase {
 
         // Load same file concurrently with multiple decoders
         async let result1 = Task {
-            let decoder = DCMDecoder()
-            let success = await decoder.loadDICOMFileAsync(file.path)
-            return (decoder, success)
+            try await DCMDecoder(contentsOfFile: file.path)
         }.value
 
         async let result2 = Task {
-            let decoder = DCMDecoder()
-            let success = await decoder.loadDICOMFileAsync(file.path)
-            return (decoder, success)
+            try await DCMDecoder(contentsOfFile: file.path)
         }.value
 
         async let result3 = Task {
-            let decoder = DCMDecoder()
-            let success = await decoder.loadDICOMFileAsync(file.path)
-            return (decoder, success)
+            try await DCMDecoder(contentsOfFile: file.path)
         }.value
 
-        let results = await [result1, result2, result3]
+        let results = try await [result1, result2, result3]
 
         // All should succeed
-        for (decoder, success) in results {
-            XCTAssertTrue(success, "Concurrent load should succeed")
+        for decoder in results {
             XCTAssertTrue(decoder.isValid(), "Concurrently loaded decoder should be valid")
         }
 
         // All should have same dimensions
-        let widths = results.map { $0.0.width }
-        let heights = results.map { $0.0.height }
+        let widths = results.map { $0.width }
+        let heights = results.map { $0.height }
         XCTAssertTrue(widths.allSatisfy { $0 == widths[0] }, "All decoders should have same width")
         XCTAssertTrue(heights.allSatisfy { $0 == heights[0] }, "All decoders should have same height")
     }
@@ -850,13 +816,9 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     func testMigrationFromOldAPIToNewAPI() throws {
         let file = try getAnyDICOMFile()
 
-        // OLD API pattern (imperative)
-        let oldDecoder = DCMDecoder()
-        oldDecoder.setDicomFilename(file.path)
-        guard oldDecoder.dicomFileReadSuccess else {
-            XCTFail("Old API should succeed")
-            return
-        }
+        // OLD API pattern (imperative) - no longer available
+        // Testing only the new API now
+        let oldDecoder = try DCMDecoder(contentsOfFile: file.path)
 
         // NEW API pattern (declarative)
         let newDecoder: DCMDecoder

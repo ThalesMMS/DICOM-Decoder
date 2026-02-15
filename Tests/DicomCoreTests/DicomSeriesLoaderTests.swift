@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 @testable import DicomCore
 import simd
 
@@ -558,7 +559,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
         }
 
         // Create loader with mock decoder factory
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 256
             mock.height = 256
@@ -610,7 +611,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
         }
 
         // Create loader with mock decoder factory
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 128
             mock.height = 128
@@ -663,7 +664,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
         try Data().write(to: tempDir.appendingPathComponent("slice.dcm"))
 
         let iterations = 5
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 64
             mock.height = 64
@@ -745,7 +746,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
         // Create a mock file
         try Data().write(to: tempDir.appendingPathComponent("slice.dcm"))
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 32
             mock.height = 32
@@ -786,7 +787,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 512
             mock.height = 512
@@ -835,7 +836,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
 
         try Data().write(to: tempDir.appendingPathComponent("slice.dcm"))
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 128
             mock.height = 128
@@ -878,7 +879,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 64
             mock.height = 64
@@ -959,7 +960,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 64
             mock.height = 64
@@ -1061,7 +1062,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 32
             mock.height = 32
@@ -1129,7 +1130,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 256
             mock.height = 256
@@ -1187,7 +1188,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 512
             mock.height = 512
@@ -1254,7 +1255,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 128
             mock.height = 128
@@ -1324,7 +1325,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir2.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 64
             mock.height = 64
@@ -1410,7 +1411,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 64
             mock.height = 64
@@ -1461,7 +1462,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 128
             mock.height = 128
@@ -1516,7 +1517,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 256
             mock.height = 256
@@ -1580,7 +1581,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 128
             mock.height = 128
@@ -1640,18 +1641,22 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
+        let callIndexQueue = DispatchQueue(label: "DicomSeriesLoaderTests.callIndex")
         var callIndex = 0
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             // First file: 128x128, second file: 256x256 (inconsistent)
-            if callIndex == 0 {
+            let index = callIndexQueue.sync {
+                defer { callIndex += 1 }
+                return callIndex
+            }
+            if index == 0 {
                 mock.width = 128
                 mock.height = 128
             } else {
                 mock.width = 256
                 mock.height = 256
             }
-            callIndex += 1
             mock.bitDepth = 16
             mock.samplesPerPixel = 1
             mock.setPixels16(Array(repeating: 50, count: mock.width * mock.height))
@@ -1718,7 +1723,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
             try Data().write(to: tempDir.appendingPathComponent("slice_\(i).dcm"))
         }
 
-        let mockFactory: () -> DicomDecoderProtocol = {
+        let mockFactory: (String) throws -> DicomDecoderProtocol = { _ in
             let mock = MockDicomDecoder()
             mock.width = 512
             mock.height = 512
@@ -1759,7 +1764,506 @@ final class DicomSeriesLoaderTests: XCTestCase {
 
         // Performance should be comparable (within 2x)
         // Note: This is a rough check - actual performance can vary
-        let ratio = max(callbackDuration, streamDuration) / min(callbackDuration, streamDuration)
+        let minDuration = min(callbackDuration, streamDuration)
+        guard minDuration > 0 else {
+            throw XCTSkip("Skipping performance ratio: duration too small to measure reliably.")
+        }
+        let ratio = max(callbackDuration, streamDuration) / minDuration
         XCTAssertLessThan(ratio, 2.0, "Performance should be comparable between APIs (ratio: \(ratio))")
+    }
+
+    // MARK: - Batch Loading Tests
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testBatchLoadFiles() async throws {
+        // Test concurrent batch loading of multiple DICOM files
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderBatchTests_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create multiple test files
+        let fileCount = 10
+        var fileURLs: [URL] = []
+        for i in 0..<fileCount {
+            let url = tempDir.appendingPathComponent("file_\(i).dcm")
+            try Data().write(to: url)
+            fileURLs.append(url)
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 256
+            mock.height = 256
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 100, count: 256 * 256))
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        // Load files concurrently
+        let results = await loader.batchLoadFiles(urls: fileURLs, maxConcurrency: 4)
+
+        // Verify results
+        XCTAssertEqual(results.count, fileCount, "Should return result for each file")
+
+        // Count successes
+        var successCount = 0
+        for result in results {
+            if result.success, let decoder = result.decoder {
+                XCTAssertEqual(decoder.width, 256, "Decoder should have correct width")
+                XCTAssertEqual(decoder.height, 256, "Decoder should have correct height")
+                successCount += 1
+            }
+        }
+
+        XCTAssertEqual(successCount, fileCount, "All files should load successfully")
+
+        // Verify results are in same order as input
+        for (index, result) in results.enumerated() {
+            XCTAssertEqual(result.url, fileURLs[index], "Results should maintain input order")
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testBatchLoadFilesWithErrors() async throws {
+        // Test batch loading handles individual file errors gracefully
+        // This test verifies that when some files fail to load, the batch operation
+        // continues and returns results for all files (both successes and failures)
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderBatchTests_Errors_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create test files
+        let file1 = tempDir.appendingPathComponent("file1.dcm")
+        let file2 = tempDir.appendingPathComponent("file2.dcm")
+        let file3 = tempDir.appendingPathComponent("file3.dcm")
+
+        try Data().write(to: file1)
+        try Data().write(to: file2)
+        try Data().write(to: file3)
+
+        // Create a thread-safe counter to track which file we're on
+        let queue = DispatchQueue(label: "test.counter")
+        var fileCount = 0
+
+        // Factory that makes every other file fail
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let currentIndex = queue.sync {
+                let count = fileCount
+                fileCount += 1
+                return count
+            }
+
+            let mock = MockDicomDecoder()
+
+            // Make file at index 1 (middle file) fail
+            if currentIndex == 1 {
+                mock.dicomFileReadSuccess = false
+            } else {
+                mock.width = 128
+                mock.height = 128
+                mock.bitDepth = 16
+                mock.samplesPerPixel = 1
+                mock.setPixels16(Array(repeating: 50, count: 128 * 128))
+            }
+
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let results = await loader.batchLoadFiles(urls: [file1, file2, file3], maxConcurrency: 3)
+
+        // Verify all files have results
+        XCTAssertEqual(results.count, 3, "Should return result for each file")
+
+        // Count successes and failures
+        let successes = results.filter { $0.success }.count
+        let failures = results.filter { !$0.success }.count
+
+        // At least one file should fail and at least one should succeed
+        XCTAssertGreaterThan(successes, 0, "Some files should succeed")
+        XCTAssertGreaterThan(failures, 0, "Some files should fail")
+        XCTAssertEqual(successes + failures, 3, "All results should be either success or failure")
+        for result in results where !result.success {
+            XCTAssertNotNil(result.error, "Failed result should include an error")
+        }
+
+        // Verify URL ordering is preserved
+        XCTAssertEqual(results[0].url, file1, "First result should correspond to first URL")
+        XCTAssertEqual(results[1].url, file2, "Second result should correspond to second URL")
+        XCTAssertEqual(results[2].url, file3, "Third result should correspond to third URL")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testBatchLoadFilesEmptyArray() async {
+        // Test batch loading with empty input
+        let loader = DicomSeriesLoader()
+        let results = await loader.batchLoadFiles(urls: [], maxConcurrency: 4)
+
+        XCTAssertTrue(results.isEmpty, "Empty input should return empty results")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testBatchLoadFilesConcurrencyLimit() async throws {
+        // Test that maxConcurrency parameter is respected
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderBatchTests_Concurrency_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create many files to test concurrency
+        let fileCount = 20
+        var fileURLs: [URL] = []
+        for i in 0..<fileCount {
+            let url = tempDir.appendingPathComponent("file_\(i).dcm")
+            try Data().write(to: url)
+            fileURLs.append(url)
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 64
+            mock.height = 64
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 25, count: 64 * 64))
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        // Test with different concurrency limits
+        let results1 = await loader.batchLoadFiles(urls: fileURLs, maxConcurrency: 1)
+        XCTAssertEqual(results1.count, fileCount, "Should load all files with concurrency=1")
+
+        let results4 = await loader.batchLoadFiles(urls: fileURLs, maxConcurrency: 4)
+        XCTAssertEqual(results4.count, fileCount, "Should load all files with concurrency=4")
+
+        let results10 = await loader.batchLoadFiles(urls: fileURLs, maxConcurrency: 10)
+        XCTAssertEqual(results10.count, fileCount, "Should load all files with concurrency=10")
+    }
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testBatchLoadFilesResultOrdering() async throws {
+        // Test that results maintain input URL order
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderBatchTests_Ordering_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        // Create files with specific naming
+        var fileURLs: [URL] = []
+        for i in 0..<5 {
+            let url = tempDir.appendingPathComponent("slice_\(String(format: "%03d", i)).dcm")
+            try Data().write(to: url)
+            fileURLs.append(url)
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 32
+            mock.height = 32
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 10, count: 32 * 32))
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+        let results = await loader.batchLoadFiles(urls: fileURLs, maxConcurrency: 3)
+
+        // Verify ordering is preserved
+        for (index, result) in results.enumerated() {
+            XCTAssertEqual(result.url, fileURLs[index],
+                          "Result at index \(index) should match input URL order")
+        }
+    }
+
+    // MARK: - Batch Series Loading Tests
+
+    @available(macOS 10.15, iOS 13.0, *)
+    func testBatchLoadSeries() async throws {
+        // Test concurrent batch loading of multiple series directories
+        let baseDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomSeriesLoaderBatchSeries_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: baseDir)
+        }
+
+        // Create 3 series directories with different slice counts
+        var seriesDirectories: [URL] = []
+        let seriesCounts = [3, 5, 4]
+
+        for (seriesIndex, sliceCount) in seriesCounts.enumerated() {
+            let seriesDir = baseDir.appendingPathComponent("series_\(seriesIndex)")
+            try FileManager.default.createDirectory(at: seriesDir, withIntermediateDirectories: true)
+
+            for i in 0..<sliceCount {
+                try Data().write(to: seriesDir.appendingPathComponent("slice_\(i).dcm"))
+            }
+
+            seriesDirectories.append(seriesDir)
+        }
+
+        let mockFactory: () -> DicomDecoderProtocol = {
+            let mock = MockDicomDecoder()
+            mock.width = 128
+            mock.height = 128
+            mock.bitDepth = 16
+            mock.samplesPerPixel = 1
+            mock.setPixels16(Array(repeating: 100, count: 128 * 128))
+            mock.imagePosition = SIMD3<Double>(0, 0, 0)
+            mock.imageOrientation = (
+                row: SIMD3<Double>(1, 0, 0),
+                column: SIMD3<Double>(0, 1, 0)
+            )
+            return mock
+        }
+
+        let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+        final class ProgressCollector: @unchecked Sendable {
+            private let queue = DispatchQueue(label: "DicomSeriesLoaderTests.batchLoadSeries.progress")
+            private var updates: [(fraction: Double, completed: Int)] = []
+
+            func append(fraction: Double, completed: Int) {
+                queue.sync {
+                    updates.append((fraction, completed))
+                }
+            }
+
+            func snapshot() -> [(fraction: Double, completed: Int)] {
+                queue.sync { updates }
+            }
+        }
+
+        let progressCollector = ProgressCollector()
+
+        let volumes = try await loader.batchLoadSeries(
+            seriesDirectories: seriesDirectories,
+            maxConcurrency: 2
+        ) { fraction, completed in
+            progressCollector.append(fraction: fraction, completed: completed)
+        }
+
+        let progressUpdates = progressCollector.snapshot()
+
+        // Verify results
+        XCTAssertEqual(volumes.count, 3, "Should return volume for each series")
+
+        // Verify each volume has correct depth
+        for (index, volume) in volumes.enumerated() {
+            XCTAssertEqual(volume.depth, seriesCounts[index],
+                          "Volume \(index) should have \(seriesCounts[index]) slices")
+            XCTAssertEqual(volume.width, 128, "Volume should have correct width")
+            XCTAssertEqual(volume.height, 128, "Volume should have correct height")
+        }
+
+        // Verify progress updates
+        XCTAssertFalse(progressUpdates.isEmpty, "Should receive progress updates")
+
+        // Verify final progress
+        if let finalProgress = progressUpdates.last {
+            XCTAssertEqual(finalProgress.fraction, 1.0, accuracy: 0.01, "Final progress should be 100%")
+            XCTAssertEqual(finalProgress.completed, 3, "Should have completed all 3 series")
+        }
+
+        // Verify progress is monotonically increasing
+        for i in 1..<progressUpdates.count {
+            XCTAssertGreaterThanOrEqual(progressUpdates[i].fraction, progressUpdates[i-1].fraction,
+                                       "Progress should increase monotonically")
+        }
+    }
+
+    // MARK: - Memory and Performance Tests
+
+    /// Tests that memory usage scales linearly (not exponentially) with concurrent file count.
+    /// This verifies that the concurrent batch loading implementation properly manages memory
+    /// and doesn't accumulate all data in memory simultaneously.
+    ///
+    /// ACCEPTANCE CRITERIA:
+    /// - Memory usage should scale linearly with file count
+    /// - Memory growth rate should be consistent across different batch sizes
+    /// - No exponential memory growth patterns
+    @available(macOS 10.15, iOS 13.0, *)
+    func testMemoryScaling() async throws {
+        // Test with increasing numbers of concurrent files
+        let testSizes = [10, 20, 40]
+        var memoryUsages: [(fileCount: Int, memoryMB: Double)] = []
+
+        for fileCount in testSizes {
+            // Create temporary directory
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("DicomSeriesLoaderMemoryTest_\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+            defer {
+                try? FileManager.default.removeItem(at: tempDir)
+            }
+
+            // Create test files
+            var fileURLs: [URL] = []
+            for i in 0..<fileCount {
+                let url = tempDir.appendingPathComponent("file_\(i).dcm")
+                try Data().write(to: url)
+                fileURLs.append(url)
+            }
+
+            // Create mock factory with realistic pixel data
+            let mockFactory: () -> DicomDecoderProtocol = {
+                let mock = MockDicomDecoder()
+                mock.width = 512
+                mock.height = 512
+                mock.bitDepth = 16
+                mock.samplesPerPixel = 1
+                // 512x512 16-bit image = 512KB per image
+                mock.setPixels16(Array(repeating: 1000, count: 512 * 512))
+                mock.imagePosition = SIMD3<Double>(0, 0, Double.random(in: 0..<100))
+                mock.imageOrientation = (
+                    row: SIMD3<Double>(1, 0, 0),
+                    column: SIMD3<Double>(0, 1, 0)
+                )
+                return mock
+            }
+
+            let loader = DicomSeriesLoader(decoderFactory: mockFactory)
+
+            // Measure memory before loading
+            guard let memoryBefore = getMemoryUsageMB() else {
+                throw XCTSkip("Skipping memory scaling test: task_info unavailable before loading")
+            }
+
+            // Load files concurrently
+            let startTime = CFAbsoluteTimeGetCurrent()
+            let results = await loader.batchLoadFiles(urls: fileURLs, maxConcurrency: 8)
+            let elapsedTime = CFAbsoluteTimeGetCurrent() - startTime
+
+            // Measure memory after loading
+            guard let memoryAfter = getMemoryUsageMB() else {
+                throw XCTSkip("Skipping memory scaling test: task_info unavailable after loading")
+            }
+            let memoryDelta = memoryAfter - memoryBefore
+            let memoryPerFile = fileCount > 0 ? memoryDelta / Double(fileCount) : 0.0
+
+            memoryUsages.append((fileCount, memoryDelta))
+
+            // Verify all files loaded successfully
+            XCTAssertEqual(results.count, fileCount,
+                          "Should load all \(fileCount) files")
+
+            print("""
+
+            ========== Memory Scaling Test: \(fileCount) Files ==========
+            File count: \(fileCount)
+            Memory before: \(String(format: "%.2f", memoryBefore)) MB
+            Memory after: \(String(format: "%.2f", memoryAfter)) MB
+            Memory delta: \(String(format: "%.2f", memoryDelta)) MB
+            Load time: \(String(format: "%.3f", elapsedTime))s
+            Memory per file: \(String(format: "%.2f", memoryPerFile)) MB
+            ========================================================
+
+            """)
+        }
+
+        // Analyze memory scaling pattern
+        print("""
+
+        ========== Memory Scaling Analysis ==========
+        """)
+
+        for (fileCount, memory) in memoryUsages {
+            let memoryPerFile = memory / Double(fileCount)
+            print("Files: \(fileCount), Total Memory: \(String(format: "%.2f", memory)) MB, Per File: \(String(format: "%.2f", memoryPerFile)) MB")
+        }
+
+        // Calculate memory growth rate between test sizes
+        if memoryUsages.count >= 2 {
+            for i in 1..<memoryUsages.count {
+                let (prevCount, prevMemory) = memoryUsages[i-1]
+                let (currCount, currMemory) = memoryUsages[i]
+
+                guard prevCount > 0, currCount > 0 else { continue }
+                let fileRatio = Double(currCount) / Double(prevCount)
+                guard fileRatio > 0 else { continue }
+                guard prevMemory != 0 else {
+                    print("Skipping ratio analysis for \(prevCount)->\(currCount): previous memory delta is zero")
+                    continue
+                }
+                let memoryRatio = currMemory / prevMemory
+                let linearityFactor = memoryRatio / fileRatio
+
+                print("""
+
+                Growth from \(prevCount) to \(currCount) files:
+                - File count ratio: \(String(format: "%.2f", fileRatio))x
+                - Memory ratio: \(String(format: "%.2f", memoryRatio))x
+                - Linearity factor: \(String(format: "%.2f", linearityFactor))
+                """)
+
+                // Verify linear scaling (memory ratio should be close to file ratio)
+                // Allow for some overhead (up to 2x indicates still linear, not exponential)
+                XCTAssertLessThan(linearityFactor, 2.0,
+                                "Memory should scale linearly with file count (not exponentially)")
+
+                // Verify we're not using orders of magnitude more memory than expected
+                // For 512x512x16bit = 0.5MB per image (just pixel data), allow up to 2MB with overhead
+                let maxMemoryPerFile = 2.0 // MB (with overhead for structures)
+                let actualMemoryPerFile = currCount > 0 ? currMemory / Double(currCount) : .infinity
+
+                XCTAssertLessThan(actualMemoryPerFile, maxMemoryPerFile,
+                                "Memory per file should be reasonable (<\(maxMemoryPerFile)MB)")
+            }
+        }
+
+        print("==============================================\n")
+
+        // ACCEPTANCE CRITERIA: Memory scaling is linear if memory ratio ≈ file count ratio
+        // The test passes if:
+        // 1. Memory growth rate < 2x the file count growth rate (linear, not exponential)
+        // 2. Per-file memory usage is reasonable (<2MB per 512x512 16-bit image)
+        XCTAssertTrue(true, "Memory scaling analysis completed")
+    }
+
+    /// Helper function to get current memory usage in megabytes.
+    /// Uses task_info to query resident memory size.
+    private func getMemoryUsageMB() -> Double? {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                task_info(mach_task_self_,
+                         task_flavor_t(MACH_TASK_BASIC_INFO),
+                         $0,
+                         &count)
+            }
+        }
+
+        guard result == KERN_SUCCESS else {
+            return nil
+        }
+
+        let residentSizeBytes = Double(info.resident_size)
+        let residentSizeMB = residentSizeBytes / (1024.0 * 1024.0)
+        return residentSizeMB
     }
 }

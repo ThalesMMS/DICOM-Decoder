@@ -8,9 +8,10 @@
 //
 //  Usage:
 //
+//    let dict = DCMDictionary()
 //    let parser = DCMTagParser(
 //        data: dicomData,
-//        dict: DCMDictionary.shared,
+//        dict: dict,
 //        binaryReader: reader
 //    )
 //    var location = 132

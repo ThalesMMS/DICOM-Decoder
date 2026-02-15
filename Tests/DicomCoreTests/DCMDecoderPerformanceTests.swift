@@ -85,7 +85,7 @@ final class DCMDecoderPerformanceTests: XCTestCase {
             // Measure property access (synchronized methods)
             let propertyStart = CFAbsoluteTimeGetCurrent()
             _ = decoder.isValid()
-            _ = decoder.dicomFileReadSuccess
+            _ = decoder.isValid()
             _ = decoder.width
             _ = decoder.height
             totalPropertyAccessTime += CFAbsoluteTimeGetCurrent() - propertyStart
@@ -124,9 +124,9 @@ final class DCMDecoderPerformanceTests: XCTestCase {
         let start = CFAbsoluteTimeGetCurrent()
         for _ in 0..<iterations {
             // These methods all use synchronized blocks
-            _ = decoder.info(for: 0x00100010) // Patient Name
-            _ = decoder.intValue(for: 0x00280010) // Rows
-            _ = decoder.doubleValue(for: 0x00280030) // Pixel Spacing
+            _ = decoder.info(for: .patientName)
+            _ = decoder.intValue(for: .rows)
+            _ = decoder.doubleValue(for: .pixelSpacing)
         }
         let elapsed = CFAbsoluteTimeGetCurrent() - start
         let avgTime = elapsed / Double(iterations)
@@ -497,8 +497,10 @@ final class DCMDecoderPerformanceTests: XCTestCase {
             defer { try? FileManager.default.removeItem(at: fileURL) }
 
             // Warm up decoder (first run may include one-time setup costs)
-            let decoder = DCMDecoder()
-            decoder.setDicomFilename(fileURL.path)
+            guard let decoder = try? DCMDecoder(contentsOf: fileURL) else {
+                XCTFail("Failed to load test file")
+                return
+            }
             _ = decoder.getPixels16()
 
             // Benchmark decoding
@@ -506,9 +508,10 @@ final class DCMDecoderPerformanceTests: XCTestCase {
             var totalTime: CFAbsoluteTime = 0
 
             for _ in 0..<iterations {
-                let iterDecoder = DCMDecoder()
                 let start = CFAbsoluteTimeGetCurrent()
-                iterDecoder.setDicomFilename(fileURL.path)
+                guard let iterDecoder = try? DCMDecoder(contentsOf: fileURL) else {
+                    continue
+                }
                 _ = iterDecoder.getPixels16()
                 let elapsed = CFAbsoluteTimeGetCurrent() - start
                 totalTime += elapsed
@@ -573,15 +576,18 @@ final class DCMDecoderPerformanceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: jpegLosslessURL) }
 
         // Warm up
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(jpegLosslessURL.path)
+        guard let decoder = try? DCMDecoder(contentsOf: jpegLosslessURL) else {
+            XCTFail("Failed to load JPEG Lossless test file")
+            return
+        }
         _ = decoder.getPixels16()
 
         var jpegLosslessTime: CFAbsoluteTime = 0
         for _ in 0..<iterations {
-            let iterDecoder = DCMDecoder()
             let start = CFAbsoluteTimeGetCurrent()
-            iterDecoder.setDicomFilename(jpegLosslessURL.path)
+            guard let iterDecoder = try? DCMDecoder(contentsOf: jpegLosslessURL) else {
+                continue
+            }
             _ = iterDecoder.getPixels16()
             jpegLosslessTime += CFAbsoluteTimeGetCurrent() - start
         }
@@ -659,16 +665,19 @@ final class DCMDecoderPerformanceTests: XCTestCase {
             defer { try? FileManager.default.removeItem(at: fileURL) }
 
             // Warm up
-            let decoder = DCMDecoder()
-            decoder.setDicomFilename(fileURL.path)
+            guard let decoder = try? DCMDecoder(contentsOf: fileURL) else {
+                XCTFail("Failed to load \(bitDepth)-bit test file")
+                continue
+            }
             _ = decoder.getPixels16()
 
             // Benchmark
             var totalTime: CFAbsoluteTime = 0
             for _ in 0..<iterations {
-                let iterDecoder = DCMDecoder()
                 let start = CFAbsoluteTimeGetCurrent()
-                iterDecoder.setDicomFilename(fileURL.path)
+                guard let iterDecoder = try? DCMDecoder(contentsOf: fileURL) else {
+                    continue
+                }
                 _ = iterDecoder.getPixels16()
                 totalTime += CFAbsoluteTimeGetCurrent() - start
             }

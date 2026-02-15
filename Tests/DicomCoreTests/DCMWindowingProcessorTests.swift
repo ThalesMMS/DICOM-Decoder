@@ -632,13 +632,6 @@ class DCMWindowingProcessorTests: XCTestCase {
         // Verify it returns correct type
         XCTAssertTrue(type(of: settingsV2) == WindowSettings.self, "Should return WindowSettings struct")
 
-        // Old API returns tuple
-        let settingsOld = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: pixels16)
-
-        // V2 API should return equivalent values to old tuple-based API
-        XCTAssertEqual(settingsV2.center, settingsOld.center, "V2 center should match old API center")
-        XCTAssertEqual(settingsV2.width, settingsOld.width, "V2 width should match old API width")
-
         // Verify values are reasonable for the given pixel distribution
         XCTAssertGreaterThan(settingsV2.center, 0.0, "Center should be positive")
         XCTAssertGreaterThan(settingsV2.width, 0.0, "Width should be positive")
@@ -663,13 +656,6 @@ class DCMWindowingProcessorTests: XCTestCase {
         // Verify it returns WindowSettings struct
         XCTAssertTrue(type(of: lungSettings) == WindowSettings.self, "Should return WindowSettings struct")
 
-        // Old API returns tuple
-        let lungSettingsOld = DCMWindowingProcessor.getPresetValues(preset: .lung)
-
-        // V2 API should return equivalent values to old tuple-based API
-        XCTAssertEqual(lungSettings.center, lungSettingsOld.center, "V2 center should match old API center")
-        XCTAssertEqual(lungSettings.width, lungSettingsOld.width, "V2 width should match old API width")
-
         // Verify lung preset has expected range (center around -600, width around 1500)
         XCTAssertEqual(lungSettings.center, -600.0, accuracy: 50.0, "Lung preset center should be around -600")
         XCTAssertEqual(lungSettings.width, 1500.0, accuracy: 200.0, "Lung preset width should be around 1500")
@@ -686,15 +672,12 @@ class DCMWindowingProcessorTests: XCTestCase {
 
         for preset in allPresets {
             let settingsV2 = DCMWindowingProcessor.getPresetValuesV2(preset: preset)
-            let settingsOld = DCMWindowingProcessor.getPresetValues(preset: preset)
 
-            // V2 should match old API for all presets
-            XCTAssertEqual(settingsV2.center, settingsOld.center,
-                          "Preset \(preset) V2 center should match old API")
-            XCTAssertEqual(settingsV2.width, settingsOld.width,
-                          "Preset \(preset) V2 width should match old API")
+            // Verify each preset has valid settings
             XCTAssertTrue(settingsV2.isValid,
                          "Preset \(preset) should have valid settings")
+            XCTAssertGreaterThan(settingsV2.width, 0.0,
+                               "Preset \(preset) should have positive width")
         }
     }
 
@@ -703,18 +686,14 @@ class DCMWindowingProcessorTests: XCTestCase {
         let lungSettings = DCMWindowingProcessor.getPresetValuesV2(named: "lung")
         XCTAssertNotNil(lungSettings, "Should find lung preset by name")
 
-        // Old API returns optional tuple
-        let lungSettingsOld = DCMWindowingProcessor.getPresetValues(named: "lung")
-        XCTAssertNotNil(lungSettingsOld, "Old API should also find lung preset")
-
-        // V2 API should return equivalent values
-        XCTAssertEqual(lungSettings?.center, lungSettingsOld!.center, "V2 center should match old API")
-        XCTAssertEqual(lungSettings?.width, lungSettingsOld!.width, "V2 width should match old API")
-
         // Test case insensitivity
         let lungSettingsUpper = DCMWindowingProcessor.getPresetValuesV2(named: "LUNG")
         XCTAssertNotNil(lungSettingsUpper, "Should find preset with uppercase name")
         XCTAssertEqual(lungSettingsUpper?.center, lungSettings?.center, "Case should not matter")
+
+        // Verify returned values are valid
+        XCTAssertTrue(lungSettings!.isValid, "Lung preset should have valid settings")
+        XCTAssertEqual(lungSettings!.center, -600.0, accuracy: 50.0, "Lung preset center should be around -600")
     }
 
     func testGetPresetValuesV2WithInvalidName() {
@@ -736,16 +715,12 @@ class DCMWindowingProcessorTests: XCTestCase {
 
         for name in presetNames {
             let settingsV2 = DCMWindowingProcessor.getPresetValuesV2(named: name)
-            let settingsOld = DCMWindowingProcessor.getPresetValues(named: name)
 
             XCTAssertNotNil(settingsV2, "Should find preset: \(name)")
-            XCTAssertNotNil(settingsOld, "Old API should also find preset: \(name)")
 
-            // V2 should match old API
-            XCTAssertEqual(settingsV2?.center, settingsOld!.center,
-                          "Preset '\(name)' V2 center should match old API")
-            XCTAssertEqual(settingsV2?.width, settingsOld!.width,
-                          "Preset '\(name)' V2 width should match old API")
+            // Verify each preset has valid settings
+            XCTAssertTrue(settingsV2!.isValid, "Preset '\(name)' should have valid settings")
+            XCTAssertGreaterThan(settingsV2!.width, 0.0, "Preset '\(name)' should have positive width")
         }
     }
 
@@ -758,31 +733,25 @@ class DCMWindowingProcessorTests: XCTestCase {
         let imagePixels = [image1Pixels, image2Pixels, image3Pixels]
 
         // V2 API returns array of WindowSettings
-        let batchSettingsV2 = DCMWindowingProcessor.batchCalculateOptimalWindowLevelV2(imagePixels: imagePixels)
+        let batchSettings = DCMWindowingProcessor.batchCalculateOptimalWindowLevelV2(imagePixels: imagePixels)
 
         // Verify return type
-        XCTAssertTrue(type(of: batchSettingsV2) == [WindowSettings].self, "Should return [WindowSettings]")
-        XCTAssertEqual(batchSettingsV2.count, 3, "Should return 3 WindowSettings")
+        XCTAssertTrue(type(of: batchSettings) == [WindowSettings].self, "Should return [WindowSettings]")
+        XCTAssertEqual(batchSettings.count, 3, "Should return 3 WindowSettings")
 
-        // Old API returns array of tuples
-        let batchSettingsOld = DCMWindowingProcessor.batchCalculateOptimalWindowLevel(imagePixels: imagePixels)
-        XCTAssertEqual(batchSettingsOld.count, 3, "Old API should also return 3 results")
-
-        // V2 should match old API for each image
-        for i in 0..<batchSettingsV2.count {
-            XCTAssertEqual(batchSettingsV2[i].center, batchSettingsOld[i].center,
-                          "Image \(i) V2 center should match old API")
-            XCTAssertEqual(batchSettingsV2[i].width, batchSettingsOld[i].width,
-                          "Image \(i) V2 width should match old API")
-            XCTAssertTrue(batchSettingsV2[i].isValid,
+        // Verify settings for each image
+        for i in 0..<batchSettings.count {
+            XCTAssertTrue(batchSettings[i].isValid,
                          "Image \(i) settings should be valid")
+            XCTAssertGreaterThan(batchSettings[i].width, 0,
+                                "Image \(i) width should be positive")
         }
 
         // Verify individual results make sense
-        XCTAssertGreaterThan(batchSettingsV2[0].center, 0.0, "Image 1 should have positive center")
-        XCTAssertGreaterThan(batchSettingsV2[1].center, batchSettingsV2[0].center,
+        XCTAssertGreaterThan(batchSettings[0].center, 0.0, "Image 1 should have positive center")
+        XCTAssertGreaterThan(batchSettings[1].center, batchSettings[0].center,
                             "Image 2 should have higher center than Image 1")
-        XCTAssertEqual(batchSettingsV2[2].center, 2000.0, accuracy: 100.0,
+        XCTAssertEqual(batchSettings[2].center, 2000.0, accuracy: 100.0,
                       "Image 3 uniform pixels should have center around 2000")
     }
 
@@ -856,17 +825,13 @@ class DCMWindowingProcessorTests: XCTestCase {
         XCTAssertNil(noMatchName, "Should not match with tight tolerance")
     }
 
-    func testGetPresetNameEquivalenceToOldAPI() {
-        // Test that new getPresetName(settings:) matches old getPresetName(center:width:)
-        let testSettings = WindowSettings(center: -600.0, width: 1500.0)
+    func testGetPresetNameWithKnownValues() {
+        // Test that getPresetName(settings:) correctly identifies known preset values
+        let lungSettings = WindowSettings(center: -600.0, width: 1500.0)
 
-        let newAPIResult = DCMWindowingProcessor.getPresetName(settings: testSettings)
-        let oldAPIResult = DCMWindowingProcessor.getPresetName(
-            center: testSettings.center,
-            width: testSettings.width
-        )
+        let presetName = DCMWindowingProcessor.getPresetName(settings: lungSettings)
 
-        XCTAssertEqual(newAPIResult, oldAPIResult, "New API should match old API result")
+        XCTAssertEqual(presetName, "Lung", "Should identify lung preset from center/width values")
     }
 
     func testV2APIsWithRealWorldMedicalValues() {

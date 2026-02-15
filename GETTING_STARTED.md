@@ -103,21 +103,17 @@ Create a simple program that reads a DICOM file and prints basic information.
 import DicomCore
 
 func readDICOMFile() {
-    let decoder = DCMDecoder()
-    let path = "/path/to/your/file.dcm"
+    do {
+        let decoder = try DCMDecoder(contentsOfFile: "/path/to/your/file.dcm")
 
-    decoder.setDicomFilename(path)
-
-    guard decoder.dicomFileReadSuccess else {
-        print("Error loading DICOM file")
-        return
+        print("DICOM file loaded")
+        print("Dimensions: \(decoder.width) x \(decoder.height) pixels")
+        print("Bit depth: \(decoder.bitDepth) bits")
+        print("Modality: \(decoder.info(for: .modality))")
+        print("Patient Name: \(decoder.info(for: .patientName))")
+    } catch {
+        print("Error loading DICOM file: \(error)")
     }
-
-    print("DICOM file loaded")
-    print("Dimensions: \(decoder.width) x \(decoder.height) pixels")
-    print("Bit depth: \(decoder.bitDepth) bits")
-    print("Modality: \(decoder.info(for: 0x00080060))")
-    print("Patient Name: \(decoder.info(for: 0x00100010))")
 }
 
 readDICOMFile()
@@ -132,7 +128,7 @@ Modality: CT
 Patient Name: John Doe
 ```
 
-### Example 2: Modern Reading (Async/Await)
+### Example 2: Async Reading
 
 For iOS 13+ and macOS 10.15+, you can use the asynchronous API:
 
@@ -140,18 +136,14 @@ For iOS 13+ and macOS 10.15+, you can use the asynchronous API:
 import DicomCore
 
 func readDICOMAsync() async {
-    let decoder = DCMDecoder()
-    let path = "/path/to/your/file.dcm"
+    do {
+        let decoder = try await DCMDecoder(contentsOfFile: "/path/to/your/file.dcm")
 
-    let success = await decoder.loadDICOMFileAsync(path)
-
-    guard success else {
-        print("Error loading file")
-        return
+        print("File loaded")
+        print("Dimensions: \(decoder.width) x \(decoder.height)")
+    } catch {
+        print("Error loading file: \(error)")
     }
-
-    print("File loaded")
-    print("Dimensions: \(decoder.width) x \(decoder.height)")
 }
 
 Task {
@@ -180,14 +172,18 @@ func validateAndLoad(path: String) {
     }
 
     print("Valid file. Loading...")
-    decoder.setDicomFilename(path)
+    do {
+        let decoder = try DCMDecoder(contentsOfFile: path)
 
-    let status = decoder.getValidationStatus()
-    print("Status:")
-    print("  - Valid: \(status.isValid)")
-    print("  - Dimensions: \(status.width) x \(status.height)")
-    print("  - Contains pixels: \(status.hasPixels)")
-    print("  - Compressed: \(status.isCompressed)")
+        let status = decoder.getValidationStatus()
+        print("Status:")
+        print("  - Valid: \(status.isValid)")
+        print("  - Dimensions: \(status.width) x \(status.height)")
+        print("  - Contains pixels: \(status.hasPixels)")
+        print("  - Compressed: \(status.isCompressed)")
+    } catch {
+        print("Error loading file: \(error)")
+    }
 }
 ```
 
@@ -221,23 +217,24 @@ Tags are numeric identifiers for each metadata field. Format: `(GGGG,EEEE)`
 
 Common examples:
 
-| Tag        | Hex        | Description            |
-|------------|------------|------------------------|
-| (0010,0010)| 0x00100010 | Patient Name           |
-| (0010,0020)| 0x00100020 | Patient ID             |
-| (0008,0060)| 0x00080060 | Modality (CT, MR, ...) |
-| (0020,000D)| 0x0020000D | Study Instance UID     |
-| (0028,0010)| 0x00280010 | Rows (height)          |
-| (0028,0011)| 0x00280011 | Columns (width)        |
+| Tag        | DicomTag Enum    | Description            |
+|------------|------------------|------------------------|
+| (0010,0010)| `.patientName`   | Patient Name           |
+| (0010,0020)| `.patientID`     | Patient ID             |
+| (0008,0060)| `.modality`      | Modality (CT, MR, ...) |
+| (0020,000D)| `.studyInstanceUID` | Study Instance UID  |
+| (0028,0010)| `.rows`          | Rows (height)          |
+| (0028,0011)| `.columns`       | Columns (width)        |
 
 Using tags in code:
 
 ```swift
-let name = decoder.info(for: 0x00100010)
+// Recommended: Type-safe DicomTag enum
+let name = decoder.info(for: .patientName)
 let patient = decoder.getPatientInfo()
 print(patient["Name"] ?? "Unknown")
 
-if let height = decoder.intValue(for: 0x00280010) {
+if let height = decoder.intValue(for: .rows) {
     print("Height: \(height) pixels")
 }
 ```
@@ -299,7 +296,7 @@ Supported modalities and notes:
 Example:
 
 ```swift
-let modality = decoder.info(for: 0x00080060)
+let modality = decoder.info(for: .modality)
 
 switch modality {
 case "CT":
@@ -352,8 +349,7 @@ Explore additional materials:
 
 ### Tutorials and Samples
 
-1. **[Tutorial: Building a Simple Viewer](TUTORIAL.md)**
-2. **[Complete Usage Examples](USAGE_EXAMPLES.md)**
+1. **[Complete Usage Examples](USAGE_EXAMPLES.md)**
    - Batch processing
    - Thumbnail generation
    - Image quality analysis
@@ -363,8 +359,8 @@ Explore additional materials:
 ### Helpful References
 
 - **[Troubleshooting](TROUBLESHOOTING.md)** - fixes for common issues
-- **[API Reference](API_REFERENCE.md)** - API documentation
-- **[Project Architecture](ARCHITECTURE.md)** - code organization
+- **[API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/)** - API documentation
+- **[Project Architecture](CLAUDE.md)** - code organization
 
 ### External Resources
 

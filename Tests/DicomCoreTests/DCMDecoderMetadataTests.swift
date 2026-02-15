@@ -139,7 +139,7 @@ final class DCMDecoderMetadataTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test initial rescale parameters
-        let rescaleParams = decoder.rescaleParameters
+        let rescaleParams = decoder.rescaleParametersV2
         XCTAssertEqual(rescaleParams.intercept, 0.0, "Default rescale intercept should be 0.0")
         XCTAssertEqual(rescaleParams.slope, 1.0, "Default rescale slope should be 1.0")
     }
@@ -148,7 +148,7 @@ final class DCMDecoderMetadataTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test initial window settings
-        let windowSettings = decoder.windowSettings
+        let windowSettings = decoder.windowSettingsV2
         XCTAssertEqual(windowSettings.center, 0.0, "Default window center should be 0.0")
         XCTAssertEqual(windowSettings.width, 0.0, "Default window width should be 0.0")
     }
@@ -157,10 +157,10 @@ final class DCMDecoderMetadataTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test initial pixel spacing
-        let pixelSpacing = decoder.pixelSpacing
-        XCTAssertEqual(pixelSpacing.width, 1.0, "Default pixel width should be 1.0")
-        XCTAssertEqual(pixelSpacing.height, 1.0, "Default pixel height should be 1.0")
-        XCTAssertEqual(pixelSpacing.depth, 1.0, "Default pixel depth should be 1.0")
+        let pixelSpacing = decoder.pixelSpacingV2
+        XCTAssertEqual(pixelSpacing.x, 1.0, "Default pixel width should be 1.0")
+        XCTAssertEqual(pixelSpacing.y, 1.0, "Default pixel height should be 1.0")
+        XCTAssertEqual(pixelSpacing.z, 1.0, "Default pixel depth should be 1.0")
     }
 
     func testImageDimensionsAccess() {
@@ -294,10 +294,10 @@ final class DCMDecoderMetadataTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test that pixel spacing properties match convenience accessors
-        let spacing = decoder.pixelSpacing
-        XCTAssertEqual(spacing.width, decoder.pixelWidth, "Pixel spacing width should match pixelWidth property")
-        XCTAssertEqual(spacing.height, decoder.pixelHeight, "Pixel spacing height should match pixelHeight property")
-        XCTAssertEqual(spacing.depth, decoder.pixelDepth, "Pixel spacing depth should match pixelDepth property")
+        let spacing = decoder.pixelSpacingV2
+        XCTAssertEqual(spacing.x, decoder.pixelWidth, "Pixel spacing width should match pixelWidth property")
+        XCTAssertEqual(spacing.y, decoder.pixelHeight, "Pixel spacing height should match pixelHeight property")
+        XCTAssertEqual(spacing.z, decoder.pixelDepth, "Pixel spacing depth should match pixelDepth property")
     }
 
     func testImageDimensionsPropertiesConsistency() {
@@ -434,7 +434,7 @@ final class DCMDecoderMetadataTests: XCTestCase {
 
         // Verify that all essential geometry metadata accessors are available
         XCTAssertNotNil(decoder.imageDimensions, "Image dimensions should be accessible")
-        XCTAssertNotNil(decoder.pixelSpacing, "Pixel spacing should be accessible")
+        XCTAssertNotNil(decoder.pixelSpacingV2, "Pixel spacing should be accessible")
         XCTAssertNotNil(decoder.width, "Width property should be accessible")
         XCTAssertNotNil(decoder.height, "Height property should be accessible")
         XCTAssertNotNil(decoder.pixelWidth, "Pixel width property should be accessible")
@@ -453,7 +453,7 @@ final class DCMDecoderMetadataTests: XCTestCase {
                 _ = decoder.info(for: 0x00200032)  // Image Position
                 _ = decoder.info(for: 0x00200037)  // Image Orientation
                 _ = decoder.doubleValue(for: 0x00280030)  // Pixel Spacing
-                _ = decoder.pixelSpacing
+                _ = decoder.pixelSpacingV2
                 _ = decoder.imageDimensions
 
                 expectation.fulfill()
@@ -497,8 +497,8 @@ final class DCMDecoderMetadataTests: XCTestCase {
                 _ = decoder.info(for: DicomTag.patientName.rawValue)
                 _ = decoder.intValue(for: DicomTag.rows.rawValue)
                 _ = decoder.doubleValue(for: DicomTag.pixelSpacing.rawValue)
-                _ = decoder.rescaleParameters
-                _ = decoder.windowSettings
+                _ = decoder.rescaleParametersV2
+                _ = decoder.windowSettingsV2
                 _ = decoder.imageDimensions
 
                 expectation.fulfill()
@@ -628,23 +628,23 @@ final class DCMDecoderMetadataTests: XCTestCase {
         XCTAssertEqual(decoder.imageDimensions.width, decoder.width, "Image dimensions width should match width property")
         XCTAssertEqual(decoder.imageDimensions.height, decoder.height, "Image dimensions height should match height property")
 
-        XCTAssertEqual(decoder.pixelSpacing.width, decoder.pixelWidth, "Pixel spacing width should match pixelWidth property")
-        XCTAssertEqual(decoder.pixelSpacing.height, decoder.pixelHeight, "Pixel spacing height should match pixelHeight property")
-        XCTAssertEqual(decoder.pixelSpacing.depth, decoder.pixelDepth, "Pixel spacing depth should match pixelDepth property")
+        XCTAssertEqual(decoder.pixelSpacingV2.x, decoder.pixelWidth, "Pixel spacing width should match pixelWidth property")
+        XCTAssertEqual(decoder.pixelSpacingV2.y, decoder.pixelHeight, "Pixel spacing height should match pixelHeight property")
+        XCTAssertEqual(decoder.pixelSpacingV2.z, decoder.pixelDepth, "Pixel spacing depth should match pixelDepth property")
 
-        XCTAssertEqual(decoder.windowSettings.center, decoder.windowCenter, "Window settings center should match windowCenter property")
-        XCTAssertEqual(decoder.windowSettings.width, decoder.windowWidth, "Window settings width should match windowWidth property")
+        XCTAssertEqual(decoder.windowSettingsV2.center, decoder.windowCenter, "Window settings center should match windowCenter property")
+        XCTAssertEqual(decoder.windowSettingsV2.width, decoder.windowWidth, "Window settings width should match windowWidth property")
 
         // Test default rescale parameters (properties are private)
-        XCTAssertEqual(decoder.rescaleParameters.intercept, 0.0, "Default rescale intercept should be 0.0")
-        XCTAssertEqual(decoder.rescaleParameters.slope, 1.0, "Default rescale slope should be 1.0")
+        XCTAssertEqual(decoder.rescaleParametersV2.intercept, 0.0, "Default rescale intercept should be 0.0")
+        XCTAssertEqual(decoder.rescaleParametersV2.slope, 1.0, "Default rescale slope should be 1.0")
     }
 
     func testWindowSettingsPropertiesConsistency() {
         let decoder = DCMDecoder()
 
         // Test that window settings match convenience accessors
-        let settings = decoder.windowSettings
+        let settings = decoder.windowSettingsV2
         XCTAssertEqual(settings.center, decoder.windowCenter, "Window settings center should match windowCenter property")
         XCTAssertEqual(settings.width, decoder.windowWidth, "Window settings width should match windowWidth property")
     }
@@ -653,7 +653,7 @@ final class DCMDecoderMetadataTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test that rescale parameters have expected defaults
-        let params = decoder.rescaleParameters
+        let params = decoder.rescaleParametersV2
         XCTAssertEqual(params.intercept, 0.0, "Default rescale intercept should be 0.0")
         XCTAssertEqual(params.slope, 1.0, "Default rescale slope should be 1.0")
     }
@@ -666,16 +666,16 @@ final class DCMDecoderMetadataTests: XCTestCase {
         XCTAssertNotNil(dimensions.width, "Image dimensions width should not be nil")
         XCTAssertNotNil(dimensions.height, "Image dimensions height should not be nil")
 
-        let spacing = decoder.pixelSpacing
-        XCTAssertNotNil(spacing.width, "Pixel spacing width should not be nil")
-        XCTAssertNotNil(spacing.height, "Pixel spacing height should not be nil")
-        XCTAssertNotNil(spacing.depth, "Pixel spacing depth should not be nil")
+        let spacing = decoder.pixelSpacingV2
+        XCTAssertNotNil(spacing.x, "Pixel spacing width should not be nil")
+        XCTAssertNotNil(spacing.y, "Pixel spacing height should not be nil")
+        XCTAssertNotNil(spacing.z, "Pixel spacing depth should not be nil")
 
-        let windowSettings = decoder.windowSettings
+        let windowSettings = decoder.windowSettingsV2
         XCTAssertNotNil(windowSettings.center, "Window settings center should not be nil")
         XCTAssertNotNil(windowSettings.width, "Window settings width should not be nil")
 
-        let rescaleParams = decoder.rescaleParameters
+        let rescaleParams = decoder.rescaleParametersV2
         XCTAssertNotNil(rescaleParams.intercept, "Rescale parameters intercept should not be nil")
         XCTAssertNotNil(rescaleParams.slope, "Rescale parameters slope should not be nil")
     }
@@ -688,16 +688,16 @@ final class DCMDecoderMetadataTests: XCTestCase {
         XCTAssertGreaterThan(dimensions.width, 0, "Default image width should be positive")
         XCTAssertGreaterThan(dimensions.height, 0, "Default image height should be positive")
 
-        let spacing = decoder.pixelSpacing
-        XCTAssertEqual(spacing.width, 1.0, "Default pixel width should be 1.0")
-        XCTAssertEqual(spacing.height, 1.0, "Default pixel height should be 1.0")
-        XCTAssertEqual(spacing.depth, 1.0, "Default pixel depth should be 1.0")
+        let spacing = decoder.pixelSpacingV2
+        XCTAssertEqual(spacing.x, 1.0, "Default pixel width should be 1.0")
+        XCTAssertEqual(spacing.y, 1.0, "Default pixel height should be 1.0")
+        XCTAssertEqual(spacing.z, 1.0, "Default pixel depth should be 1.0")
 
-        let windowSettings = decoder.windowSettings
+        let windowSettings = decoder.windowSettingsV2
         XCTAssertEqual(windowSettings.center, 0.0, "Default window center should be 0.0")
         XCTAssertEqual(windowSettings.width, 0.0, "Default window width should be 0.0")
 
-        let rescaleParams = decoder.rescaleParameters
+        let rescaleParams = decoder.rescaleParametersV2
         XCTAssertEqual(rescaleParams.intercept, 0.0, "Default rescale intercept should be 0.0")
         XCTAssertEqual(rescaleParams.slope, 1.0, "Default rescale slope should be 1.0")
     }
@@ -711,9 +711,9 @@ final class DCMDecoderMetadataTests: XCTestCase {
         for _ in 0..<10 {
             DispatchQueue.global().async {
                 _ = decoder.imageDimensions
-                _ = decoder.pixelSpacing
-                _ = decoder.windowSettings
-                _ = decoder.rescaleParameters
+                _ = decoder.pixelSpacingV2
+                _ = decoder.windowSettingsV2
+                _ = decoder.rescaleParametersV2
 
                 expectation.fulfill()
             }
@@ -732,19 +732,19 @@ final class DCMDecoderMetadataTests: XCTestCase {
             XCTAssertEqual(dims1.width, dims2.width, "Image dimensions should be consistent")
             XCTAssertEqual(dims1.height, dims2.height, "Image dimensions should be consistent")
 
-            let spacing1 = decoder.pixelSpacing
-            let spacing2 = decoder.pixelSpacing
-            XCTAssertEqual(spacing1.width, spacing2.width, "Pixel spacing should be consistent")
-            XCTAssertEqual(spacing1.height, spacing2.height, "Pixel spacing should be consistent")
-            XCTAssertEqual(spacing1.depth, spacing2.depth, "Pixel spacing should be consistent")
+            let spacing1 = decoder.pixelSpacingV2
+            let spacing2 = decoder.pixelSpacingV2
+            XCTAssertEqual(spacing1.x, spacing2.x, "Pixel spacing should be consistent")
+            XCTAssertEqual(spacing1.y, spacing2.y, "Pixel spacing should be consistent")
+            XCTAssertEqual(spacing1.z, spacing2.z, "Pixel spacing should be consistent")
 
-            let window1 = decoder.windowSettings
-            let window2 = decoder.windowSettings
+            let window1 = decoder.windowSettingsV2
+            let window2 = decoder.windowSettingsV2
             XCTAssertEqual(window1.center, window2.center, "Window settings should be consistent")
             XCTAssertEqual(window1.width, window2.width, "Window settings should be consistent")
 
-            let rescale1 = decoder.rescaleParameters
-            let rescale2 = decoder.rescaleParameters
+            let rescale1 = decoder.rescaleParametersV2
+            let rescale2 = decoder.rescaleParametersV2
             XCTAssertEqual(rescale1.intercept, rescale2.intercept, "Rescale parameters should be consistent")
             XCTAssertEqual(rescale1.slope, rescale2.slope, "Rescale parameters should be consistent")
         }
@@ -754,7 +754,7 @@ final class DCMDecoderMetadataTests: XCTestCase {
 
     func testRescaleParametersStructure() {
         let decoder = DCMDecoder()
-        let params = decoder.rescaleParameters
+        let params = decoder.rescaleParametersV2
 
         // Test that the tuple has both fields
         _ = params.intercept
@@ -765,7 +765,7 @@ final class DCMDecoderMetadataTests: XCTestCase {
 
     func testWindowSettingsStructure() {
         let decoder = DCMDecoder()
-        let settings = decoder.windowSettings
+        let settings = decoder.windowSettingsV2
 
         // Test that the tuple has both fields
         _ = settings.center
@@ -776,12 +776,12 @@ final class DCMDecoderMetadataTests: XCTestCase {
 
     func testPixelSpacingStructure() {
         let decoder = DCMDecoder()
-        let spacing = decoder.pixelSpacing
+        let spacing = decoder.pixelSpacingV2
 
         // Test that the tuple has all three fields
-        _ = spacing.width
-        _ = spacing.height
-        _ = spacing.depth
+        _ = spacing.x
+        _ = spacing.y
+        _ = spacing.z
 
         XCTAssertTrue(true, "Pixel spacing should have width, height, and depth fields")
     }
@@ -822,8 +822,8 @@ final class DCMDecoderMetadataTests: XCTestCase {
                 _ = decoder.info(for: DicomTag.studyDate.rawValue)
                 _ = decoder.intValue(for: DicomTag.rows.rawValue)
                 _ = decoder.doubleValue(for: DicomTag.rescaleSlope.rawValue)
-                _ = decoder.rescaleParameters
-                _ = decoder.windowSettings
+                _ = decoder.rescaleParametersV2
+                _ = decoder.windowSettingsV2
             }
         }
     }

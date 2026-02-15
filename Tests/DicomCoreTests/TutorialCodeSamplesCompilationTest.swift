@@ -134,7 +134,7 @@ final class TutorialCodeSamplesCompilationTest: XCTestCase {
 
         // Decoder convenience method
         let decoder = DCMDecoder()
-        _ = decoder.calculateOptimalWindow()
+        _ = decoder.calculateOptimalWindowV2()
     }
 
     func testMedicalPresetsAPIsExist() throws {
@@ -211,7 +211,7 @@ final class TutorialCodeSamplesCompilationTest: XCTestCase {
         XCTAssertNotNil(loader1)
 
         // With decoder factory
-        let loader2 = DicomSeriesLoader(decoderFactory: { DCMDecoder() })
+        let loader2 = DicomSeriesLoader(decoderFactory: { _ in DCMDecoder() })
         XCTAssertNotNil(loader2)
 
         // Load method signatures (won't execute without real files)

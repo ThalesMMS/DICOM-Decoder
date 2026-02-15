@@ -6,7 +6,7 @@ import Foundation
 /// Example 1: Load a DICOM file using the recommended throwing initializer
 func loadDICOMFile() {
     do {
-        // ✅ Recommended: Use throwing initializer with URL
+        // Recommended: Use throwing initializer with URL
         let url = URL(fileURLWithPath: "/path/to/image.dcm")
         let decoder = try DCMDecoder(contentsOf: url)
 
@@ -14,7 +14,7 @@ func loadDICOMFile() {
         print("Image dimensions: \(decoder.width) x \(decoder.height)")
         print("Bit depth: \(decoder.bitDepth)")
 
-        // ✅ Recommended: Use type-safe DicomTag enum
+        // Recommended: Use type-safe DicomTag enum
         print("Modality: \(decoder.info(for: .modality))")
         print("Patient: \(decoder.info(for: .patientName))")
 
@@ -198,7 +198,7 @@ func useV2APIs() {
     do {
         let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
 
-        // ✅ WindowSettings struct (V2 API)
+        // WindowSettings struct (V2 API)
         let windowSettings = decoder.windowSettingsV2
         if windowSettings.isValid {
             print("Window: center=\(windowSettings.center), width=\(windowSettings.width)")
@@ -210,7 +210,7 @@ func useV2APIs() {
             }
         }
 
-        // ✅ PixelSpacing struct (V2 API)
+        // PixelSpacing struct (V2 API)
         let spacing = decoder.pixelSpacingV2
         if spacing.isValid {
             print("Pixel spacing: \(spacing.x) × \(spacing.y) × \(spacing.z) mm")
@@ -221,7 +221,7 @@ func useV2APIs() {
             print("Physical size: \(physicalWidth) × \(physicalHeight) mm")
         }
 
-        // ✅ RescaleParameters struct (V2 API)
+        // RescaleParameters struct (V2 API)
         let rescale = decoder.rescaleParametersV2
         if !rescale.isIdentity {
             print("Rescale: slope=\(rescale.slope), intercept=\(rescale.intercept)")

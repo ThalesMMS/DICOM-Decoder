@@ -33,14 +33,6 @@ import Foundation
 /// Use the public initializer to create instances instead of
 /// relying on the deprecated singleton.
 public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
-    // MARK: - Legacy Singleton Support (deprecated)
-
-    /// Shared global instance.  The dictionary is loaded on demand
-    /// using ``lazy`` so that applications which never access
-    /// DICOM metadata do not pay the cost of parsing the plist.
-    @available(*, deprecated, message: "Use dependency injection instead")
-    public static let shared = DCMDictionary()
-
     /// Underlying storage for the tag mappings.  Keys are
     /// hex strings (e.g. ``"00020002"``) and values are
     /// strings beginning with the two character VR followed by
@@ -142,36 +134,5 @@ public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
         let group = (tag >> 16) & 0xFFFF
         let element = tag & 0xFFFF
         return String(format: "(%04X,%04X)", group, element)
-    }
-}
-
-// MARK: - DCMDictionary Deprecated Static Methods
-
-public extension DCMDictionary {
-
-    // MARK: - Legacy Static Methods (deprecated)
-
-    /// Returns just the VR code for a given tag
-    /// - Parameter key: A hexadecimal string identifying a DICOM tag
-    /// - Returns: The VR code (first 2 characters) or nil if not found
-    @available(*, deprecated, message: "Use instance method instead: dictionary.vrCode(forKey:)")
-    static func vrCode(forKey key: String) -> String? {
-        shared.vrCode(forKey: key)
-    }
-
-    /// Returns just the description for a given tag
-    /// - Parameter key: A hexadecimal string identifying a DICOM tag
-    /// - Returns: The description (after "XX:") or nil if not found
-    @available(*, deprecated, message: "Use instance method instead: dictionary.description(forKey:)")
-    static func description(forKey key: String) -> String? {
-        shared.description(forKey: key)
-    }
-
-    /// Formats a tag as a standard DICOM tag string
-    /// - Parameter tag: The 32-bit tag value
-    /// - Returns: Formatted tag string in the format "(XXXX,XXXX)"
-    @available(*, deprecated, message: "Use instance method instead: dictionary.formatTag(_:)")
-    static func formatTag(_ tag: UInt32) -> String {
-        shared.formatTag(tag)
     }
 }

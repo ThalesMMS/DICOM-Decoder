@@ -6,13 +6,13 @@ final class StudyDataServiceTests: XCTestCase {
     // MARK: - Helpers
 
     /// Creates a decoder factory for testing
-    private func makeDecoderFactory() -> () -> DicomDecoderProtocol {
-        return { DCMDecoder() }
+    private func makeDecoderFactory() -> (String) throws -> DicomDecoderProtocol {
+        return { path in try DCMDecoder(contentsOfFile: path) }
     }
 
     /// Creates a mock decoder factory for testing dependency injection
-    private func makeMockDecoderFactory(mock: MockDicomDecoder) -> () -> DicomDecoderProtocol {
-        return { mock }
+    private func makeMockDecoderFactory(mock: MockDicomDecoder) -> (String) throws -> DicomDecoderProtocol {
+        return { _ in mock }
     }
 
     // MARK: - Service Initialization Tests
@@ -57,7 +57,7 @@ final class StudyDataServiceTests: XCTestCase {
         mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
         mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
         mockDecoder.dicomFound = true
-        mockDecoder.dicomFileReadSuccess = true
+        // Mock decoder configured as valid
 
         let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
 
@@ -468,7 +468,7 @@ final class StudyDataServiceTests: XCTestCase {
         mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
         mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
         mockDecoder.dicomFound = true
-        mockDecoder.dicomFileReadSuccess = true
+        // Mock decoder configured as valid
 
         let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
 
@@ -536,7 +536,7 @@ final class StudyDataServiceTests: XCTestCase {
         mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
         mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
         mockDecoder.dicomFound = true
-        mockDecoder.dicomFileReadSuccess = true
+        // Mock decoder configured as valid
 
         let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
 
@@ -595,7 +595,7 @@ final class StudyDataServiceTests: XCTestCase {
         // Create mock decoder with invalid DICOM data (missing UIDs)
         let mockDecoder = MockDicomDecoder()
         mockDecoder.dicomFound = false
-        mockDecoder.dicomFileReadSuccess = false
+        // Mock decoder configured as invalid
 
         let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
 
@@ -625,7 +625,7 @@ final class StudyDataServiceTests: XCTestCase {
         // Create mock decoder with valid read but missing required UIDs
         let mockDecoder = MockDicomDecoder()
         mockDecoder.dicomFound = true
-        mockDecoder.dicomFileReadSuccess = true
+        // Mock decoder configured as valid
         // Intentionally omit studyInstanceUID and seriesInstanceUID
 
         let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
@@ -668,7 +668,7 @@ final class StudyDataServiceTests: XCTestCase {
         mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
         mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
         mockDecoder.dicomFound = true
-        mockDecoder.dicomFileReadSuccess = true
+        // Mock decoder configured as valid
 
         let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
 

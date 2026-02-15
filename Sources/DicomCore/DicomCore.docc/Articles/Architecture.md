@@ -362,12 +362,12 @@ Older API using boolean success checks (maintained for backward compatibility):
 
 **Migration Path:**
 ```swift
-// ❌ Old: Boolean success check
+// Deprecated: Boolean success check
 let decoder = DCMDecoder()
 decoder.setDicomFilename(path)
 guard decoder.dicomFileReadSuccess else { return }
 
-// ✅ New: Throwing initializer
+// Recommended: Throwing initializer
 do {
     let decoder = try DCMDecoder(contentsOfFile: path)
 } catch DICOMError.fileNotFound(let path) {

@@ -290,10 +290,10 @@ func loadSeriesWithCustomDecoder() {
     do {
         // Create loader with custom decoder factory
         // In tests, use MockDicomDecoder:
-        // let loader = DicomSeriesLoader(decoderFactory: { MockDicomDecoder() })
+        // let loader = DicomSeriesLoader(decoderFactory: { _ in MockDicomDecoder() })
 
         // In production, use DCMDecoder (default):
-        let loader = DicomSeriesLoader(decoderFactory: { DCMDecoder() })
+        let loader = DicomSeriesLoader(decoderFactory: { _ in DCMDecoder() })
 
         let seriesDirectory = URL(fileURLWithPath: "/path/to/series")
         let volume = try loader.loadSeries(in: seriesDirectory)

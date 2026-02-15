@@ -179,17 +179,17 @@ Task {
 ### Process Multiple Images Efficiently
 
 ```swift
-// ✅ Good: Reuse decoder instance for metadata
+// Good: Reuse decoder instance for metadata
 let decoders = urls.map { try? DCMDecoder(contentsOf: $0) }
 let metadata = decoders.compactMap { $0?.info(for: .patientName) }
 
-// ✅ Good: Batch window calculation
+// Good: Batch window calculation
 let pixelArrays = decoders.map { $0.getPixels16() }
 let windowSettings = DCMWindowingProcessor.batchCalculateOptimalWindowLevelV2(
     imagePixels: pixelArrays
 )
 
-// ⚠️ Avoid: Creating new Metal processor per image
+// Avoid: Creating new Metal processor per image
 // The library reuses Metal processor internally - no need to manage it
 ```
 

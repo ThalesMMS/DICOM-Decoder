@@ -601,7 +601,8 @@ internal final class JPEGLosslessDecoder {
                     y: y,
                     pixels: pixels,
                     width: width,
-                    precision: precision
+                    precision: precision,
+                    selectionValue: sos.selectionValue
                 )
 
                 // Decode Huffman symbol (SSSS - number of difference bits)
@@ -726,33 +727,197 @@ internal final class JPEGLosslessDecoder {
 
     // MARK: - Prediction
 
-    /// Computes the predictor value for a pixel using first-order prediction (Selection Value 1)
+    /// Computes the predictor value for a pixel based on the selection value
     /// - Parameters:
     ///   - x: Horizontal pixel position (0-indexed)
     ///   - y: Vertical pixel position (0-indexed)
     ///   - pixels: Decoded pixel buffer (values decoded so far)
     ///   - width: Image width in pixels
     ///   - precision: Sample precision in bits (8, 12, or 16)
+    ///   - selectionValue: Predictor selection value (0-7)
     /// - Returns: Predicted pixel value
-    internal func computePredictor(x: Int, y: Int, pixels: [UInt16], width: Int, precision: Int) -> Int {
-        // Selection Value 1: First-order prediction using left neighbor (Ra)
-        //
-        // Predictor formula:
-        // - First column (x=0): Predictor = 2^(P-1) where P is precision
-        // - Other columns: Predictor = Ra (left neighbor)
-        //
+    internal func computePredictor(x: Int, y: Int, pixels: [UInt16], width: Int, precision: Int, selectionValue: Int) -> Int {
+        // Selection Value determines which predictor formula to use
         // Reference: ITU-T T.81 Annex H, DICOM PS3.5 Section 8.2.4
 
-        if x == 0 {
-            // First pixel of each row: use default predictor 2^(P-1)
-            // For 16-bit: 2^15 = 32768
-            // For 12-bit: 2^11 = 2048
-            // For 8-bit: 2^7 = 128
-            return 1 << (precision - 1)
-        } else {
-            // Use left neighbor (Ra) as predictor
-            let index = y * width + (x - 1)
-            return Int(pixels[index])
+        switch selectionValue {
+        case 0:
+            // Selection Value 0: No prediction
+            // Predictor is always 0 (raw pixel values encoded as differences)
+            return 0
+
+        case 1:
+            // Selection Value 1: First-order prediction using left neighbor (Ra)
+            //
+            // Predictor formula:
+            // - First column (x=0): Predictor = 2^(P-1) where P is precision
+            // - Other columns: Predictor = Ra (left neighbor)
+
+            if x == 0 {
+                // First pixel of each row: use default predictor 2^(P-1)
+                // For 16-bit: 2^15 = 32768
+                // For 12-bit: 2^11 = 2048
+                // For 8-bit: 2^7 = 128
+                return 1 << (precision - 1)
+            } else {
+                // Use left neighbor (Ra) as predictor
+                let index = y * width + (x - 1)
+                return Int(pixels[index])
+            }
+
+        case 2:
+            // Selection Value 2: Prediction using top neighbor (Rb)
+            //
+            // Predictor formula:
+            // - First row (y=0): Predictor = 2^(P-1) where P is precision
+            // - Other rows: Predictor = Rb (top neighbor)
+
+            if y == 0 {
+                // First pixel of each column: use default predictor 2^(P-1)
+                // For 16-bit: 2^15 = 32768
+                // For 12-bit: 2^11 = 2048
+                // For 8-bit: 2^7 = 128
+                return 1 << (precision - 1)
+            } else {
+                // Use top neighbor (Rb) as predictor
+                let index = (y - 1) * width + x
+                return Int(pixels[index])
+            }
+
+        case 3:
+            // Selection Value 3: Prediction using top-left neighbor (Rc)
+            //
+            // Predictor formula:
+            // - First row (y=0) or first column (x=0): Predictor = 2^(P-1) where P is precision
+            // - Other positions: Predictor = Rc (top-left diagonal neighbor)
+
+            if x == 0 || y == 0 {
+                // First row or first column: use default predictor 2^(P-1)
+                // For 16-bit: 2^15 = 32768
+                // For 12-bit: 2^11 = 2048
+                // For 8-bit: 2^7 = 128
+                return 1 << (precision - 1)
+            } else {
+                // Use top-left neighbor (Rc) as predictor
+                let index = (y - 1) * width + (x - 1)
+                return Int(pixels[index])
+            }
+
+        case 4:
+            // Selection Value 4: Planar prediction using Ra + Rb - Rc
+            //
+            // Predictor formula:
+            // - First row (y=0) or first column (x=0): Predictor = 2^(P-1) where P is precision
+            // - Other positions: Predictor = Ra + Rb - Rc
+            //   where Ra = left neighbor, Rb = top neighbor, Rc = top-left neighbor
+
+            if x == 0 || y == 0 {
+                // First row or first column: use default predictor 2^(P-1)
+                // For 16-bit: 2^15 = 32768
+                // For 12-bit: 2^11 = 2048
+                // For 8-bit: 2^7 = 128
+                return 1 << (precision - 1)
+            } else {
+                // Use planar predictor: Ra + Rb - Rc
+                let indexRa = y * width + (x - 1)        // Left neighbor
+                let indexRb = (y - 1) * width + x        // Top neighbor
+                let indexRc = (y - 1) * width + (x - 1)  // Top-left neighbor
+
+                let ra = Int(pixels[indexRa])
+                let rb = Int(pixels[indexRb])
+                let rc = Int(pixels[indexRc])
+
+                return ra + rb - rc
+            }
+
+        case 5:
+            // Selection Value 5: Left neighbor plus half vertical gradient
+            //
+            // Predictor formula:
+            // - First row (y=0) or first column (x=0): Predictor = 2^(P-1) where P is precision
+            // - Other positions: Predictor = Ra + ((Rb - Rc) >> 1)
+            //   where Ra = left neighbor, Rb = top neighbor, Rc = top-left neighbor
+
+            if x == 0 || y == 0 {
+                // First row or first column: use default predictor 2^(P-1)
+                // For 16-bit: 2^15 = 32768
+                // For 12-bit: 2^11 = 2048
+                // For 8-bit: 2^7 = 128
+                return 1 << (precision - 1)
+            } else {
+                // Use left + half vertical gradient predictor: Ra + ((Rb - Rc) >> 1)
+                let indexRa = y * width + (x - 1)        // Left neighbor
+                let indexRb = (y - 1) * width + x        // Top neighbor
+                let indexRc = (y - 1) * width + (x - 1)  // Top-left neighbor
+
+                let ra = Int(pixels[indexRa])
+                let rb = Int(pixels[indexRb])
+                let rc = Int(pixels[indexRc])
+
+                return ra + ((rb - rc) >> 1)
+            }
+
+        case 6:
+            // Selection Value 6: Top neighbor plus half horizontal gradient
+            //
+            // Predictor formula:
+            // - First row (y=0) or first column (x=0): Predictor = 2^(P-1) where P is precision
+            // - Other positions: Predictor = Rb + ((Ra - Rc) >> 1)
+            //   where Ra = left neighbor, Rb = top neighbor, Rc = top-left neighbor
+
+            if x == 0 || y == 0 {
+                // First row or first column: use default predictor 2^(P-1)
+                // For 16-bit: 2^15 = 32768
+                // For 12-bit: 2^11 = 2048
+                // For 8-bit: 2^7 = 128
+                return 1 << (precision - 1)
+            } else {
+                // Use top + half horizontal gradient predictor: Rb + ((Ra - Rc) >> 1)
+                let indexRa = y * width + (x - 1)        // Left neighbor
+                let indexRb = (y - 1) * width + x        // Top neighbor
+                let indexRc = (y - 1) * width + (x - 1)  // Top-left neighbor
+
+                let ra = Int(pixels[indexRa])
+                let rb = Int(pixels[indexRb])
+                let rc = Int(pixels[indexRc])
+
+                return rb + ((ra - rc) >> 1)
+            }
+
+        case 7:
+            // Selection Value 7: Average of left and top neighbors
+            //
+            // Predictor formula:
+            // - First row (y=0) or first column (x=0): Predictor = 2^(P-1) where P is precision
+            // - Other positions: Predictor = (Ra + Rb) / 2
+            //   where Ra = left neighbor, Rb = top neighbor
+
+            if x == 0 || y == 0 {
+                // First row or first column: use default predictor 2^(P-1)
+                // For 16-bit: 2^15 = 32768
+                // For 12-bit: 2^11 = 2048
+                // For 8-bit: 2^7 = 128
+                return 1 << (precision - 1)
+            } else {
+                // Use average of left and top neighbors: (Ra + Rb) / 2
+                let indexRa = y * width + (x - 1)        // Left neighbor
+                let indexRb = (y - 1) * width + x        // Top neighbor
+
+                let ra = Int(pixels[indexRa])
+                let rb = Int(pixels[indexRb])
+
+                return (ra + rb) / 2
+            }
+
+        default:
+            // Unsupported selection values (should not occur with valid JPEG Lossless)
+            // Fall back to Selection Value 1 behavior
+            if x == 0 {
+                return 1 << (precision - 1)
+            } else {
+                let index = y * width + (x - 1)
+                return Int(pixels[index])
+            }
         }
     }
 

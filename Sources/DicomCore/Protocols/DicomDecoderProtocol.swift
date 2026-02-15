@@ -31,9 +31,38 @@ import simd
 /// for testing without requiring actual DICOM files. The primary implementation is ``DCMDecoder``,
 /// which provides full DICOM parsing capabilities.
 ///
-/// **Thread Safety:** All methods and properties must be thread-safe and support concurrent access
-/// without data races. Implementations should use internal locking to ensure data consistency,
-/// allowing safe use from multiple threads without external synchronization.
+/// ## Thread Safety
+///
+/// This protocol conforms to the `Sendable` protocol, indicating that conforming types can be
+/// safely shared across concurrency boundaries. All implementations must provide comprehensive
+/// thread-safety guarantees:
+///
+/// 1. **Protocol is Sendable**: The protocol inherits from `Sendable`, ensuring conforming types
+///    can be safely passed between actors and async contexts without data races.
+///
+/// 2. **All methods are thread-safe**: Every method and computed property in this protocol must
+///    be safe to call from multiple threads simultaneously. Implementations should use internal
+///    synchronization mechanisms (e.g., locks, actors, or serial queues) to protect shared mutable
+///    state.
+///
+/// 3. **Concurrent access is supported**: Multiple threads can read metadata, access pixel data,
+///    and query properties concurrently without external synchronization. The implementation
+///    guarantees data consistency and prevents race conditions internally.
+///
+/// Clients can safely use decoder instances from multiple threads without additional locking:
+///
+/// ```swift
+/// let decoder = try DCMDecoder(contentsOf: url)
+///
+/// // Safe: Concurrent reads from multiple threads
+/// DispatchQueue.global().async {
+///     let patientName = decoder.info(for: .patientName)
+/// }
+///
+/// DispatchQueue.global().async {
+///     let pixels = decoder.getPixels16()
+/// }
+/// ```
 ///
 /// ## Usage
 ///
@@ -98,7 +127,6 @@ import simd
 /// ### Status Properties
 ///
 /// - ``dicomFound``
-/// - ``dicomFileReadSuccess``
 /// - ``compressedImage``
 /// - ``dicomDir``
 /// - ``signedImage``
@@ -111,11 +139,6 @@ import simd
 /// - ``isValid()``
 /// - ``getValidationStatus()``
 ///
-/// ### File Loading (Legacy)
-///
-/// - ``setDicomFilename(_:)``
-/// - ``loadDICOMFileAsync(filename:)``
-///
 /// ### Metadata Access
 ///
 /// - ``info(for:)``
@@ -124,16 +147,13 @@ import simd
 /// - ``windowSettingsV2``
 /// - ``pixelSpacingV2``
 /// - ``rescaleParametersV2``
-/// - ``windowSettings``
-/// - ``pixelSpacing``
-/// - ``rescaleParameters``
 ///
 /// ### Pixel Data Access
 ///
 /// - ``getPixels16()``
 /// - ``getPixels8()``
 /// - ``getPixels24()``
-public protocol DicomDecoderProtocol: AnyObject {
+public protocol DicomDecoderProtocol: AnyObject, Sendable {
 
     // MARK: - Image Properties
 
@@ -188,14 +208,6 @@ public protocol DicomDecoderProtocol: AnyObject {
 
     /// True if file contains DICM signature at offset 128.
     var dicomFound: Bool { get }
-
-    /// True if file was successfully parsed and pixel data is available.
-    ///
-    /// **Note:** This property is part of the legacy API. When using the new throwing
-    /// initializers (`init(contentsOf:)` or `init(contentsOfFile:)`), successful
-    /// initialization guarantees this will be `true`, and failure throws an error instead.
-    @available(*, deprecated, message: "When using throwing initializers (init(contentsOf:) or init(contentsOfFile:)), successful initialization guarantees validity. Check for thrown errors instead of this property.")
-    var dicomFileReadSuccess: Bool { get }
 
     /// True if file uses a compressed transfer syntax.
     var compressedImage: Bool { get }
@@ -308,37 +320,6 @@ public protocol DicomDecoderProtocol: AnyObject {
     /// ```
     static func load(fromFile path: String) throws -> Self
 
-    // MARK: Legacy API
-
-    /// Assigns a file to decode.  The file is read and parsed immediately.
-    /// On failure, `dicomFileReadSuccess` will be false.  Calling this
-    /// method resets any previous state.
-    ///
-    /// **Note:** This is the legacy API. Prefer using the throwing initializers
-    /// `init(contentsOf:)` or `init(contentsOfFile:)` for better error handling.
-    ///
-    /// - Parameter filename: Path to the DICOM file on disk
-    ///
-    /// **Migration Example:**
-    /// ```swift
-    /// // Old API:
-    /// let decoder = DCMDecoder()
-    /// decoder.setDicomFilename("/path/to/file.dcm")
-    /// if decoder.dicomFileReadSuccess {
-    ///     // use decoder
-    /// }
-    ///
-    /// // New API (recommended):
-    /// do {
-    ///     let decoder = try DCMDecoder(contentsOfFile: "/path/to/file.dcm")
-    ///     // use decoder
-    /// } catch {
-    ///     print("Failed to load DICOM: \(error)")
-    /// }
-    /// ```
-    @available(*, deprecated, message: "Use init(contentsOf:) throws or init(contentsOfFile:) throws instead. See documentation for migration examples.")
-    func setDicomFilename(_ filename: String)
-
     // MARK: - Pixel Data Access Methods
 
     /// Returns the 8-bit pixel buffer if the image is grayscale and
@@ -445,18 +426,6 @@ public protocol DicomDecoderProtocol: AnyObject {
     /// Returns image dimensions as a tuple.
     var imageDimensions: (width: Int, height: Int) { get }
 
-    /// Returns pixel spacing as a tuple.
-    @available(*, deprecated, message: "Use pixelSpacingV2 for type-safe PixelSpacing struct")
-    var pixelSpacing: (width: Double, height: Double, depth: Double) { get }
-
-    /// Returns window settings as a tuple.
-    @available(*, deprecated, message: "Use windowSettingsV2 for type-safe WindowSettings struct")
-    var windowSettings: (center: Double, width: Double) { get }
-
-    /// Returns rescale parameters as a tuple.
-    @available(*, deprecated, message: "Use rescaleParametersV2 for type-safe RescaleParameters struct")
-    var rescaleParameters: (intercept: Double, slope: Double) { get }
-
     // MARK: - Type-Safe Value Properties (V2 APIs)
 
     /// Returns pixel spacing as a type-safe struct
@@ -510,11 +479,6 @@ public protocol DicomDecoderProtocol: AnyObject {
     /// - Parameter pixelValue: Raw pixel value
     /// - Returns: Rescaled value (Hounsfield Units for CT, etc.)
     func applyRescale(to pixelValue: Double) -> Double
-
-    /// Calculates optimal window/level based on pixel data statistics.
-    /// - Returns: Tuple with calculated center and width, or nil if no pixel data
-    @available(*, deprecated, message: "Use calculateOptimalWindowV2() for type-safe WindowSettings struct")
-    func calculateOptimalWindow() -> (center: Double, width: Double)?
 
     /// Calculates optimal window/level based on pixel data statistics (V2 API)
     ///

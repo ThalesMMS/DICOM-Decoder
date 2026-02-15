@@ -21,14 +21,14 @@ public final class FileImportService: FileImportServiceProtocol {
 
     private let fileManager: FileManager
     private let studyDataService: StudyDataService
-    private let decoderFactory: () -> DicomDecoderProtocol
+    private let decoderFactory: (String) throws -> DicomDecoderProtocol
     private let logger: AnyLogger
 
     // MARK: - Initialization
 
     public init(
         fileManager: FileManager = .default,
-        decoderFactory: @escaping () -> DicomDecoderProtocol
+        decoderFactory: @escaping (String) throws -> DicomDecoderProtocol = { path in try DCMDecoder(contentsOfFile: path) }
     ) {
         self.fileManager = fileManager
         self.decoderFactory = decoderFactory
@@ -42,7 +42,7 @@ public final class FileImportService: FileImportServiceProtocol {
 
     // MARK: - Legacy Singleton Support (deprecated)
     @available(*, deprecated, message: "Use dependency injection instead")
-    public static let shared = FileImportService(decoderFactory: { DCMDecoder() })
+    public static let shared = FileImportService()
     
     // MARK: - Public Methods
     
@@ -525,10 +525,10 @@ public final class FileImportService: FileImportServiceProtocol {
             return nil
         }
         
-        // Use DICOM tag constants
-        let studyUID = decoder.info(for: DicomTag.studyInstanceUID.rawValue)
-        let seriesUID = decoder.info(for: DicomTag.seriesInstanceUID.rawValue)
-        let sopUID = decoder.info(for: DicomTag.sopInstanceUID.rawValue)
+        // Use type-safe DICOM tag enum
+        let studyUID = decoder.info(for: .studyInstanceUID)
+        let seriesUID = decoder.info(for: .seriesInstanceUID)
+        let sopUID = decoder.info(for: .sopInstanceUID)
         
         if studyUID.isEmpty || seriesUID.isEmpty || sopUID.isEmpty {
             print("❌ Could not extract UIDs from: \(filePath)")
@@ -837,9 +837,9 @@ public final class FileImportService: FileImportServiceProtocol {
             return nil
         }
         
-        let seriesNumber = decoder.info(for: DicomTag.seriesNumber.rawValue).isEmpty ? nil : decoder.info(for: DicomTag.seriesNumber.rawValue)
-        let seriesDescription = decoder.info(for: DicomTag.seriesDescription.rawValue).isEmpty ? nil : decoder.info(for: DicomTag.seriesDescription.rawValue)
-        let modality = decoder.info(for: DicomTag.modality.rawValue).isEmpty ? "OT" : decoder.info(for: DicomTag.modality.rawValue)
+        let seriesNumber = decoder.info(for: .seriesNumber).isEmpty ? nil : decoder.info(for: .seriesNumber)
+        let seriesDescription = decoder.info(for: .seriesDescription).isEmpty ? nil : decoder.info(for: .seriesDescription)
+        let modality = decoder.info(for: .modality).isEmpty ? "OT" : decoder.info(for: .modality)
         
         return (seriesNumber: seriesNumber, seriesDescription: seriesDescription, modality: modality)
     }

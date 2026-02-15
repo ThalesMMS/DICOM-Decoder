@@ -260,7 +260,10 @@ extension DCMDecoder {
 
     /// Retrieves downsampled 8-bit thumbnail pixels asynchronously
     /// - Parameter maxDimension: Maximum dimension for the thumbnail
-    /// - Returns: Tuple with downsampled pixels and dimensions, or nil
+    /// Retrieves an 8-bit downsampled pixel buffer and its dimensions, scaling the image so its longer side does not exceed the given maximum while preserving aspect ratio.
+    /// - Parameters:
+    ///   - maxDimension: Maximum length (in pixels) of the longer image side after downsampling; aspect ratio is preserved. Default is 150.
+    /// - Returns: A tuple `(pixels: [UInt8], width: Int, height: Int)` containing the downsampled pixel data and its width and height, or `nil` if pixel data is not available.
     @available(macOS 10.15, iOS 13.0, *)
     public func getDownsampledPixels8Async(maxDimension: Int = 150) async -> (pixels: [UInt8], width: Int, height: Int)? {
         return await withCheckedContinuation { continuation in
@@ -268,5 +271,146 @@ extension DCMDecoder {
                 continuation.resume(returning: self.getDownsampledPixels8(maxDimension: maxDimension))
             }
         }
+    }
+
+    // MARK: - Batch Loading API
+
+    /// Loads multiple DICOM files concurrently using structured concurrency.
+    /// This method uses TaskGroup to process files in parallel while respecting
+    /// the specified concurrency limit.
+    ///
+    /// The method preserves the input URL ordering in the returned results array.
+    /// Partial failures are handled gracefully - each result contains either a
+    /// successfully loaded decoder or an error describing what went wrong.
+    ///
+    /// Example usage:
+    ///
+    ///     let urls = [url1, url2, url3, url4]
+    ///     let results = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 2)
+    ///
+    ///     for result in results {
+    ///         if let decoder = result.decoder {
+    ///             print("Loaded: \(decoder.width) x \(decoder.height)")
+    ///         } else if let error = result.error {
+    ///             switch error {
+    ///             case .fileNotFound(let path):
+    ///                 print("Missing file: \(path)")
+    ///             default:
+    ///                 print("Failed: \(error.localizedDescription)")
+    ///             }
+    ///         }
+    ///     }
+    ///
+    /// - Parameters:
+    ///   - urls: Array of file URLs pointing to DICOM files to load.
+    ///   - maxConcurrency: Maximum number of files to load concurrently.
+    ///     Defaults to 4. Higher values may improve throughput but increase
+    ///     memory usage.
+    /// - Returns: Array of ``DicomBatchResult`` in the same order as input URLs.
+    /// Concurrently loads the provided DICOM file URLs and returns per-file results in the original input order.
+    /// - Parameters:
+    ///   - urls: The file URLs to load.
+    ///   - maxConcurrency: The maximum number of files to load concurrently. Defaults to 4; values less than 1 will effectively behave like a single concurrent task.
+    /// - Returns: An array of `DicomBatchResult` corresponding to `urls`, ordered to match the input. An empty `urls` array yields an empty result.
+    @available(macOS 10.15, iOS 13.0, *)
+    public static func loadBatch(
+        urls: [URL],
+        maxConcurrency: Int = 4
+    ) async -> [DicomBatchResult] {
+        // Early return for empty input
+        guard !urls.isEmpty else { return [] }
+
+        // Ensure we always schedule at least one task to avoid waiting on an empty group.
+        let concurrency = max(1, maxConcurrency)
+
+        // Create results array with same ordering as input
+        var results: [DicomBatchResult] = []
+        results.reserveCapacity(urls.count)
+
+        // Use dictionary to maintain ordering
+        var resultsByIndex: [Int: DicomBatchResult] = [:]
+
+        await withTaskGroup(of: (Int, DicomBatchResult).self) { group in
+            // Enumerate URLs to track ordering
+            for (index, url) in urls.enumerated() {
+                // Respect concurrency limit
+                if index >= concurrency {
+                    // Wait for one task to complete before adding more
+                    if let (completedIndex, result) = await group.next() {
+                        resultsByIndex[completedIndex] = result
+                    }
+                }
+
+                // Add task to load this file
+                group.addTask {
+                    let result = await Self.loadSingleFile(url: url)
+                    return (index, result)
+                }
+            }
+
+            // Collect remaining results
+            for await (completedIndex, result) in group {
+                resultsByIndex[completedIndex] = result
+            }
+        }
+
+        // Reconstruct results in original order
+        for index in 0..<urls.count {
+            if let result = resultsByIndex[index] {
+                results.append(result)
+            }
+        }
+
+        return results
+    }
+
+    /// Internal helper to load a single DICOM file and return a result.
+    /// This method captures errors and returns them as part of the result
+    /// rather than throwing, enabling batch operations to continue despite
+    /// individual file failures.
+    ///
+    /// - Parameter url: File URL pointing to the DICOM file to load.
+    /// - Returns: ``DicomBatchResult`` containing either the loaded decoder
+    /// Attempts to load a single DICOM file and returns a `DicomBatchResult` describing the outcome.
+    /// - Parameters:
+    ///   - url: The file `URL` of the DICOM to load.
+    /// - Returns: A `DicomBatchResult` containing the original `url` and either a loaded `DCMDecoder` on success or the encountered `DICOMError` on failure.
+    @available(macOS 10.15, iOS 13.0, *)
+    private static func loadSingleFile(url: URL) async -> DicomBatchResult {
+        do {
+            let decoder = try await DCMDecoder(contentsOf: url)
+            return DicomBatchResult(url: url, decoder: decoder, error: nil)
+        } catch {
+            let dicomError = (error as? DICOMError) ?? .unknown(underlyingError: String(describing: error))
+            return DicomBatchResult(url: url, decoder: nil, error: dicomError)
+        }
+    }
+}
+
+// MARK: - Batch Loading Result Type
+
+/// Result of loading a single DICOM file in a batch operation.
+/// Contains either a successfully loaded decoder or an error describing
+/// the failure. This allows batch operations to continue processing
+/// remaining files even if some files fail to load.
+@available(macOS 10.15, iOS 13.0, *)
+public struct DicomBatchResult: Sendable {
+    /// The file URL that was processed
+    public let url: URL
+
+    /// The successfully loaded decoder, or nil if loading failed
+    public let decoder: DCMDecoder?
+
+    /// The error that occurred, or nil if loading succeeded
+    public let error: DICOMError?
+
+    /// Whether the file loaded successfully
+    public var isSuccess: Bool {
+        return decoder != nil && error == nil
+    }
+
+    /// Whether the file failed to load
+    public var isFailure: Bool {
+        return !isSuccess
     }
 }

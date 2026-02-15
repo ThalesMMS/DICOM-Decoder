@@ -10,7 +10,7 @@ Swift Package Manager (SPM) has evolved its Metal shader support since Swift 5.3
 
 ### What Fails
 ```swift
-// ❌ This pattern FAILS in SPM packages
+// This pattern FAILS in SPM packages
 let device = MTLCreateSystemDefaultDevice()
 let library = device.makeDefaultLibrary()  // Returns nil in SPM!
 ```
@@ -25,7 +25,7 @@ let library = device.makeDefaultLibrary()  // Returns nil in SPM!
 
 ### Working Pattern (Proven in MetalBenchmark)
 ```swift
-// ✅ This pattern WORKS in SPM packages
+// This pattern WORKS in SPM packages
 guard let device = MTLCreateSystemDefaultDevice() else {
     throw MetalProcessorError.metalNotAvailable
 }
@@ -149,7 +149,7 @@ MetalBenchmark/
 
 ## Best Practices
 
-### DO ✅
+### DO
 1. Use `Bundle.module.url(forResource:withExtension:)` for SPM packages
 2. Compile shaders at runtime with `makeLibrary(source:options:)`
 3. Declare Metal files with `.process()` in Package.swift resources
@@ -157,7 +157,7 @@ MetalBenchmark/
 5. Cache `MTLComputePipelineState` instances for reuse
 6. Use `setBytes()` for small constant parameters (<4KB)
 
-### DON'T ❌
+### DON'T
 1. Use `makeDefaultLibrary()` in SPM packages (returns nil)
 2. Use `Bundle.main` in package code (use `Bundle.module`)
 3. Expect pre-compiled `.metallib` files in SPM bundles

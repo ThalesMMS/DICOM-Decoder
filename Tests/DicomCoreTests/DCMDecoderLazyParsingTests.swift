@@ -59,10 +59,9 @@ final class DCMDecoderLazyParsingTests: XCTestCase {
     func testLazyParsingMemoryImprovement() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess,
+        XCTAssertTrue(decoder.dicomFound,
                       "Should successfully read DICOM file: \(file.lastPathComponent)")
         XCTAssertTrue(decoder.isValid(),
                       "Decoder should be valid after loading")
@@ -188,10 +187,9 @@ final class DCMDecoderLazyParsingTests: XCTestCase {
     func testLazyTagParsingBehavior() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess,
+        XCTAssertTrue(decoder.dicomFound,
                       "Should successfully read DICOM file")
 
         // Access a tag that might be stored lazily
@@ -216,10 +214,9 @@ final class DCMDecoderLazyParsingTests: XCTestCase {
     func testLazyParsingPerformance() throws {
         let file = try getAnyDICOMFile()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file.path)
+        let decoder = try DCMDecoder(contentsOfFile: file.path)
 
-        XCTAssertTrue(decoder.dicomFileReadSuccess,
+        XCTAssertTrue(decoder.dicomFound,
                       "Should successfully read DICOM file")
 
         // Test tags that might be lazily parsed

@@ -23,17 +23,17 @@ final class SeriesBusinessLogic: ObservableObject, Sendable {
     private let logger: AnyLogger
     private nonisolated(unsafe) let fileManager: FileManager
     private let studyDataService: StudyDataService
-    private let decoderFactory: () -> DicomDecoderProtocol
+    private let decoderFactory: (String) throws -> DicomDecoderProtocol
 
     // MARK: - Initialization
 
     init(
         fileManager: FileManager = .default,
-        studyDataService: StudyDataService = StudyDataService(),
-        decoderFactory: @escaping () -> DicomDecoderProtocol
+        studyDataService: StudyDataService? = nil,
+        decoderFactory: @escaping (String) throws -> DicomDecoderProtocol = { path in try DCMDecoder(contentsOfFile: path) }
     ) {
         self.fileManager = fileManager
-        self.studyDataService = studyDataService
+        self.studyDataService = studyDataService ?? StudyDataService(fileManager: fileManager, decoderFactory: decoderFactory)
         self.decoderFactory = decoderFactory
         self.logger = AnyLogger.make(subsystem: "com.dicomviewer", category: "SeriesBL")
         logger.info("📊 SeriesBusinessLogic initialized - handles Series data processing")
@@ -147,35 +147,37 @@ private extension SeriesBusinessLogic {
         var seriesMap: [String: [String]] = [:]
         var seriesMetadata: [String: SeriesMetadata] = [:]
 
-        let decoder = self.decoderFactory()
-        
         for filePath in validPaths {
-            decoder.setDicomFilename(filePath)
-            
-            // Extract series UID
-            let seriesUID = decoder.info(for: DicomTag.seriesInstanceUID.rawValue)
+            // Modern API: Throwing initializer with error handling through factory
+            guard let decoder = try? self.decoderFactory(filePath) else {
+                logger.debug("⚠️ Failed to load DICOM file: \(filePath)")
+                continue
+            }
+
+            // Extract series UID using type-safe DicomTag enum
+            let seriesUID = decoder.info(for: .seriesInstanceUID)
             let finalSeriesUID = seriesUID.isEmpty ? "ASSORTED_IMAGES" : seriesUID
-            
+
             // Initialize series if not exists
             if seriesMap[finalSeriesUID] == nil {
                 seriesMap[finalSeriesUID] = []
-                
-                // Extract series metadata
-                let seriesNumber = decoder.info(for: DicomTag.seriesNumber.rawValue)
-                let seriesDescription = decoder.info(for: DicomTag.seriesDescription.rawValue)
-                let modality = decoder.info(for: DicomTag.modality.rawValue)
-                
+
+                // Extract series metadata using type-safe tags
+                let seriesNumber = decoder.info(for: .seriesNumber)
+                let seriesDescription = decoder.info(for: .seriesDescription)
+                let modality = decoder.info(for: .modality)
+
                 seriesMetadata[finalSeriesUID] = SeriesMetadata(
                     number: seriesNumber.isEmpty ? nil : seriesNumber,
                     description: seriesDescription.isEmpty ? nil : seriesDescription,
                     modality: modality.isEmpty ? nil : modality
                 )
             }
-            
+
             // Add file to series
             seriesMap[finalSeriesUID]?.append(filePath)
         }
-        
+
         return (seriesMap, seriesMetadata)
     }
     
@@ -209,18 +211,23 @@ private extension SeriesBusinessLogic {
     func sortSeriesFiles(_ paths: [String]) async -> [String] {
         return await withCheckedContinuation { continuation in
             Task.detached(priority: .utility) {
-                let decoder = self.decoderFactory()
                 var sortableItems: [(path: String, instanceNumber: Int?)] = []
-                
+
                 for path in paths {
-                    decoder.setDicomFilename(path)
-                    
-                    let instanceStr = decoder.info(for: DicomTag.instanceNumber.rawValue)
+                    // Modern API: Throwing initializer with error handling through factory
+                    guard let decoder = try? self.decoderFactory(path) else {
+                        // If file can't be loaded, add with nil instance number
+                        sortableItems.append((path: path, instanceNumber: nil))
+                        continue
+                    }
+
+                    // Type-safe DicomTag enum without .rawValue
+                    let instanceStr = decoder.info(for: .instanceNumber)
                     let instanceNumber = instanceStr.isEmpty ? nil : Int(instanceStr)
-                    
+
                     sortableItems.append((path: path, instanceNumber: instanceNumber))
                 }
-                
+
                 // Sort by instance number, with files having instance numbers first
                 sortableItems.sort { item1, item2 in
                     if let inst1 = item1.instanceNumber, let inst2 = item2.instanceNumber {
@@ -235,7 +242,7 @@ private extension SeriesBusinessLogic {
                     // Both nil - sort by filename
                     return item1.path.localizedStandardCompare(item2.path) == .orderedAscending
                 }
-                
+
                 let sortedPaths = sortableItems.map { $0.path }
                 continuation.resume(returning: sortedPaths)
             }

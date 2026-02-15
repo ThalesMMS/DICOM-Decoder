@@ -14,7 +14,7 @@ Pure Swift DICOM decoder for iOS and macOS. Read DICOM files, extract medical me
 Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and research tools.
 
 - Repository: [`ThalesMMS/DICOM-Decoder`](https://github.com/ThalesMMS/DICOM-Decoder)
-- Latest release: [`1.0.0`](https://github.com/ThalesMMS/DICOM-Decoder/releases/tag/1.0.0)
+- Latest release: [`1.0.1`](https://github.com/ThalesMMS/DICOM-Decoder/releases/tag/1.0.1)
 - Documentation: [API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/) | [Getting Started](GETTING_STARTED.md) | [Glossary](DICOM_GLOSSARY.md) | [Troubleshooting](TROUBLESHOOTING.md)
 
 ---
@@ -57,7 +57,7 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 
 - Little/Big Endian, Explicit/Implicit VR
 - Grayscale 8/16-bit and RGB 24-bit
-- Native JPEG Lossless decoding (Process 14, Selection Value 1) for transfer syntaxes 1.2.840.10008.1.2.4.57 and 1.2.840.10008.1.2.4.70
+- Native JPEG Lossless decoding (Process 14, all selection values 0-7) for transfer syntaxes 1.2.840.10008.1.2.4.57 and 1.2.840.10008.1.2.4.70
 - Best-effort single-frame JPEG and JPEG2000 decoding via ImageIO
 - Automatic memory mapping for large files (>10MB)
 - Downsampling for fast thumbnail generation
@@ -185,11 +185,11 @@ do {
 
     print("Dimensions: \(decoder.width) x \(decoder.height)")
 
-    // ✅ Recommended: Use type-safe DicomTag enum
+    // Recommended: Use type-safe DicomTag enum
     print("Modality: \(decoder.info(for: .modality))")
     print("Patient: \(decoder.info(for: .patientName))")
 
-    // ⚠️ Legacy: Raw hex values (still supported for custom/private tags)
+    // Legacy (deprecated): Raw hex values (still supported for custom/private tags)
     // print("Modality: \(decoder.info(for: 0x00080060))")
 
     if let pixels = decoder.getPixels16() {
@@ -225,14 +225,14 @@ For a detailed walkthrough, see [GETTING_STARTED.md](GETTING_STARTED.md) and [US
 The library provides a **type-safe `DicomTag` enum** for accessing DICOM metadata, eliminating the need for raw hex values:
 
 ```swift
-// ✅ Recommended: Type-safe and discoverable via autocomplete
+// Recommended: Type-safe and discoverable via autocomplete
 let patientName = decoder.info(for: .patientName)
 let modality = decoder.info(for: .modality)
 let studyUID = decoder.info(for: .studyInstanceUID)
 let rows = decoder.intValue(for: .rows) ?? 0
 let windowCenter = decoder.doubleValue(for: .windowCenter)
 
-// ⚠️ Legacy: Raw hex values (still supported for custom/private tags)
+// Legacy (deprecated): Raw hex values (still supported for custom/private tags)
 let customTag = decoder.info(for: 0x00091001)  // Private tag
 ```
 
@@ -249,29 +249,29 @@ See [Common DICOM Tags](#common-dicom-tags) for a full list of supported tags.
 The library provides dedicated structs for common DICOM parameters, offering better type safety and Codable conformance than tuple-based APIs:
 
 ```swift
-// ✅ Window settings as a struct (recommended)
+// Window settings as a struct (recommended)
 let settings = decoder.windowSettingsV2  // WindowSettings struct
 if settings.isValid {
     print("Window: center=\(settings.center), width=\(settings.width)")
 }
 
-// ✅ Pixel spacing as a struct (recommended)
+// Pixel spacing as a struct (recommended)
 let spacing = decoder.pixelSpacingV2  // PixelSpacing struct
 if spacing.isValid {
     print("Spacing: \(spacing.x) × \(spacing.y) × \(spacing.z) mm")
 }
 
-// ✅ Rescale parameters as a struct (recommended)
+// Rescale parameters as a struct (recommended)
 let rescale = decoder.rescaleParametersV2  // RescaleParameters struct
 if !rescale.isIdentity {
     let hounsfieldValue = rescale.apply(to: pixelValue)
 }
 
-// ✅ V2 windowing methods return WindowSettings
+// V2 windowing methods return WindowSettings
 let optimal = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
 let preset = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)
 
-// ⚠️ Legacy: Tuple-based APIs (deprecated but still supported)
+// Legacy (deprecated): Tuple-based APIs (deprecated but still supported)
 let (center, width) = decoder.windowSettings  // Returns tuple
 ```
 
@@ -329,10 +329,10 @@ targets: [
 import DicomCore
 
 do {
-    // ✅ Recommended: Use throwing initializer
+    // Recommended: Use throwing initializer
     let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
 
-    // ✅ Use type-safe DicomTag enum for metadata access
+    // Use type-safe DicomTag enum for metadata access
     print("Patient: \(decoder.info(for: .patientName))")
     print("Modality: \(decoder.info(for: .modality))")
     print("Dimensions: \(decoder.width) x \(decoder.height)")
@@ -349,13 +349,14 @@ do {
 
 ```swift
 func loadDICOM() async {
-    let decoder = DCMDecoder()
-    let success = await decoder.loadDICOMFileAsync("/path/to/image.dcm")
+    do {
+        let decoder = try await DCMDecoder(contentsOfFile: "/path/to/image.dcm")
 
-    guard success else { return }
-
-    if let pixels = await decoder.getPixels16Async() {
-        await showImage(pixels, decoder.width, decoder.height)
+        if let pixels = await decoder.getPixels16Async() {
+            await showImage(pixels, decoder.width, decoder.height)
+        }
+    } catch {
+        print("Error: \(error)")
     }
 }
 ```
@@ -365,7 +366,7 @@ func loadDICOM() async {
 ```swift
 guard let pixels = decoder.getPixels16() else { return }
 
-// ✅ Use type-safe DicomTag enum
+// Use type-safe DicomTag enum
 let modality = decoder.info(for: .modality)
 let suggestions = DCMWindowingProcessor.suggestPresets(for: modality)
 
@@ -388,7 +389,8 @@ if let optimal = decoder.calculateOptimalWindow() {
 ### 4. Validate Before Loading
 
 ```swift
-let validation = decoder.validateDICOMFile("/path/to/image.dcm")
+let tempDecoder = DCMDecoder()
+let validation = tempDecoder.validateDICOMFile("/path/to/image.dcm")
 
 if !validation.isValid {
     print("Invalid file:")
@@ -398,7 +400,7 @@ if !validation.isValid {
     return
 }
 
-decoder.setDicomFilename("/path/to/image.dcm")
+let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
 ```
 
 ### 5. Structured Metadata
@@ -468,9 +470,9 @@ More examples: [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md).
 ```
 1. DICOM file
         |
-2. validateDICOMFile() (optional but recommended)
+2. validateDICOMFile() (optional)
         |
-3. setDicomFilename() / loadDICOMFileAsync()
+3. try DCMDecoder(contentsOfFile:) or try await DCMDecoder(contentsOfFile:)
         |
 4. Decoder parses:
    - Header (128 bytes + "DICM")
@@ -479,7 +481,7 @@ More examples: [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md).
    - Pixel Data (lazy loading)
         |
 5. Access data:
-   - info(for:) -> Metadata
+   - info(for: .modality) -> Metadata
    - getPixels16() -> Pixel buffer
    - applyWindowLevel() -> Processed pixels
 ```
@@ -490,13 +492,25 @@ More examples: [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md).
 DICOM-Decoder/
 |-- Package.swift
 |-- Sources/DicomCore/
-|   |-- DCMDecoder.swift
-|   |-- DCMWindowingProcessor.swift
-|   |-- DICOMError.swift
-|   |-- StudyDataService.swift
-|   |-- PatientModel.swift
-|   |-- Protocols.swift
-|   |-- DCMDictionary.swift
+|   |-- DCMDecoder.swift          # Core DICOM parser
+|   |-- DCMDecoder+Async.swift    # Async/await extensions
+|   |-- DCMWindowingProcessor.swift # Window/level processing
+|   |-- MetalWindowingProcessor.swift # GPU-accelerated windowing
+|   |-- DCMPixelReader.swift      # Pixel data extraction
+|   |-- DCMTagParser.swift        # Tag parsing logic
+|   |-- DCMBinaryReader.swift     # Binary data reader
+|   |-- DCMDictionary.swift       # Tag name/number mapping
+|   |-- DICOMError.swift          # Typed error definitions
+|   |-- DicomConstants.swift      # DicomTag enum and constants
+|   |-- DicomSeriesLoader.swift   # Series/volume loading
+|   |-- JPEGLosslessDecoder.swift # Native JPEG Lossless decoder
+|   |-- PatientModel.swift        # Data model structures
+|   |-- StudyDataService.swift    # Study/series grouping
+|   |-- ValueTypes.swift          # V2 type-safe value types
+|   |-- Protocols/                # Protocol abstractions
+|   |-- TagHandlers/              # Per-VR tag handling
+|   |-- Logging/                  # Logging utilities
+|   |-- DicomCore.docc/           # DocC documentation
 |   `-- Resources/DCMDictionary.plist
 |-- Tests/DicomCoreTests/
 `-- ViewerReference/
@@ -562,7 +576,7 @@ let privateTag = decoder.info(for: 0x00091001)  // Private manufacturer tag
 
 Complete API documentation generated with DocC is available online:
 
-**[📚 Swift DICOM Decoder API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/)**
+**[Swift DICOM Decoder API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/)**
 
 The API reference includes:
 - Detailed class and method documentation
@@ -604,14 +618,14 @@ Controls brightness and contrast of DICOM images:
 The library provides a type-safe `DicomTag` enum for accessing metadata:
 
 ```swift
-// ✅ Recommended: Type-safe DicomTag enum
+// Recommended: Type-safe DicomTag enum
 decoder.info(for: .patientName)       // Patient Name
 decoder.info(for: .modality)          // Modality (CT, MR, etc.)
 decoder.info(for: .rows)              // Image height
 decoder.intValue(for: .columns)       // Image width (as Int)
 decoder.doubleValue(for: .windowCenter)  // Window center (as Double)
 
-// ⚠️ Legacy: Raw hex values (still supported for custom/private tags)
+// Legacy (deprecated): Raw hex values (still supported for custom/private tags)
 decoder.info(for: 0x00100010)  // Patient Name
 decoder.info(for: 0x00080060)  // Modality
 decoder.info(for: 0x00280010)  // Rows
@@ -635,7 +649,7 @@ Density scale in CT imaging:
 - Use background processing for large files:
 ```swift
 Task.detached {
-    await decoder.loadDICOMFileAsync(path)
+    let decoder = try await DCMDecoder(contentsOfFile: path)
 }
 ```
 
@@ -667,7 +681,7 @@ autoreleasepool {
 
 ### Known Limitations
 
-- Compressed transfer syntaxes: Native support for JPEG Lossless (Process 14, Selection Value 1). Best-effort single-frame JPEG/JPEG2000 via ImageIO. RLE and multi-frame encapsulated compression are not supported - convert first if needed.
+- Compressed transfer syntaxes: Native support for JPEG Lossless (Process 14, all selection values 0-7). Best-effort single-frame JPEG/JPEG2000 via ImageIO. RLE and multi-frame encapsulated compression are not supported - convert first if needed.
 - Thread safety: The decoder is not thread-safe. Use one instance per thread or synchronize access.
 - Very large files (>1GB): May consume significant memory. Process in chunks or downsample.
 

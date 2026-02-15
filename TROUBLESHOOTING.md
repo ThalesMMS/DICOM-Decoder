@@ -53,11 +53,14 @@ Solution:
 Diagnostics:
 
 ```swift
-let decoder = DCMDecoder()
-decoder.setDicomFilename(path)
+do {
+    let decoder = try DCMDecoder(contentsOfFile: path)
+    // File loaded successfully
+} catch {
+    print("Error: \(error)")
 
-if !decoder.dicomFileReadSuccess {
-    let validation = decoder.validateDICOMFile(path)
+    let tempDecoder = DCMDecoder()
+    let validation = tempDecoder.validateDICOMFile(path)
     print("Valid: \(validation.isValid)")
     print("Issues:")
     for issue in validation.issues {
@@ -74,16 +77,16 @@ Solutions:
 
 ```swift
 // Use absolute paths
-let path = "/Users/name/Documents/file.dcm"
+let decoder = try DCMDecoder(contentsOfFile: "/Users/name/Documents/file.dcm")
 
 // Build from a bundle
 if let path = Bundle.main.path(forResource: "example", ofType: "dcm") {
-    decoder.setDicomFilename(path)
+    let decoder = try DCMDecoder(contentsOfFile: path)
 }
 
 // Using URL
 let url = URL(fileURLWithPath: "/path/file.dcm")
-decoder.setDicomFilename(url.path)
+let decoder = try DCMDecoder(contentsOf: url)
 ```
 
 #### Problem 2: "Missing DICOM header signature"
@@ -116,11 +119,11 @@ Cause: The file uses a compressed transfer syntax (JPEG, JPEG2000, RLE).
 Diagnostics:
 
 ```swift
-decoder.setDicomFilename(path)
+let decoder = try DCMDecoder(contentsOfFile: path)
 
 if decoder.compressedImage {
     print("Compressed transfer syntax detected")
-    print("UID: \(decoder.info(for: 0x00020010))")
+    print("UID: \(decoder.info(for: .transferSyntaxUID))")
 }
 ```
 
@@ -136,10 +139,9 @@ dcmconv --write-xfer-little compressed.dcm uncompressed.dcm
 **Option 2:** Use built-in JPEG decoding (ImageIO)
 
 ```swift
-if decoder.dicomFileReadSuccess {
-    if let pixels = decoder.getPixels8() ?? decoder.getPixels16() {
-        print("JPEG decoding succeeded")
-    }
+let decoder = try DCMDecoder(contentsOfFile: path)
+if let pixels = decoder.getPixels8() ?? decoder.getPixels16() {
+    print("JPEG decoding succeeded")
 }
 ```
 
@@ -147,11 +149,12 @@ Supported transfer syntaxes:
 - Little Endian Implicit VR
 - Little Endian Explicit VR
 - Big Endian Explicit VR
+- JPEG Lossless (Process 14, Selection Value 1) - native decoder
 - JPEG Baseline (via ImageIO)
 - JPEG 2000 (via ImageIO)
 
 Not supported:
-- JPEG Lossless
+- JPEG Lossless processes other than Process 14, Selection Value 1
 - RLE
 
 ---
@@ -250,8 +253,8 @@ let image = DCMWindowingProcessor.applyWindowLevel(
 - Suggest presets automatically:
 
 ```swift
-let modality = decoder.info(for: 0x00080060)
-let bodyPart = decoder.info(for: 0x00180015)
+let modality = decoder.info(for: .modality)
+let bodyPart = decoder.info(for: .bodyPartExamined)
 
 let suggestions = DCMWindowingProcessor.suggestPresets(
     for: modality,
@@ -292,7 +295,7 @@ Solutions:
 
 ```swift
 Task {
-    let success = await decoder.loadDICOMFileAsync(path)
+    let decoder = try await DCMDecoder(contentsOfFile: path)
 }
 ```
 
@@ -314,7 +317,7 @@ Task {
 
 ```swift
 let start = Date()
-decoder.setDicomFilename(path)
+let decoder = try DCMDecoder(contentsOfFile: path)
 let elapsed = Date().timeIntervalSince(start)
 print("Load time: \(elapsed)s")
 ```
@@ -343,7 +346,7 @@ let optimized = DCMWindowingProcessor.optimizedApplyWindowLevel(
 Diagnostics:
 
 ```swift
-let value = decoder.info(for: 0x00100010)
+let value = decoder.info(for: .patientName)
 if value.isEmpty {
     let allTags = decoder.getAllTags()
     print("Available tags: \(allTags.count)")
@@ -380,13 +383,13 @@ Cause: DICOM uses specific formats (YYYYMMDD, HHMMSS).
 Solution: Parse correctly.
 
 ```swift
-let dateString = decoder.info(for: 0x00080020)  // "20240115"
+let dateString = decoder.info(for: .studyDate)  // "20240115"
 
 let formatter = DateFormatter()
 formatter.dateFormat = "yyyyMMdd"
 let date = formatter.date(from: dateString)
 
-let timeString = decoder.info(for: 0x00080030)  // "143025.123456"
+let timeString = decoder.info(for: .studyTime)  // "143025.123456"
 formatter.dateFormat = "HHmmss.SSSSSS"
 let time = formatter.date(from: timeString)
 ```
@@ -402,30 +405,18 @@ Cause: Concurrent access to the decoder.
 Solution: `DCMDecoder` is not thread-safe. Use one instance per thread or synchronize access.
 
 ```swift
-let decoder = DCMDecoder()
+// Wrong: sharing a decoder across threads
+let decoder = try DCMDecoder(contentsOfFile: file1)
 DispatchQueue.global().async {
-    decoder.setDicomFilename(file1)  // Race condition
-}
-DispatchQueue.global().async {
-    decoder.setDicomFilename(file2)  // Race condition
+    decoder.getPixels16()  // Race condition
 }
 
-// Use separate instances
-DispatchQueue.global().async {
-    let decoder1 = DCMDecoder()
-    decoder1.setDicomFilename(file1)
-}
-DispatchQueue.global().async {
-    let decoder2 = DCMDecoder()
-    decoder2.setDicomFilename(file2)
-}
-
-// Or async/await
+// Correct: use separate instances per thread
 await withTaskGroup(of: Void.self) { group in
     for file in files {
         group.addTask {
-            let decoder = DCMDecoder()
-            await decoder.loadDICOMFileAsync(file)
+            let decoder = try await DCMDecoder(contentsOfFile: file)
+            process(decoder)
         }
     }
 }
@@ -438,26 +429,24 @@ Cause: Many decoders loaded simultaneously.
 Solution:
 
 ```swift
+// Wrong: holding all decoders in memory
 var decoders: [DCMDecoder] = []
 for file in files {
-    let decoder = DCMDecoder()
-    decoder.setDicomFilename(file)
+    let decoder = try DCMDecoder(contentsOfFile: file)
     decoders.append(decoder)  // Holds everything in memory
 }
 
-// Process and release
+// Correct: process and release each decoder
 for file in files {
     autoreleasepool {
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(file)
+        let decoder = try DCMDecoder(contentsOfFile: file)
         process(decoder)
     }
 }
 
 // Or extract only metadata
 for file in files {
-    let decoder = DCMDecoder()
-    decoder.setDicomFilename(file)
+    let decoder = try DCMDecoder(contentsOfFile: file)
     let metadata = decoder.getStudyInfo()
     saveMetadata(metadata)
 }
@@ -465,24 +454,23 @@ for file in files {
 
 ### Crash when accessing pixels before loading
 
-Cause: Trying to access pixels before calling `setDicomFilename`.
+Cause: Trying to access pixels without loading a file first.
 
-Solution:
+Solution: Use throwing initializers, which guarantee the file is loaded on success.
 
 ```swift
-decoder.setDicomFilename(path)
+do {
+    let decoder = try DCMDecoder(contentsOfFile: path)
 
-guard decoder.dicomFileReadSuccess else {
-    print("Load error")
-    return
+    guard let pixels = decoder.getPixels16() else {
+        print("No pixel data")
+        return
+    }
+
+    process(pixels)
+} catch {
+    print("Load error: \(error)")
 }
-
-guard let pixels = decoder.getPixels16() else {
-    print("No pixel data")
-    return
-}
-
-process(pixels)
 ```
 
 ---
@@ -497,11 +485,13 @@ process(pixels)
 
 2. Create a minimal example:
 ```swift
-let decoder = DCMDecoder()
-decoder.setDicomFilename("your_file.dcm")
-print("Success: \(decoder.dicomFileReadSuccess)")
-print("Width: \(decoder.width), Height: \(decoder.height)")
-print("Modality: \(decoder.info(for: 0x00080060))")
+do {
+    let decoder = try DCMDecoder(contentsOfFile: "your_file.dcm")
+    print("Width: \(decoder.width), Height: \(decoder.height)")
+    print("Modality: \(decoder.info(for: .modality))")
+} catch {
+    print("Error: \(error)")
+}
 ```
 
 3. Inspect the file with external tools:
@@ -520,4 +510,4 @@ python -c "import pydicom; print(pydicom.dcmread('file.dcm'))"
 
 ---
 
-Previous: [DICOM Glossary](DICOM_GLOSSARY.md) | Next: [API Reference](API_REFERENCE.md)
+Previous: [DICOM Glossary](DICOM_GLOSSARY.md) | Next: [API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/)

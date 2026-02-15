@@ -36,7 +36,7 @@ import CoreGraphics
 /// Extract metadata from a single file:
 ///
 /// ```swift
-/// let service = StudyDataService(decoderFactory: { DCMDecoder() })
+/// let service = StudyDataService(decoderFactory: { path in try DCMDecoder(contentsOfFile: path) })
 /// if let metadata = await service.extractStudyMetadata(from: filePath) {
 ///     print("Patient: \(metadata.patientName)")
 ///     print("Study: \(metadata.studyDescription)")
@@ -115,7 +115,7 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
 
     private let logger: LoggerProtocol
     private let fileManager: FileManager
-    private let decoderFactory: () -> DicomDecoderProtocol
+    private let decoderFactory: (String) throws -> DicomDecoderProtocol
 
     // MARK: - Initialization
 
@@ -123,19 +123,20 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
     ///
     /// - Parameters:
     ///   - fileManager: File system manager (defaults to `.default`)
-    ///   - decoderFactory: Factory closure that creates ``DicomDecoderProtocol`` instances
+    ///   - decoderFactory: Factory closure that creates ``DicomDecoderProtocol`` instances from a file path
     ///
     /// ## Example
     /// ```swift
     /// // Use default decoder
-    /// let service = StudyDataService(decoderFactory: { DCMDecoder() })
+    /// let service = StudyDataService(decoderFactory: { path in try DCMDecoder(contentsOfFile: path) })
     ///
     /// // Use custom decoder for testing
-    /// let testService = StudyDataService(decoderFactory: { MockDicomDecoder() })
+    /// let mockDecoder = MockDicomDecoder()
+    /// let testService = StudyDataService(decoderFactory: { _ in mockDecoder })
     /// ```
     public init(
         fileManager: FileManager = .default,
-        decoderFactory: @escaping () -> DicomDecoderProtocol
+        decoderFactory: @escaping (String) throws -> DicomDecoderProtocol
     ) {
         self.fileManager = fileManager
         self.decoderFactory = decoderFactory
@@ -167,9 +168,16 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
     public func extractStudyMetadata(from filePath: String) async -> StudyMetadata? {
         return await withCheckedContinuation { continuation in
             Task.detached(priority: .utility) {
-                let decoder = self.decoderFactory()
-                decoder.setDicomFilename(filePath)
-                
+                // Load DICOM file using decoder factory
+                let decoder: DicomDecoderProtocol
+                do {
+                    decoder = try self.decoderFactory(filePath)
+                } catch {
+                    self.logger.warning("⚠️ Failed to load DICOM file: \(filePath) - \(error)")
+                    continuation.resume(returning: nil)
+                    return
+                }
+
                 // Extract DICOM tag values
                 let patientName = decoder.info(for: DicomTag.patientName.rawValue)
                 let patientID = decoder.info(for: DicomTag.patientID.rawValue)
@@ -344,9 +352,19 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
                     issues.append("Could not read file data: \(error.localizedDescription)")
                 }
 
-                // 5. Try to load with decoder
-                let decoder = self.decoderFactory()
-                decoder.setDicomFilename(filePath)
+                // 5. Try to load with decoder using factory
+                let decoder: DicomDecoderProtocol
+                do {
+                    decoder = try self.decoderFactory(filePath)
+                } catch {
+                    issues.append("Failed to parse DICOM file: \(error.localizedDescription)")
+                    continuation.resume(returning: DICOMValidationResult(
+                        isValid: false,
+                        issues: issues,
+                        fileSize: fileSize
+                    ))
+                    return
+                }
 
                 let studyUID = decoder.info(for: DicomTag.studyInstanceUID.rawValue)
                 let seriesUID = decoder.info(for: DicomTag.seriesInstanceUID.rawValue)
@@ -488,9 +506,16 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
     public func extractThumbnail(from filePath: String, maxSize: CGSize = CGSize(width: 120, height: 120)) async -> Data? {
         return await withCheckedContinuation { continuation in
             Task.detached(priority: .utility) {
-                let decoder = self.decoderFactory()
-                decoder.setDicomFilename(filePath)
-                
+                // Load DICOM file using decoder factory
+                let decoder: DicomDecoderProtocol
+                do {
+                    decoder = try self.decoderFactory(filePath)
+                } catch {
+                    self.logger.debug("Could not load DICOM file for thumbnail: \(filePath) - \(error)")
+                    continuation.resume(returning: nil)
+                    return
+                }
+
                 // Try to get downsampled pixels for thumbnail
                 let maxDimension = Int(max(maxSize.width, maxSize.height))
                 guard decoder.getDownsampledPixels16(maxDimension: maxDimension) != nil,
@@ -522,7 +547,7 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
 ///
 /// ## Usage Example
 /// ```swift
-/// let service = StudyDataService(decoderFactory: { DCMDecoder() })
+/// let service = StudyDataService(decoderFactory: { path in try DCMDecoder(contentsOfFile: path) })
 /// if let metadata = await service.extractStudyMetadata(from: filePath) {
 ///     print("Patient: \(metadata.patientName) [\(metadata.patientID)]")
 ///     print("Study: \(metadata.studyDescription) on \(metadata.studyDate)")

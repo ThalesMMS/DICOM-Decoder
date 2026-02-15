@@ -29,7 +29,7 @@ Unique number identifying each study, series, or image. Format: `1.2.840.10008.x
 
 Example:
 ```swift
-let studyUID = decoder.info(for: 0x0020000D)
+let studyUID = decoder.info(for: .studyInstanceUID)
 // "1.2.840.113619.2.55.3.2831868264.123.1234567890.1"
 ```
 
@@ -57,8 +57,11 @@ Example:
 
 In code:
 ```swift
-let tag = 0x00100010  // (0010,0010)
-let name = decoder.info(for: tag)
+// Recommended: Type-safe DicomTag enum
+let name = decoder.info(for: .patientName)
+
+// Legacy: raw hex (for custom/private tags)
+let name = decoder.info(for: 0x00100010)
 ```
 
 ### VR (Value Representation)
@@ -82,11 +85,12 @@ Supported by the decoder:
 - Little Endian Implicit VR (default)
 - Little Endian Explicit VR
 - Big Endian Explicit VR
+- JPEG Lossless (Process 14, Selection Value 1) - native decoder
 - JPEG Baseline (ImageIO)
 - JPEG 2000 (ImageIO)
 
 Not supported:
-- JPEG Lossless
+- JPEG Lossless processes other than Process 14, Selection Value 1
 - RLE
 
 To detect in code:
@@ -154,11 +158,11 @@ if photoInterp == "MONOCHROME1" {
 Physical distance between pixels in millimeters.
 
 ```swift
-let spacing = decoder.pixelSpacing
-print("Pixel: \(spacing.width) x \(spacing.height) mm")
-print("Slice thickness: \(spacing.depth) mm")
+let spacing = decoder.pixelSpacingV2
+print("Pixel: \(spacing.x) x \(spacing.y) mm")
+print("Slice thickness: \(spacing.z) mm")
 
-let widthMM = Double(decoder.width) * spacing.width
+let widthMM = Double(decoder.width) * spacing.x
 print("Physical width: \(widthMM) mm")
 ```
 
@@ -350,8 +354,8 @@ Real Value = (Pixel x Slope) + Intercept
 
 For CT (HU):
 ```swift
-let params = decoder.rescaleParameters
-let hu = params.slope * pixelValue + params.intercept
+let params = decoder.rescaleParametersV2
+let hu = params.apply(to: pixelValue)
 ```
 
 ### Overlay
@@ -367,35 +371,35 @@ Protocol for accessing DICOM images over HTTP.
 
 ## Quick Tag Reference
 
-Common tags:
+Common tags (DicomTag enum and hex):
 
 ```swift
 // Patient
-0x00100010  // Name
-0x00100020  // ID
-0x00100030  // Birth Date
-0x00100040  // Sex
+.patientName       // 0x00100010 - Name
+.patientID         // 0x00100020 - ID
+.patientBirthDate  // 0x00100030 - Birth Date
+.patientSex        // 0x00100040 - Sex
 
 // Study
-0x0020000D  // Study Instance UID
-0x00080020  // Study Date
-0x00080030  // Study Time
-0x00081030  // Study Description
+.studyInstanceUID  // 0x0020000D - Study Instance UID
+.studyDate         // 0x00080020 - Study Date
+.studyTime         // 0x00080030 - Study Time
+.studyDescription  // 0x00081030 - Study Description
 
 // Series
-0x0020000E  // Series Instance UID
-0x00200011  // Series Number
-0x0008103E  // Series Description
-0x00080060  // Modality
+.seriesInstanceUID // 0x0020000E - Series Instance UID
+.seriesNumber      // 0x00200011 - Series Number
+.seriesDescription // 0x0008103E - Series Description
+.modality          // 0x00080060 - Modality
 
 // Image
-0x00280010  // Rows
-0x00280011  // Columns
-0x00280100  // Bits Allocated
-0x00280103  // Pixel Representation
-0x00281050  // Window Center
-0x00281051  // Window Width
-0x7FE00010  // Pixel Data
+.rows              // 0x00280010 - Rows
+.columns           // 0x00280011 - Columns
+.bitsAllocated     // 0x00280100 - Bits Allocated
+.pixelRepresentation // 0x00280103 - Pixel Representation
+.windowCenter      // 0x00281050 - Window Center
+.windowWidth       // 0x00281051 - Window Width
+.pixelData         // 0x7FE00010 - Pixel Data
 ```
 
 ---
@@ -408,4 +412,4 @@ Common tags:
 
 ---
 
-Previous: [Getting Started](GETTING_STARTED.md) | Next: [Tutorial](TUTORIAL.md)
+Previous: [Getting Started](GETTING_STARTED.md) | Next: [Usage Examples](USAGE_EXAMPLES.md)

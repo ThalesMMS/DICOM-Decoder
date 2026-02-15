@@ -4,7 +4,7 @@ Upgrade your code to use the latest DicomCore APIs with improved type safety, er
 
 ## Overview
 
-DicomCore has evolved to provide more Swift-idiomatic APIs while maintaining backward compatibility. This guide helps you migrate from deprecated patterns to modern, recommended approaches.
+DicomCore has evolved to provide more Swift-idiomatic APIs. This guide helps you migrate from deprecated patterns to modern, recommended approaches.
 
 **What's New:**
 - **Throwing initializers** (v1.1.0+) - Swift-idiomatic error handling
@@ -12,7 +12,16 @@ DicomCore has evolved to provide more Swift-idiomatic APIs while maintaining bac
 - **Type-safe value types** (v1.2.0+) - Structs replace tuples for better type safety
 - **V2 windowing methods** (v1.2.0+) - Return WindowSettings instead of tuples
 
-All deprecated APIs remain functional for backward compatibility, but new code should use the recommended patterns.
+> **⚠️ BREAKING CHANGES IN v2.0.0**
+>
+> Version 2.0.0 removes all deprecated APIs that were marked for removal in v1.x releases. You **must** migrate to the modern APIs documented in this guide before upgrading to v2.0.0.
+>
+> **Removed in v2.0.0:**
+> - Legacy file loading API (`setDicomFilename()`, `dicomFileReadSuccess`, `loadDICOMFileAsync()`)
+> - Tuple-based properties (`windowSettings`, `pixelSpacing`, `rescaleParameters`)
+> - Tuple-based windowing methods (`calculateOptimalWindowLevel()`, `getPresetValues()`, etc.)
+> - DCMDictionary singleton pattern (`DCMDictionary.shared`)
+> - Async pixel convenience methods (`getPixels16Async()`, `getPixels8Async()`, etc.)
 
 ---
 
@@ -24,7 +33,7 @@ All deprecated APIs remain functional for backward compatibility, but new code s
 ### Old Pattern (Deprecated)
 
 ```swift
-// ❌ Old: Boolean success check pattern
+// Deprecated: Boolean success check pattern
 let decoder = DCMDecoder()
 decoder.setDicomFilename("/path/to/image.dcm")
 
@@ -45,7 +54,7 @@ print("Dimensions: \(decoder.width) x \(decoder.height)")
 ### New Pattern (Recommended)
 
 ```swift
-// ✅ New: Throwing initializer with String path
+// Recommended: Throwing initializer with String path
 do {
     let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
     print("Dimensions: \(decoder.width) x \(decoder.height)")
@@ -61,7 +70,7 @@ do {
 **Alternative: URL-based initializer**
 
 ```swift
-// ✅ Alternative: Throwing initializer with URL
+// Alternative: Throwing initializer with URL
 do {
     let url = URL(fileURLWithPath: "/path/to/image.dcm")
     let decoder = try DCMDecoder(contentsOf: url)
@@ -74,7 +83,7 @@ do {
 **Alternative: Static factory methods**
 
 ```swift
-// ✅ Alternative: Static factory methods
+// Alternative: Static factory methods
 do {
     let url = URL(fileURLWithPath: "/path/to/image.dcm")
     let decoder = try DCMDecoder.load(from: url)
@@ -99,7 +108,7 @@ do {
 The old async API also has a modern replacement:
 
 ```swift
-// ❌ Old: Async with completion handler
+// Deprecated: Async with completion handler
 let decoder = DCMDecoder()
 decoder.loadDICOMFileAsync(path: "/path/to/image.dcm") {
     guard decoder.dicomFileReadSuccess else {
@@ -109,7 +118,7 @@ decoder.loadDICOMFileAsync(path: "/path/to/image.dcm") {
     print("Loaded: \(decoder.width) x \(decoder.height)")
 }
 
-// ✅ New: Async throwing initializer
+// Recommended: Async throwing initializer
 Task {
     do {
         let decoder = try await DCMDecoder(contentsOfFile: "/path/to/image.dcm")
@@ -119,7 +128,7 @@ Task {
     }
 }
 
-// ✅ Alternative: Async static factory methods
+// Alternative: Async static factory methods
 Task {
     do {
         let url = URL(fileURLWithPath: "/path/to/image.dcm")
@@ -143,7 +152,7 @@ Task {
 ### Old Pattern (Discouraged)
 
 ```swift
-// ❌ Old: Magic hex numbers
+// Deprecated: Magic hex numbers
 let patientName = decoder.info(for: 0x00100010)
 let modality = decoder.info(for: 0x00080060)
 let rows = decoder.intValue(for: 0x00280010)
@@ -162,7 +171,7 @@ let windowWidth = decoder.doubleValue(for: 0x00281051)
 ### New Pattern (Recommended)
 
 ```swift
-// ✅ New: Semantic, type-safe tag names
+// Recommended: Semantic, type-safe tag names
 let patientName = decoder.info(for: .patientName)
 let modality = decoder.info(for: .modality)
 let rows = decoder.intValue(for: .rows)
@@ -183,13 +192,13 @@ let windowWidth = decoder.doubleValue(for: .windowWidth)
 
 **Patient Information:**
 ```swift
-// ❌ Old
+// Deprecated
 decoder.info(for: 0x00100010)  // Patient Name
 decoder.info(for: 0x00100020)  // Patient ID
 decoder.info(for: 0x00100030)  // Birth Date
 decoder.info(for: 0x00100040)  // Sex
 
-// ✅ New
+// Recommended
 decoder.info(for: .patientName)
 decoder.info(for: .patientID)
 decoder.info(for: .patientBirthDate)
@@ -198,13 +207,13 @@ decoder.info(for: .patientSex)
 
 **Study/Series:**
 ```swift
-// ❌ Old
+// Deprecated
 decoder.info(for: 0x0020000D)  // Study Instance UID
 decoder.info(for: 0x0020000E)  // Series Instance UID
 decoder.info(for: 0x00080060)  // Modality
 decoder.info(for: 0x00081030)  // Study Description
 
-// ✅ New
+// Recommended
 decoder.info(for: .studyInstanceUID)
 decoder.info(for: .seriesInstanceUID)
 decoder.info(for: .modality)
@@ -213,13 +222,13 @@ decoder.info(for: .studyDescription)
 
 **Image Geometry:**
 ```swift
-// ❌ Old
+// Deprecated
 decoder.intValue(for: 0x00280010)      // Rows
 decoder.intValue(for: 0x00280011)      // Columns
 decoder.info(for: 0x00280030)          // Pixel Spacing
 decoder.doubleValue(for: 0x00180050)   // Slice Thickness
 
-// ✅ New
+// Recommended
 decoder.intValue(for: .rows)
 decoder.intValue(for: .columns)
 decoder.info(for: .pixelSpacing)
@@ -228,13 +237,13 @@ decoder.doubleValue(for: .sliceThickness)
 
 **Window/Level:**
 ```swift
-// ❌ Old
+// Deprecated
 decoder.doubleValue(for: 0x00281050)  // Window Center
 decoder.doubleValue(for: 0x00281051)  // Window Width
 decoder.doubleValue(for: 0x00281053)  // Rescale Slope
 decoder.doubleValue(for: 0x00281052)  // Rescale Intercept
 
-// ✅ New
+// Recommended
 decoder.doubleValue(for: .windowCenter)
 decoder.doubleValue(for: .windowWidth)
 decoder.doubleValue(for: .rescaleSlope)
@@ -246,18 +255,84 @@ decoder.doubleValue(for: .rescaleIntercept)
 For custom or manufacturer-specific tags not in the standard, continue using hex values:
 
 ```swift
-// ⚠️ Use hex for custom/private tags only
+// Use hex for custom/private tags only
 let manufacturerTag = decoder.info(for: 0x00091001)  // Private tag
 let customData = decoder.info(for: 0x00111234)       // Custom tag
 
 // Standard tags should use the enum
-let patientName = decoder.info(for: .patientName)    // ✅ Preferred
-// Not: decoder.info(for: 0x00100010)                // ❌ Discouraged
+let patientName = decoder.info(for: .patientName)    // Preferred
+// Not: decoder.info(for: 0x00100010)                // Discouraged
 ```
 
 ---
 
-## Migration Path 3: Type-Safe Value Types (V2 APIs)
+## Migration Path 3: DCMDictionary Singleton to Instance
+
+**Status:** Recommended since v1.2.0, **required for v2.0.0**
+**Replaces:** `DCMDictionary.shared` singleton pattern
+
+### Old Pattern (Removed in v2.0.0)
+
+```swift
+// Removed in v2.0.0: Singleton pattern
+let tagName = DCMDictionary.shared.description(forKey: 0x00100010)
+let vrCode = DCMDictionary.shared.vrCode(forKey: 0x00100010)
+```
+
+**Problems with old pattern:**
+- Global mutable state
+- Difficult to test and mock
+- No dependency injection support
+- Tight coupling to singleton
+
+### New Pattern (Required)
+
+```swift
+// Recommended: Instance-based pattern
+let dictionary = DCMDictionary()
+let tagName = dictionary.description(forKey: 0x00100010)
+let vrCode = dictionary.vrCode(forKey: 0x00100010)
+```
+
+**For dependency injection:**
+
+```swift
+// Protocol-based dependency injection
+protocol DicomDictionaryProtocol {
+    func description(forKey: UInt32) -> String
+    func vrCode(forKey: UInt32) -> String
+}
+
+class MyDicomService {
+    private let dictionary: DicomDictionaryProtocol
+
+    init(dictionary: DicomDictionaryProtocol = DCMDictionary()) {
+        self.dictionary = dictionary
+    }
+
+    func getTagInfo(_ tag: UInt32) -> String {
+        return dictionary.description(forKey: tag)
+    }
+}
+
+// Production usage
+let service = MyDicomService()  // Uses default DCMDictionary()
+
+// Test usage
+let mockDict = MockDicomDictionary()
+let testService = MyDicomService(dictionary: mockDict)
+```
+
+### Migration Benefits
+
+1. **Testability** - Easy to mock for unit tests
+2. **Dependency injection** - Clear dependencies, no hidden global state
+3. **Thread safety** - Each instance isolated, no shared mutable state
+4. **Flexibility** - Can use custom dictionaries or decorators
+
+---
+
+## Migration Path 4: Type-Safe Value Types (V2 APIs)
 
 **Status:** Recommended since v1.2.0
 **Replaces:** Tuple-based APIs
@@ -270,7 +345,7 @@ V2 APIs introduce dedicated structs (`WindowSettings`, `PixelSpacing`, `RescaleP
 
 **Old Pattern:**
 ```swift
-// ❌ Old: Tuple-based API
+// Deprecated: Tuple-based API
 let (center, width) = decoder.windowSettings
 
 if center != 0.0 && width != 0.0 {
@@ -283,7 +358,7 @@ applyWindow(width, center)  // Bug! Wrong order
 
 **New Pattern:**
 ```swift
-// ✅ New: WindowSettings struct
+// Recommended: WindowSettings struct
 let settings = decoder.windowSettingsV2
 
 if settings.isValid {
@@ -308,7 +383,7 @@ let jsonData = try JSONEncoder().encode(settings)
 
 **Old Pattern:**
 ```swift
-// ❌ Old: Tuple-based API
+// Deprecated: Tuple-based API
 let (width, height, depth) = decoder.pixelSpacing
 
 if width != 0.0 && height != 0.0 {
@@ -318,7 +393,7 @@ if width != 0.0 && height != 0.0 {
 
 **New Pattern:**
 ```swift
-// ✅ New: PixelSpacing struct
+// Recommended: PixelSpacing struct
 let spacing = decoder.pixelSpacingV2
 
 if spacing.isValid {
@@ -340,7 +415,7 @@ if spacing.isValid {
 
 **Old Pattern:**
 ```swift
-// ❌ Old: Tuple-based API
+// Deprecated: Tuple-based API
 let (intercept, slope) = decoder.rescaleParameters
 
 if slope != 1.0 || intercept != 0.0 {
@@ -351,7 +426,7 @@ if slope != 1.0 || intercept != 0.0 {
 
 **New Pattern:**
 ```swift
-// ✅ New: RescaleParameters struct
+// Recommended: RescaleParameters struct
 let rescale = decoder.rescaleParametersV2
 
 if !rescale.isIdentity {
@@ -373,7 +448,7 @@ if !rescale.isIdentity {
 
 ---
 
-## Migration Path 4: Windowing Processor V2 Methods
+## Migration Path 5: Windowing Processor V2 Methods
 
 **Status:** Recommended since v1.2.0
 **Replaces:** Tuple-based windowing methods
@@ -382,7 +457,7 @@ if !rescale.isIdentity {
 
 **Old Pattern:**
 ```swift
-// ❌ Old: Returns tuple
+// Deprecated: Returns tuple
 let (center, width) = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: pixels)
 
 let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
@@ -394,7 +469,7 @@ let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
 
 **New Pattern:**
 ```swift
-// ✅ New: Returns WindowSettings struct
+// Recommended: Returns WindowSettings struct
 let optimal = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
 
 if optimal.isValid {
@@ -413,7 +488,7 @@ if optimal.isValid {
 
 **Old Pattern:**
 ```swift
-// ❌ Old: Returns tuple
+// Deprecated: Returns tuple
 let (center, width) = DCMWindowingProcessor.getPresetValues(preset: .lung)
 
 let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
@@ -425,7 +500,7 @@ let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
 
 **New Pattern:**
 ```swift
-// ✅ New: Returns WindowSettings struct
+// Recommended: Returns WindowSettings struct
 let lungSettings = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)
 
 let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
@@ -444,7 +519,7 @@ if let presetName = DCMWindowingProcessor.getPresetName(settings: lungSettings) 
 
 **Old Pattern:**
 ```swift
-// ❌ Old: Returns array of tuples
+// Deprecated: Returns array of tuples
 let results = DCMWindowingProcessor.batchCalculateOptimalWindowLevel(
     imagePixels: [pixels1, pixels2, pixels3]
 )
@@ -456,7 +531,7 @@ for (center, width) in results {
 
 **New Pattern:**
 ```swift
-// ✅ New: Returns array of WindowSettings
+// Recommended: Returns array of WindowSettings
 let results = DCMWindowingProcessor.batchCalculateOptimalWindowLevelV2(
     imagePixels: [pixels1, pixels2, pixels3]
 )
@@ -473,6 +548,67 @@ let jsonData = try JSONEncoder().encode(results)
 
 ---
 
+## Migration Path 6: Async Pixel Methods
+
+**Status:** Removed in v2.0.0
+**Replaces:** Async convenience wrappers for pixel data access
+
+### Overview
+
+The async pixel methods (`getPixels16Async()`, `getPixels8Async()`, etc.) were simple async wrappers around synchronous pixel access methods. These have been **removed in v2.0.0** because:
+
+1. Pixel data access is already memory-mapped and non-blocking for large files
+2. The synchronous methods are fast enough that async wrapping adds no benefit
+3. If async behavior is truly needed, you can wrap calls yourself with more control
+
+### Old Pattern (Removed in v2.0.0)
+
+```swift
+// Removed in v2.0.0: Async pixel wrappers
+let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
+
+// These methods no longer exist:
+let pixels16 = await decoder.getPixels16Async()
+let pixels8 = await decoder.getPixels8Async()
+let pixels24 = await decoder.getPixels24Async()
+```
+
+### New Pattern (Required)
+
+```swift
+// Option 1: Use synchronous methods directly (recommended)
+let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
+let pixels16 = decoder.getPixels16()  // Already fast with memory mapping
+let pixels8 = decoder.getPixels8()
+let pixels24 = decoder.getPixels24()
+
+// Option 2: Wrap in Task if you need explicit async behavior
+Task {
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
+    let pixels = decoder.getPixels16()  // Still fast
+    await processPixels(pixels)
+}
+
+// Option 3: Use async/await context if needed
+func loadPixelData() async throws -> [UInt16]? {
+    let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
+    return decoder.getPixels16()  // Runs on current task
+}
+```
+
+### Migration Benefits
+
+1. **Simpler API surface** - Fewer methods to learn and maintain
+2. **No performance difference** - Synchronous methods are already optimized
+3. **More control** - You choose when/how to make operations async
+4. **Less confusion** - Clear that pixel access is memory-mapped and fast
+
+### Performance Note
+
+The synchronous pixel methods use memory mapping for large files, making them non-blocking at the I/O level. The async wrappers added no performance benefit and are unnecessary in Swift's modern concurrency model.
+
+---
+
 ## Complete Migration Example
 
 Here's a comprehensive before/after example showing all migration paths:
@@ -480,7 +616,7 @@ Here's a comprehensive before/after example showing all migration paths:
 ### Before (All Deprecated APIs)
 
 ```swift
-// ❌ Old pattern - all deprecated APIs
+// Deprecated pattern - all deprecated APIs
 let decoder = DCMDecoder()
 decoder.setDicomFilename("/path/to/ct_scan.dcm")
 
@@ -518,7 +654,7 @@ let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
 ### After (All Recommended APIs)
 
 ```swift
-// ✅ New pattern - all recommended APIs
+// Recommended pattern - all recommended APIs
 do {
     // Throwing initializer
     let decoder = try DCMDecoder(contentsOfFile: "/path/to/ct_scan.dcm")
@@ -577,33 +713,69 @@ do {
 
 ### API Replacement Table
 
-| Deprecated API | Recommended API | Version |
-|----------------|-----------------|---------|
-| `DCMDecoder()` + `setDicomFilename()` | `try DCMDecoder(contentsOfFile:)` | 1.1.0+ |
-| `DCMDecoder()` + `setDicomFilename()` | `try DCMDecoder(contentsOf:)` | 1.1.0+ |
-| `loadDICOMFileAsync()` | `try await DCMDecoder(contentsOfFile:)` | 1.1.0+ |
-| `dicomFileReadSuccess` | Use `do-catch` with throwing initializers | 1.1.0+ |
-| `info(for: 0x00100010)` | `info(for: .patientName)` | 1.2.0+ |
-| `intValue(for: 0x00280010)` | `intValue(for: .rows)` | 1.2.0+ |
-| `windowSettings` (tuple) | `windowSettingsV2` (struct) | 1.2.0+ |
-| `pixelSpacing` (tuple) | `pixelSpacingV2` (struct) | 1.2.0+ |
-| `rescaleParameters` (tuple) | `rescaleParametersV2` (struct) | 1.2.0+ |
-| `calculateOptimalWindowLevel()` | `calculateOptimalWindowLevelV2()` | 1.2.0+ |
-| `getPresetValues()` | `getPresetValuesV2()` | 1.2.0+ |
-| `batchCalculateOptimalWindowLevel()` | `batchCalculateOptimalWindowLevelV2()` | 1.2.0+ |
+| Removed API (v2.0.0) | Replacement API | Migration Path |
+|----------------------|-----------------|----------------|
+| `DCMDecoder()` + `setDicomFilename()` | `try DCMDecoder(contentsOfFile:)` | Path 1 |
+| `DCMDecoder()` + `setDicomFilename()` | `try DCMDecoder(contentsOf:)` | Path 1 |
+| `loadDICOMFileAsync()` | `try await DCMDecoder(contentsOfFile:)` | Path 1 |
+| `dicomFileReadSuccess` | Use `do-catch` with throwing initializers | Path 1 |
+| `info(for: 0x00100010)` | `info(for: .patientName)` | Path 2 |
+| `intValue(for: 0x00280010)` | `intValue(for: .rows)` | Path 2 |
+| `DCMDictionary.shared` | `DCMDictionary()` instance | Path 3 |
+| `windowSettings` (tuple) | `windowSettingsV2` (struct) | Path 4 |
+| `pixelSpacing` (tuple) | `pixelSpacingV2` (struct) | Path 4 |
+| `rescaleParameters` (tuple) | `rescaleParametersV2` (struct) | Path 4 |
+| `calculateOptimalWindow()` (tuple) | `calculateOptimalWindowV2()` (struct) | Path 4 |
+| `calculateOptimalWindowLevel()` | `calculateOptimalWindowLevelV2()` | Path 5 |
+| `getPresetValues(preset:)` | `getPresetValuesV2(preset:)` | Path 5 |
+| `getPresetValues(named:)` | `getPresetValuesV2(named:)` | Path 5 |
+| `batchCalculateOptimalWindowLevel()` | `batchCalculateOptimalWindowLevelV2()` | Path 5 |
+| `getPresetName(center:width:)` | `getPresetName(settings:)` | Path 5 |
+| `getPixels16Async()` | `getPixels16()` (synchronous) | Path 6 |
+| `getPixels8Async()` | `getPixels8()` (synchronous) | Path 6 |
+| `getPixels24Async()` | `getPixels24()` (synchronous) | Path 6 |
+| `getDownsampledPixels16Async()` | `getDownsampledPixels16()` (synchronous) | Path 6 |
+| `getDownsampledPixels8Async()` | `getDownsampledPixels8()` (synchronous) | Path 6 |
 
-### Migration Checklist
+### Migration Checklist (Required for v2.0.0)
 
+**File Loading (Path 1):**
 - [ ] Replace `setDicomFilename()` with throwing initializers
 - [ ] Replace `dicomFileReadSuccess` checks with `do-catch`
 - [ ] Replace `loadDICOMFileAsync()` with async throwing initializers
+- [ ] Update error handling to catch specific `DICOMError` cases
+
+**Type-Safe Tags (Path 2):**
 - [ ] Replace hex tag values with `DicomTag` enum cases
+- [ ] Update all `0x00XXXXXX` to semantic enum names
+
+**Dictionary (Path 3):**
+- [ ] Replace `DCMDictionary.shared` with `DCMDictionary()` instances
+- [ ] Update static method calls to instance methods
+- [ ] Implement dependency injection where appropriate
+
+**Value Types (Path 4):**
 - [ ] Replace `windowSettings` with `windowSettingsV2`
 - [ ] Replace `pixelSpacing` with `pixelSpacingV2`
 - [ ] Replace `rescaleParameters` with `rescaleParametersV2`
-- [ ] Replace windowing methods with V2 variants
-- [ ] Update error handling to catch specific `DICOMError` cases
-- [ ] Test thoroughly - all APIs are backward compatible
+- [ ] Replace `calculateOptimalWindow()` with `calculateOptimalWindowV2()`
+
+**Windowing Methods (Path 5):**
+- [ ] Replace `calculateOptimalWindowLevel()` with V2 variant
+- [ ] Replace `getPresetValues()` with V2 variants
+- [ ] Replace `batchCalculateOptimalWindowLevel()` with V2 variant
+- [ ] Replace `getPresetName(center:width:)` with `getPresetName(settings:)`
+
+**Async Pixels (Path 6):**
+- [ ] Replace `getPixels16Async()` with synchronous `getPixels16()`
+- [ ] Replace `getPixels8Async()` with synchronous `getPixels8()`
+- [ ] Replace `getPixels24Async()` with synchronous `getPixels24()`
+- [ ] Replace downsampled async methods with synchronous equivalents
+
+**Final Verification:**
+- [ ] Build without deprecation warnings on v1.x
+- [ ] All tests pass
+- [ ] Ready to upgrade to v2.0.0
 
 ### Need Help?
 
@@ -614,13 +786,61 @@ do {
 
 ---
 
-## Backward Compatibility Guarantee
+## Version 2.0.0 Breaking Changes
 
-All deprecated APIs will remain functional indefinitely. You can migrate at your own pace:
+**Important:** Version 2.0.0 is a **major breaking release** that removes all deprecated APIs.
 
-1. **No breaking changes** - Existing code continues to work
-2. **Gradual migration** - Update one component at a time
-3. **Incremental adoption** - Mix old and new APIs during transition
-4. **Clear deprecation warnings** - Compiler guides you to modern APIs
+### What Was Removed
 
-**Recommendation:** New code should use recommended APIs exclusively. Existing code can be migrated incrementally as time permits.
+1. **Legacy file loading API**
+   - `setDicomFilename(_:)` → Use `init(contentsOfFile:) throws`
+   - `dicomFileReadSuccess` → Use throwing initializers with do-catch
+   - `loadDICOMFileAsync(_:)` → Use `init(contentsOfFile:) async throws`
+
+2. **Tuple-based properties**
+   - `windowSettings` → Use `windowSettingsV2`
+   - `pixelSpacing` → Use `pixelSpacingV2`
+   - `rescaleParameters` → Use `rescaleParametersV2`
+   - `calculateOptimalWindow()` → Use `calculateOptimalWindowV2()`
+
+3. **Tuple-based windowing methods**
+   - `calculateOptimalWindowLevel(pixels16:)` → Use `calculateOptimalWindowLevelV2(pixels16:)`
+   - `getPresetValues(preset:)` → Use `getPresetValuesV2(preset:)`
+   - `getPresetValues(named:)` → Use `getPresetValuesV2(named:)`
+   - `batchCalculateOptimalWindowLevel(imagePixels:)` → Use `batchCalculateOptimalWindowLevelV2(imagePixels:)`
+   - `getPresetName(center:width:tolerance:)` → Use `getPresetName(settings:tolerance:)`
+
+4. **DCMDictionary singleton**
+   - `DCMDictionary.shared` → Use `DCMDictionary()` instance
+   - Static methods → Use instance methods
+
+5. **Async pixel convenience methods**
+   - `getPixels16Async()` → Use synchronous `getPixels16()` directly
+   - `getPixels8Async()` → Use synchronous `getPixels8()` directly
+   - `getPixels24Async()` → Use synchronous `getPixels24()` directly
+   - `getDownsampledPixels16Async()` → Use synchronous method directly
+   - `getDownsampledPixels8Async()` → Use synchronous method directly
+
+### Migration Timeline
+
+- **v1.1.0** (2024) - Throwing initializers added, legacy loading deprecated
+- **v1.2.0** (2024) - Type-safe DicomTag enum and V2 methods added, tuples deprecated
+- **v2.0.0** (2025) - **All deprecated APIs removed** ⚠️
+
+### Before Upgrading to v2.0.0
+
+1. Ensure your code compiles without deprecation warnings on v1.x
+2. Follow all migration paths in this guide
+3. Update all deprecated API usage to modern equivalents
+4. Test thoroughly on v1.x before upgrading
+
+### Backward Compatibility (v1.x only)
+
+In version 1.x releases, all deprecated APIs remained functional:
+
+1. **No breaking changes** - Existing code continued to work
+2. **Gradual migration** - Could update one component at a time
+3. **Incremental adoption** - Could mix old and new APIs during transition
+4. **Clear deprecation warnings** - Compiler guided to modern APIs
+
+**Version 2.0.0 ends this compatibility period.** All deprecated APIs have been removed.

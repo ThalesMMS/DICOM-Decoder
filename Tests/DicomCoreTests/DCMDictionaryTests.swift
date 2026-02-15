@@ -3,25 +3,41 @@ import XCTest
 
 final class DCMDictionaryTests: XCTestCase {
 
+    // MARK: - Properties
+
+    private var dictionary: DCMDictionary!
+
+    // MARK: - Setup/Teardown
+
+    override func setUp() {
+        super.setUp()
+        dictionary = DCMDictionary()
+    }
+
+    override func tearDown() {
+        dictionary = nil
+        super.tearDown()
+    }
+
     // MARK: - Dictionary Loading Tests
 
     func testDictionaryLoadsFromBundle() {
-        let modalityDescription = DCMDictionary.description(forKey: "00080060")
+        let modalityDescription = dictionary.description(forKey: "00080060")
         XCTAssertNotNil(modalityDescription, "Expected DICOM tag 00080060 to exist in the dictionary")
     }
 
     func testCommonDICOMTags() {
         // Patient Information Tags
-        XCTAssertNotNil(DCMDictionary.description(forKey: "00100010"), "Patient Name should exist")
-        XCTAssertNotNil(DCMDictionary.description(forKey: "00100020"), "Patient ID should exist")
+        XCTAssertNotNil(dictionary.description(forKey: "00100010"), "Patient Name should exist")
+        XCTAssertNotNil(dictionary.description(forKey: "00100020"), "Patient ID should exist")
 
         // Study Information Tags
-        XCTAssertNotNil(DCMDictionary.description(forKey: "0020000D"), "Study Instance UID should exist")
-        XCTAssertNotNil(DCMDictionary.description(forKey: "00080020"), "Study Date should exist")
+        XCTAssertNotNil(dictionary.description(forKey: "0020000D"), "Study Instance UID should exist")
+        XCTAssertNotNil(dictionary.description(forKey: "00080020"), "Study Date should exist")
 
         // Image Information Tags
-        XCTAssertNotNil(DCMDictionary.description(forKey: "00280010"), "Rows should exist")
-        XCTAssertNotNil(DCMDictionary.description(forKey: "00280011"), "Columns should exist")
+        XCTAssertNotNil(dictionary.description(forKey: "00280010"), "Rows should exist")
+        XCTAssertNotNil(dictionary.description(forKey: "00280011"), "Columns should exist")
     }
 
     // MARK: - Decoder Validation Tests
@@ -31,7 +47,6 @@ final class DCMDictionaryTests: XCTestCase {
 
         // Test initial state
         XCTAssertFalse(decoder.isValid(), "New decoder should not be valid")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "New decoder should not have read success")
 
         // Test validation status
         let status = decoder.getValidationStatus()
@@ -46,15 +61,15 @@ final class DCMDictionaryTests: XCTestCase {
         XCTAssertEqual(decoder.imageDimensions.width, decoder.width)
         XCTAssertEqual(decoder.imageDimensions.height, decoder.height)
 
-        XCTAssertEqual(decoder.pixelSpacing.width, decoder.pixelWidth)
-        XCTAssertEqual(decoder.pixelSpacing.height, decoder.pixelHeight)
-        XCTAssertEqual(decoder.pixelSpacing.depth, decoder.pixelDepth)
+        XCTAssertEqual(decoder.pixelSpacingV2.x, decoder.pixelWidth)
+        XCTAssertEqual(decoder.pixelSpacingV2.y, decoder.pixelHeight)
+        XCTAssertEqual(decoder.pixelSpacingV2.z, decoder.pixelDepth)
 
-        XCTAssertEqual(decoder.windowSettings.center, decoder.windowCenter)
-        XCTAssertEqual(decoder.windowSettings.width, decoder.windowWidth)
+        XCTAssertEqual(decoder.windowSettingsV2.center, decoder.windowCenter)
+        XCTAssertEqual(decoder.windowSettingsV2.width, decoder.windowWidth)
 
-        XCTAssertEqual(decoder.rescaleParameters.intercept, 0.0)
-        XCTAssertEqual(decoder.rescaleParameters.slope, 1.0)
+        XCTAssertEqual(decoder.rescaleParametersV2.intercept, 0.0)
+        XCTAssertEqual(decoder.rescaleParametersV2.slope, 1.0)
     }
 
     func testDecoderImageTypeDetection() {
@@ -71,7 +86,7 @@ final class DCMDictionaryTests: XCTestCase {
     func testWindowingPresets() {
         // Test all presets have valid values
         for preset in DCMWindowingProcessor.allPresets {
-            let values = DCMWindowingProcessor.getPresetValues(preset: preset)
+            let values = DCMWindowingProcessor.getPresetValuesV2(preset: preset)
             XCTAssertGreaterThan(values.width, 0, "\(preset.displayName) should have positive width")
         }
     }
@@ -101,23 +116,22 @@ final class DCMDictionaryTests: XCTestCase {
 
     func testPresetValuesByName() {
         // Test case-insensitive name lookup
-        XCTAssertNotNil(DCMWindowingProcessor.getPresetValues(named: "lung"))
-        XCTAssertNotNil(DCMWindowingProcessor.getPresetValues(named: "LUNG"))
-        XCTAssertNotNil(DCMWindowingProcessor.getPresetValues(named: "Lung"))
+        XCTAssertNotNil(DCMWindowingProcessor.getPresetValuesV2(named: "lung"))
+        XCTAssertNotNil(DCMWindowingProcessor.getPresetValuesV2(named: "LUNG"))
+        XCTAssertNotNil(DCMWindowingProcessor.getPresetValuesV2(named: "Lung"))
 
         // Test multi-word names
-        XCTAssertNotNil(DCMWindowingProcessor.getPresetValues(named: "soft tissue"))
-        XCTAssertNotNil(DCMWindowingProcessor.getPresetValues(named: "softtissue"))
+        XCTAssertNotNil(DCMWindowingProcessor.getPresetValuesV2(named: "soft tissue"))
+        XCTAssertNotNil(DCMWindowingProcessor.getPresetValuesV2(named: "softtissue"))
 
         // Test invalid name
-        XCTAssertNil(DCMWindowingProcessor.getPresetValues(named: "invalid_preset"))
+        XCTAssertNil(DCMWindowingProcessor.getPresetValuesV2(named: "invalid_preset"))
     }
 
     func testPresetNameRecognition() {
-        let lungPreset = DCMWindowingProcessor.getPresetValues(preset: .lung)
+        let lungPreset = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)
         let recognizedName = DCMWindowingProcessor.getPresetName(
-            center: lungPreset.center,
-            width: lungPreset.width,
+            settings: lungPreset,
             tolerance: 10.0
         )
         XCTAssertEqual(recognizedName, "Lung", "Should recognize lung preset values")
@@ -168,7 +182,7 @@ final class DCMDictionaryTests: XCTestCase {
         let pixels: [UInt16] = Array(repeating: 100, count: 500) +
                                Array(repeating: 200, count: 500)
 
-        let optimal = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: pixels)
+        let optimal = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
 
         XCTAssertGreaterThan(optimal.center, 0, "Center should be positive")
         XCTAssertGreaterThan(optimal.width, 0, "Width should be positive")
@@ -373,7 +387,7 @@ final class DCMDictionaryTests: XCTestCase {
         let pixels2: [UInt16] = Array(1000..<2000).map { UInt16($0) }
 
         let imagePixels = [pixels1, pixels2]
-        let results = DCMWindowingProcessor.batchCalculateOptimalWindowLevel(imagePixels: imagePixels)
+        let results = DCMWindowingProcessor.batchCalculateOptimalWindowLevelV2(imagePixels: imagePixels)
 
         XCTAssertEqual(results.count, 2, "Should calculate for all images")
         XCTAssertGreaterThan(results[0].center, 0, "First center should be positive")
@@ -440,15 +454,15 @@ final class DCMDictionaryTests: XCTestCase {
 
     func testPresetAlternativeNames() {
         // Test PE abbreviation
-        XCTAssertNotNil(DCMWindowingProcessor.getPresetValues(named: "pe"))
+        XCTAssertNotNil(DCMWindowingProcessor.getPresetValuesV2(named: "pe"))
 
         // Test mammo abbreviation
-        XCTAssertNotNil(DCMWindowingProcessor.getPresetValues(named: "mammo"))
+        XCTAssertNotNil(DCMWindowingProcessor.getPresetValuesV2(named: "mammo"))
 
         // Test PET variations
-        XCTAssertNotNil(DCMWindowingProcessor.getPresetValues(named: "pet"))
-        XCTAssertNotNil(DCMWindowingProcessor.getPresetValues(named: "petscan"))
-        XCTAssertNotNil(DCMWindowingProcessor.getPresetValues(named: "pet scan"))
+        XCTAssertNotNil(DCMWindowingProcessor.getPresetValuesV2(named: "pet"))
+        XCTAssertNotNil(DCMWindowingProcessor.getPresetValuesV2(named: "petscan"))
+        XCTAssertNotNil(DCMWindowingProcessor.getPresetValuesV2(named: "pet scan"))
     }
 
     func testModalitySuggestions() {
@@ -512,7 +526,7 @@ final class DCMDictionaryTests: XCTestCase {
 
     func testOptimalWindowWithEmptyArray() {
         let emptyPixels: [UInt16] = []
-        let result = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: emptyPixels)
+        let result = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: emptyPixels)
         XCTAssertEqual(result.center, 0.0, "Empty array should return 0 center")
         XCTAssertEqual(result.width, 0.0, "Empty array should return 0 width")
     }
@@ -596,28 +610,33 @@ final class DCMDictionaryTests: XCTestCase {
     }
 
     func testPresetNameRecognitionWithTolerance() {
-        let lungPreset = DCMWindowingProcessor.getPresetValues(preset: .lung)
+        let lungPreset = DCMWindowingProcessor.getPresetValuesV2(preset: .lung)
 
         // Test exact match
         let exactMatch = DCMWindowingProcessor.getPresetName(
-            center: lungPreset.center,
-            width: lungPreset.width,
+            settings: lungPreset,
             tolerance: 10.0
         )
         XCTAssertEqual(exactMatch, "Lung", "Should recognize exact match")
 
         // Test within tolerance
-        let withinTolerance = DCMWindowingProcessor.getPresetName(
+        let withinToleranceSettings = WindowSettings(
             center: lungPreset.center + 5.0,
-            width: lungPreset.width + 5.0,
+            width: lungPreset.width + 5.0
+        )
+        let withinTolerance = DCMWindowingProcessor.getPresetName(
+            settings: withinToleranceSettings,
             tolerance: 10.0
         )
         XCTAssertEqual(withinTolerance, "Lung", "Should recognize within tolerance")
 
         // Test outside tolerance
-        let outsideTolerance = DCMWindowingProcessor.getPresetName(
+        let outsideToleranceSettings = WindowSettings(
             center: lungPreset.center + 100.0,
-            width: lungPreset.width + 100.0,
+            width: lungPreset.width + 100.0
+        )
+        let outsideTolerance = DCMWindowingProcessor.getPresetName(
+            settings: outsideToleranceSettings,
             tolerance: 10.0
         )
         XCTAssertNil(outsideTolerance, "Should not recognize outside tolerance")

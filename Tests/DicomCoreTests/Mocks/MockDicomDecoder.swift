@@ -19,7 +19,7 @@ import simd
 /// Mock implementation of DicomDecoderProtocol for testing.
 /// All properties can be configured to simulate different DICOM scenarios.
 /// Methods can be configured to return specific values or behaviors.
-public final class MockDicomDecoder: DicomDecoderProtocol {
+public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.dicomcore.mockdecoder")
 
@@ -124,6 +124,7 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     }
 
     private var _dicomFileReadSuccess: Bool = true
+    @available(*, deprecated, message: "Use throwing initializers and error handling instead of dicomFileReadSuccess.")
     public var dicomFileReadSuccess: Bool {
         get { queue.sync { _dicomFileReadSuccess } }
         set { queue.sync { _dicomFileReadSuccess = newValue } }
@@ -309,13 +310,13 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     }
 
     public func isValid() -> Bool {
-        return queue.sync { _dicomFileReadSuccess && _dicomFound }
+        return queue.sync { _dicomFound }
     }
 
     public func getValidationStatus() -> (isValid: Bool, width: Int, height: Int, hasPixels: Bool, isCompressed: Bool) {
         return queue.sync {
             let hasPixels = _pixels8 != nil || _pixels16 != nil || _pixels24 != nil
-            return (_dicomFileReadSuccess, _width, _height, hasPixels, _compressedImage)
+            return (_dicomFound, _width, _height, hasPixels, _compressedImage)
         }
     }
 
@@ -422,53 +423,6 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     public func doubleValue(for tag: Int) -> Double? {
         let value = info(for: tag)
         return Double(value)
-    }
-
-    // MARK: - DicomTag Convenience Methods
-
-    /// Retrieves the value of a parsed header as a string using a DicomTag enum.
-    ///
-    /// - Parameter tag: DICOM tag from DicomTag enum (e.g., .patientName, .studyDate)
-    /// - Returns: Tag value as string, or empty string if not found
-    ///
-    /// Example:
-    /// ```swift
-    /// let name = decoder.info(for: .patientName)  // Preferred
-    /// // vs
-    /// let name = decoder.info(for: 0x00100010)    // Legacy
-    /// ```
-    public func info(for tag: DicomTag) -> String {
-        return info(for: tag.rawValue)
-    }
-
-    /// Retrieves an integer value for a DICOM tag using DicomTag enum.
-    ///
-    /// - Parameter tag: The DICOM tag enum case (e.g., .rows, .columns)
-    /// - Returns: Integer value or nil if not found or cannot be parsed
-    ///
-    /// Example:
-    /// ```swift
-    /// let height = decoder.intValue(for: .rows)  // Preferred
-    /// // vs
-    /// let height = decoder.intValue(for: 0x00280010)  // Legacy
-    /// ```
-    public func intValue(for tag: DicomTag) -> Int? {
-        return intValue(for: tag.rawValue)
-    }
-
-    /// Retrieves a double value for a DICOM tag using DicomTag enum.
-    ///
-    /// - Parameter tag: The DICOM tag enum case (e.g., .windowCenter, .windowWidth)
-    /// - Returns: Double value or nil if not found or cannot be parsed
-    ///
-    /// Example:
-    /// ```swift
-    /// let center = decoder.doubleValue(for: .windowCenter)  // Preferred
-    /// // vs
-    /// let center = decoder.doubleValue(for: 0x00281050)  // Legacy
-    /// ```
-    public func doubleValue(for tag: DicomTag) -> Double? {
-        return doubleValue(for: tag.rawValue)
     }
 
     public func getAllTags() -> [String: String] {
@@ -579,7 +533,7 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     ///
     /// ## Example
     /// ```swift
-    /// let spacing = mockDecoder.pixelSpacingV2
+    /// let spacing = mockDecoder.pixelSpacing
     /// if spacing.isValid {
     ///     print("Pixel spacing: \(spacing.x) × \(spacing.y) × \(spacing.z) mm")
     /// }
@@ -597,7 +551,7 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     ///
     /// ## Example
     /// ```swift
-    /// let settings = mockDecoder.windowSettingsV2
+    /// let settings = mockDecoder.windowSettings
     /// if settings.isValid {
     ///     // Apply windowing with settings.center and settings.width
     /// }
@@ -615,7 +569,7 @@ public final class MockDicomDecoder: DicomDecoderProtocol {
     ///
     /// ## Example
     /// ```swift
-    /// let rescale = mockDecoder.rescaleParametersV2
+    /// let rescale = mockDecoder.rescaleParameters
     /// if !rescale.isIdentity {
     ///     let hounsfieldValue = rescale.apply(to: pixelValue)
     /// }

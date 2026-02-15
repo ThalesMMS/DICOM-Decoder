@@ -230,7 +230,7 @@ private typealias VR = DicomVR
 /// This strategy mirrors the existing lazy pixel loading pattern: pixel data is not decoded
 /// until ``getPixels16()`` or ``getPixels8()`` is called. Both optimizations ensure that
 /// DCMDecoder only performs expensive operations when actually needed.
-public final class DCMDecoder: DicomDecoderProtocol {
+public final class DCMDecoder: DicomDecoderProtocol, @unchecked Sendable {
     
     // MARK: - Properties
 
@@ -246,13 +246,22 @@ public final class DCMDecoder: DicomDecoderProtocol {
 
     /// Dictionary used to translate tags to human readable names.  The
     /// original code stored a strong pointer to ``DCMDictionary``.
-    private let dict = DCMDictionary.shared
+    private let dict = DCMDictionary()
 
     private let logger: LoggerProtocol = DicomLogger.make(subsystem: "com.dicomviewer", category: "DCMDecoder")
 
     /// Lock for thread-safe access to decoder state.
     /// Protects all mutable properties and ensures safe concurrent access.
     private let lock = DicomLock()
+    
+    /// Per-instance key for tracking lock recursion in the current thread dictionary.
+    /// Allows synchronized accessors to avoid deadlocking when called from already
+    /// synchronized code paths on the same decoder instance.
+    private var synchronizationDepthKey: String {
+        let pointer = Unmanaged.passUnretained(self).toOpaque()
+        let token = String(UInt(bitPattern: pointer), radix: 16)
+        return "DCMDecoder.syncDepth.\(token)"
+    }
 
     /// Tag handler registry for strategy-based tag processing.
     /// Maps DICOM tag IDs to specialized handler implementations.
@@ -325,6 +334,9 @@ public final class DCMDecoder: DicomDecoderProtocol {
     private var pixels8: [UInt8]? = nil
     private var pixels16: [UInt16]? = nil
     private var pixels24: [UInt8]? = nil
+    /// True after metadata parsing when pixel payload exists but has not yet
+    /// been decoded into in-memory buffers.
+    private var pixelsNotLoaded: Bool = true
 
     /// Dictionary of parsed metadata keyed by raw tag integer.
     /// Values consist of the VR description followed by a colon and
@@ -369,50 +381,106 @@ public final class DCMDecoder: DicomDecoderProtocol {
     /// Bit depth of the decoded pixels (8 or 16).  Defaults to
     /// 16 until parsed from the header.  Read‑only outside the
     /// class.
-    public private(set) var bitDepth: Int = 16
+    private var _bitDepth: Int = 16
+    public private(set) var bitDepth: Int {
+        get { synchronized { _bitDepth } }
+        set { synchronized { _bitDepth = newValue } }
+    }
 
     /// Image dimensions in pixels.  Defaults to 1×1 until parsed.
-    public private(set) var width: Int = 1
-    public private(set) var height: Int = 1
+    private var _width: Int = 1
+    private var _height: Int = 1
+    public private(set) var width: Int {
+        get { synchronized { _width } }
+        set { synchronized { _width = newValue } }
+    }
+    public private(set) var height: Int {
+        get { synchronized { _height } }
+        set { synchronized { _height = newValue } }
+    }
 
     /// Byte offset from the start of ``dicomData`` to the
     /// beginning of ``pixelData``.  Useful for debugging.  Not
     /// currently used elsewhere in this class.
-    public private(set) var offset: Int = 1
+    private var _offset: Int = 1
+    public private(set) var offset: Int {
+        get { synchronized { _offset } }
+        set { synchronized { _offset = newValue } }
+    }
 
     /// Number of frames in a multi‑frame image.  Defaults to 1.
-    public private(set) var nImages: Int = 1
+    private var _nImages: Int = 1
+    public private(set) var nImages: Int {
+        get { synchronized { _nImages } }
+        set { synchronized { _nImages = newValue } }
+    }
 
     /// Number of samples per pixel.  1 for grayscale, 3 for RGB.  If
     /// other values are encountered the decoder will still parse the
     /// metadata but the pixel data may not be interpretable by
     /// ``Dicom2DView``.  Defaults to 1.
-    public private(set) var samplesPerPixel: Int = 1
+    private var _samplesPerPixel: Int = 1
+    public private(set) var samplesPerPixel: Int {
+        get { synchronized { _samplesPerPixel } }
+        set { synchronized { _samplesPerPixel = newValue } }
+    }
     
     /// Photometric interpretation (MONOCHROME1 or MONOCHROME2).
     /// MONOCHROME1 means white is zero (common for X-rays)
     /// MONOCHROME2 means black is zero (standard grayscale)
-    public private(set) var photometricInterpretation: String = ""
+    private var _photometricInterpretation: String = ""
+    public private(set) var photometricInterpretation: String {
+        get { synchronized { _photometricInterpretation } }
+        set { synchronized { _photometricInterpretation = newValue } }
+    }
 
     /// Physical dimensions of the pixel spacing.  These values are
     /// derived from the ``PIXEL_SPACING`` and ``SLICE_THICKNESS``
     /// tags and may be used by clients to compute aspect ratios or
     /// volumetric measurements.
-    public private(set) var pixelDepth: Double = 1.0
-    public private(set) var pixelWidth: Double = 1.0
-    public private(set) var pixelHeight: Double = 1.0
+    private var _pixelDepth: Double = 1.0
+    private var _pixelWidth: Double = 1.0
+    private var _pixelHeight: Double = 1.0
+    public private(set) var pixelDepth: Double {
+        get { synchronized { _pixelDepth } }
+        set { synchronized { _pixelDepth = newValue } }
+    }
+    public private(set) var pixelWidth: Double {
+        get { synchronized { _pixelWidth } }
+        set { synchronized { _pixelWidth = newValue } }
+    }
+    public private(set) var pixelHeight: Double {
+        get { synchronized { _pixelHeight } }
+        set { synchronized { _pixelHeight = newValue } }
+    }
     /// Direction cosines for the image rows/columns (0020,0037)
-    public private(set) var imageOrientation: (row: SIMD3<Double>, column: SIMD3<Double>)?
+    private var _imageOrientation: (row: SIMD3<Double>, column: SIMD3<Double>)?
+    public private(set) var imageOrientation: (row: SIMD3<Double>, column: SIMD3<Double>)? {
+        get { synchronized { _imageOrientation } }
+        set { synchronized { _imageOrientation = newValue } }
+    }
     /// Patient-space origin for the top-left voxel (0020,0032)
-    public private(set) var imagePosition: SIMD3<Double>?
+    private var _imagePosition: SIMD3<Double>?
+    public private(set) var imagePosition: SIMD3<Double>? {
+        get { synchronized { _imagePosition } }
+        set { synchronized { _imagePosition = newValue } }
+    }
 
     /// Default window centre and width for display.  These come
     /// from the ``WINDOW_CENTER`` and ``WINDOW_WIDTH`` tags when
     /// present.  If absent they default to zero, leaving it to
     /// the viewer to choose appropriate values based on the image
     /// histogram.
-    public private(set) var windowCenter: Double = 0.0
-    public private(set) var windowWidth: Double = 0.0
+    private var _windowCenter: Double = 0.0
+    private var _windowWidth: Double = 0.0
+    public private(set) var windowCenter: Double {
+        get { synchronized { _windowCenter } }
+        set { synchronized { _windowCenter = newValue } }
+    }
+    public private(set) var windowWidth: Double {
+        get { synchronized { _windowWidth } }
+        set { synchronized { _windowWidth = newValue } }
+    }
 
     /// Flags indicating the status of the decoder.  `dicomFound`
     /// becomes true if the file begins with ``"DICM"`` at offset
@@ -422,20 +490,44 @@ public final class DCMDecoder: DicomDecoderProtocol {
     /// `dicomDir` is reserved for future use to distinguish
     /// directory records.  `signedImage` indicates whether the
     /// pixel data originally used two's complement representation.
-    public private(set) var dicomFound: Bool = false
+    private var _dicomFound: Bool = false
+    public private(set) var dicomFound: Bool {
+        get { synchronized { _dicomFound } }
+        set { synchronized { _dicomFound = newValue } }
+    }
 
     /// **Note:** This property is part of the legacy API. When using the new throwing
     /// initializers (`init(contentsOf:)` or `init(contentsOfFile:)`), successful
     /// initialization guarantees this will be `true`, and failure throws an error instead.
+    private var _dicomFileReadSuccess: Bool = false
     @available(*, deprecated, message: "When using throwing initializers (init(contentsOf:) or init(contentsOfFile:)), successful initialization guarantees validity. Check for thrown errors instead of this property.")
-    public private(set) var dicomFileReadSuccess: Bool = false
-    public private(set) var compressedImage: Bool = false
-    public private(set) var dicomDir: Bool = false
-    public private(set) var signedImage: Bool = false
+    public private(set) var dicomFileReadSuccess: Bool {
+        get { synchronized { _dicomFileReadSuccess } }
+        set { synchronized { _dicomFileReadSuccess = newValue } }
+    }
+    private var _compressedImage: Bool = false
+    public private(set) var compressedImage: Bool {
+        get { synchronized { _compressedImage } }
+        set { synchronized { _compressedImage = newValue } }
+    }
+    private var _dicomDir: Bool = false
+    public private(set) var dicomDir: Bool {
+        get { synchronized { _dicomDir } }
+        set { synchronized { _dicomDir = newValue } }
+    }
+    private var _signedImage: Bool = false
+    public private(set) var signedImage: Bool {
+        get { synchronized { _signedImage } }
+        set { synchronized { _signedImage = newValue } }
+    }
     /// Raw pixel representation flag (0 = unsigned, 1 = two's complement)
-    public var pixelRepresentationTagValue: Int { pixelRepresentation }
+    public var pixelRepresentationTagValue: Int {
+        synchronized { pixelRepresentation }
+    }
     /// Convenience accessor for signed pixel representation
-    public var isSignedPixelRepresentation: Bool { pixelRepresentation == 1 }
+    public var isSignedPixelRepresentation: Bool {
+        synchronized { pixelRepresentation == 1 }
+    }
 
     // MARK: - Initialization
 
@@ -682,7 +774,9 @@ public final class DCMDecoder: DicomDecoderProtocol {
     /// Checks if the decoder has successfully read and parsed the DICOM file
     /// - Returns: True if file is loaded and valid
     public func isValid() -> Bool {
-        return dicomFileReadSuccess && dicomFound && width > 0 && height > 0
+        return synchronized {
+            dicomFileReadSuccess && dicomFound && width > 0 && height > 0
+        }
     }
 
     /// Returns detailed validation status of the loaded DICOM file
@@ -694,7 +788,9 @@ public final class DCMDecoder: DicomDecoderProtocol {
     }
 
     /// Assigns a file to decode.  The file is read into memory and
-    /// parsed immediately.  Errors are logged to the console in
+    /// metadata is parsed immediately. Pixel data decoding is deferred
+    /// until first access through ``getPixels8()``, ``getPixels16()``,
+    /// or ``getPixels24()``. Errors are logged to the console in
     /// DEBUG builds; on failure ``dicomFileReadSuccess`` will be
     /// false.  Calling this method resets any previous state.
     ///
@@ -719,7 +815,11 @@ public final class DCMDecoder: DicomDecoderProtocol {
     /// } catch {
     ///     print("Failed to load DICOM: \(error)")
     /// }
-    /// ```
+    /// Sets the DICOM file to load and parses header/metadata only.
+    /// 
+    /// Loads the file at the provided filesystem path (using memory-mapped access for large files when appropriate), resets decoder state, parses DICOM metadata, and leaves pixel buffers unloaded for lazy decode. The method is a no-op if `filename` is empty, if the same file is already loaded, or if a different file has already been successfully loaded in this decoder instance (a warning is logged in that case).
+    /// - Parameter filename: Filesystem path to the DICOM file to load.
+    /// - Note: Deprecated — use `init(contentsOf:)` or `init(contentsOfFile:)` which throw on failure.
     @available(*, deprecated, message: "Use init(contentsOf:) throws or init(contentsOfFile:) throws instead. See documentation for migration examples.")
     public func setDicomFilename(_ filename: String) {
         synchronized {
@@ -728,6 +828,12 @@ public final class DCMDecoder: DicomDecoderProtocol {
             }
             // Avoid re‑reading the same file
             if dicomFileName == filename {
+                return
+            }
+            // Prevent loading different file if one is already loaded successfully
+            // DCMDecoder is designed for single-file use per instance
+            if dicomFileReadSuccess && !dicomFileName.isEmpty {
+                logger.warning("Attempting to load '\(filename)' but decoder already has '\(dicomFileName)' loaded. Create a new DCMDecoder instance for each file.")
                 return
             }
             dicomFileName = filename
@@ -759,6 +865,10 @@ public final class DCMDecoder: DicomDecoderProtocol {
             dicomFileReadSuccess = false
             signedImage = false
             dicomDir = false
+            pixelsNotLoaded = true
+            pixels8 = nil
+            pixels16 = nil
+            pixels24 = nil
             location = 0
             windowCenter = 0
             windowWidth = 0
@@ -772,15 +882,12 @@ public final class DCMDecoder: DicomDecoderProtocol {
             }
             // Parse the header (readFileInfo is called within synchronized block)
             if readFileInfoUnsafe() {
-                // If compressed transfer syntax, attempt to decode compressed pixel data.
-                if !compressedImage {
-                    readPixelsUnsafe()
-                } else {
-                    decodeCompressedPixelDataUnsafe()
-                }
+                // Pixel payload stays lazy until first getPixels* call.
+                pixelsNotLoaded = true
                 dicomFileReadSuccess = true
             } else {
                 dicomFileReadSuccess = false
+                pixelsNotLoaded = true
             }
         }
     }
@@ -791,7 +898,9 @@ public final class DCMDecoder: DicomDecoderProtocol {
     public func getPixels8() -> [UInt8]? {
         return synchronized {
             let startTime = CFAbsoluteTimeGetCurrent()
-            if pixels8 == nil { readPixelsUnsafe() }
+            guard ensurePixelsLoadedUnsafe() else {
+                return nil
+            }
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
             if elapsed > 1 { debugPerfLog("[PERF] getPixels8: \(String(format: "%.2f", elapsed))ms") }
             return pixels8
@@ -804,7 +913,9 @@ public final class DCMDecoder: DicomDecoderProtocol {
     public func getPixels16() -> [UInt16]? {
         return synchronized {
             let startTime = CFAbsoluteTimeGetCurrent()
-            if pixels16 == nil { readPixelsUnsafe() }
+            guard ensurePixelsLoadedUnsafe() else {
+                return nil
+            }
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
             if elapsed > 1 { debugPerfLog("[PERF] getPixels16: \(String(format: "%.2f", elapsed))ms") }
             return pixels16
@@ -817,7 +928,9 @@ public final class DCMDecoder: DicomDecoderProtocol {
     public func getPixels24() -> [UInt8]? {
         return synchronized {
             let startTime = CFAbsoluteTimeGetCurrent()
-            if pixels24 == nil { readPixelsUnsafe() }
+            guard ensurePixelsLoadedUnsafe() else {
+                return nil
+            }
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
             if elapsed > 1 { debugPerfLog("[PERF] getPixels24: \(String(format: "%.2f", elapsed))ms") }
             return pixels24
@@ -1411,8 +1524,29 @@ public final class DCMDecoder: DicomDecoderProtocol {
     /// - Parameter block: The closure to execute while holding the lock
     /// - Returns: The value returned by the closure
     private func synchronized<T>(_ block: () -> T) -> T {
+        let key = synchronizationDepthKey
+        let threadDict = Thread.current.threadDictionary
+        let currentDepth = (threadDict[key] as? Int) ?? 0
+
+        if currentDepth > 0 {
+            threadDict[key] = currentDepth + 1
+            defer {
+                let depth = ((threadDict[key] as? Int) ?? 1) - 1
+                if depth == 0 {
+                    threadDict.removeObject(forKey: key)
+                } else {
+                    threadDict[key] = depth
+                }
+            }
+            return block()
+        }
+
         return lock.withLock {
-            block()
+            threadDict[key] = 1
+            defer {
+                threadDict.removeObject(forKey: key)
+            }
+            return block()
         }
     }
 
@@ -1421,8 +1555,29 @@ public final class DCMDecoder: DicomDecoderProtocol {
     /// - Returns: The value returned by the closure
     /// - Throws: Any error thrown by the closure
     private func synchronized<T>(_ block: () throws -> T) rethrows -> T {
+        let key = synchronizationDepthKey
+        let threadDict = Thread.current.threadDictionary
+        let currentDepth = (threadDict[key] as? Int) ?? 0
+
+        if currentDepth > 0 {
+            threadDict[key] = currentDepth + 1
+            defer {
+                let depth = ((threadDict[key] as? Int) ?? 1) - 1
+                if depth == 0 {
+                    threadDict.removeObject(forKey: key)
+                } else {
+                    threadDict[key] = depth
+                }
+            }
+            return try block()
+        }
+
         return try lock.withLock {
-            try block()
+            threadDict[key] = 1
+            defer {
+                threadDict.removeObject(forKey: key)
+            }
+            return try block()
         }
     }
 
@@ -1811,6 +1966,28 @@ public final class DCMDecoder: DicomDecoderProtocol {
         signedImage = result.signedImage
     }
 
+    /// Ensures pixel buffers are populated. Performs first-load decode lazily.
+    /// Must be called within a synchronized block.
+    @inline(__always)
+    private func ensurePixelsLoadedUnsafe() -> Bool {
+        guard dicomFileReadSuccess else {
+            return false
+        }
+
+        if !pixelsNotLoaded {
+            return true
+        }
+
+        if compressedImage {
+            decodeCompressedPixelDataUnsafe()
+        } else {
+            readPixelsUnsafe()
+        }
+
+        pixelsNotLoaded = false
+        return dicomFileReadSuccess
+    }
+
     /// Thread-safe wrapper for decodeCompressedPixelData
     private func decodeCompressedPixelData() {
         synchronized {
@@ -1893,7 +2070,7 @@ extension DCMDecoder {
     /// Returns rescale parameters as a tuple
     @available(*, deprecated, message: "Use rescaleParametersV2 for type-safe RescaleParameters struct")
     public var rescaleParameters: (intercept: Double, slope: Double) {
-        return (rescaleIntercept, rescaleSlope)
+        return synchronized { (rescaleIntercept, rescaleSlope) }
     }
 
     // MARK: - Type-Safe Value Properties (V2 APIs)
@@ -1953,14 +2130,18 @@ extension DCMDecoder {
     /// }
     /// ```
     public var rescaleParametersV2: RescaleParameters {
-        return RescaleParameters(intercept: rescaleIntercept, slope: rescaleSlope)
+        return synchronized {
+            RescaleParameters(intercept: rescaleIntercept, slope: rescaleSlope)
+        }
     }
 
     /// Applies rescale slope and intercept to a pixel value
     /// - Parameter pixelValue: Raw pixel value
     /// - Returns: Rescaled value (Hounsfield Units for CT, etc.)
     public func applyRescale(to pixelValue: Double) -> Double {
-        return rescaleSlope * pixelValue + rescaleIntercept
+        return synchronized {
+            rescaleSlope * pixelValue + rescaleIntercept
+        }
     }
 
     /// Calculates optimal window/level based on pixel data statistics
@@ -1969,7 +2150,7 @@ extension DCMDecoder {
     public func calculateOptimalWindow() -> (center: Double, width: Double)? {
         guard let pixels = getPixels16() else { return nil }
 
-        let stats = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: pixels)
+        let stats = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
         return (stats.center, stats.width)
     }
 
@@ -1997,7 +2178,7 @@ extension DCMDecoder {
     public func calculateOptimalWindowV2() -> WindowSettings? {
         guard let pixels = getPixels16() else { return nil }
 
-        let stats = DCMWindowingProcessor.calculateOptimalWindowLevel(pixels16: pixels)
+        let stats = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
         return WindowSettings(center: stats.center, width: stats.width)
     }
 

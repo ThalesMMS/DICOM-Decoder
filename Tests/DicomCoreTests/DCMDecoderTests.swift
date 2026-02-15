@@ -9,7 +9,6 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test initial state
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "New decoder should not have read success")
         XCTAssertFalse(decoder.dicomFound, "New decoder should not have DICM marker found")
         XCTAssertFalse(decoder.compressedImage, "New decoder should not be compressed")
         XCTAssertFalse(decoder.signedImage, "New decoder should not be signed")
@@ -99,7 +98,6 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = try DCMDecoder(contentsOf: fileURL)
 
         // Verify decoder loaded successfully
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should have read success with valid file")
         XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
 
         // Verify decoder has valid dimensions
@@ -125,7 +123,6 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = try DCMDecoder(contentsOfFile: filePath)
 
         // Verify decoder loaded successfully
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should have read success with valid file")
         XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
 
         // Verify decoder has valid dimensions
@@ -160,30 +157,24 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertEqual(dimensions.height, decoder.height, "imageDimensions should match height")
 
         // Verify pixel spacing is accessible
-        let spacing = decoder.pixelSpacing
-        XCTAssertGreaterThan(spacing.width, 0, "Pixel spacing width should be positive")
-        XCTAssertGreaterThan(spacing.height, 0, "Pixel spacing height should be positive")
+        let spacing = decoder.pixelSpacingV2
+        XCTAssertGreaterThan(spacing.x, 0, "Pixel spacing x should be positive")
+        XCTAssertGreaterThan(spacing.y, 0, "Pixel spacing y should be positive")
     }
 
     func testThrowingInitializerEquivalentToSetDicomFilename() throws {
         // Get a valid DICOM file from fixtures
         let fileURL = try getAnyDICOMFile()
-        let filePath = fileURL.path
 
         // Load with throwing initializer
-        let decoder1 = try DCMDecoder(contentsOf: fileURL)
+        let decoder = try DCMDecoder(contentsOf: fileURL)
 
-        // Load with traditional method
-        let decoder2 = DCMDecoder()
-        decoder2.setDicomFilename(filePath)
-
-        // Verify both methods produce equivalent results
-        XCTAssertEqual(decoder1.width, decoder2.width, "Both decoders should have same width")
-        XCTAssertEqual(decoder1.height, decoder2.height, "Both decoders should have same height")
-        XCTAssertEqual(decoder1.bitDepth, decoder2.bitDepth, "Both decoders should have same bit depth")
-        XCTAssertEqual(decoder1.samplesPerPixel, decoder2.samplesPerPixel, "Both decoders should have same samples per pixel")
-        XCTAssertEqual(decoder1.dicomFileReadSuccess, decoder2.dicomFileReadSuccess, "Both decoders should have same read success")
-        XCTAssertEqual(decoder1.dicomFound, decoder2.dicomFound, "Both decoders should have same DICM marker status")
+        // Verify decoder loaded successfully
+        XCTAssertGreaterThan(decoder.width, 0, "Decoder should have valid width")
+        XCTAssertGreaterThan(decoder.height, 0, "Decoder should have valid height")
+        XCTAssertGreaterThan(decoder.bitDepth, 0, "Decoder should have valid bit depth")
+        XCTAssertGreaterThan(decoder.samplesPerPixel, 0, "Decoder should have valid samples per pixel")
+        XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
     }
 
     // MARK: - Throwing Initializer Error Tests
@@ -376,7 +367,6 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = try await DCMDecoder(contentsOf: fileURL)
 
         // Verify decoder loaded successfully
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should have read success with valid file")
         XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
 
         // Verify decoder has valid dimensions
@@ -403,7 +393,6 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = try await DCMDecoder(contentsOfFile: filePath)
 
         // Verify decoder loaded successfully
-        XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should have read success with valid file")
         XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
 
         // Verify decoder has valid dimensions
@@ -439,9 +428,9 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertEqual(dimensions.height, decoder.height, "imageDimensions should match height")
 
         // Verify pixel spacing is accessible
-        let spacing = decoder.pixelSpacing
-        XCTAssertGreaterThan(spacing.width, 0, "Pixel spacing width should be positive")
-        XCTAssertGreaterThan(spacing.height, 0, "Pixel spacing height should be positive")
+        let spacing = decoder.pixelSpacingV2
+        XCTAssertGreaterThan(spacing.x, 0, "Pixel spacing x should be positive")
+        XCTAssertGreaterThan(spacing.y, 0, "Pixel spacing y should be positive")
     }
 
     @available(macOS 10.15, iOS 13.0, *)
@@ -461,7 +450,6 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertEqual(decoder1.height, decoder2.height, "Both decoders should have same height")
         XCTAssertEqual(decoder1.bitDepth, decoder2.bitDepth, "Both decoders should have same bit depth")
         XCTAssertEqual(decoder1.samplesPerPixel, decoder2.samplesPerPixel, "Both decoders should have same samples per pixel")
-        XCTAssertEqual(decoder1.dicomFileReadSuccess, decoder2.dicomFileReadSuccess, "Both decoders should have same read success")
         XCTAssertEqual(decoder1.dicomFound, decoder2.dicomFound, "Both decoders should have same DICM marker status")
     }
 
@@ -469,23 +457,16 @@ final class DCMDecoderTests: XCTestCase {
     func testAsyncThrowingInitializerEquivalentToLoadDICOMFileAsync() async throws {
         // Get a valid DICOM file from fixtures
         let fileURL = try getAnyDICOMFile()
-        let filePath = fileURL.path
 
         // Load with async throwing initializer
-        let decoder1 = try await DCMDecoder(contentsOf: fileURL)
+        let decoder = try await DCMDecoder(contentsOf: fileURL)
 
-        // Load with loadDICOMFileAsync method
-        let decoder2 = DCMDecoder()
-        let success = await decoder2.loadDICOMFileAsync(filePath)
-        XCTAssertTrue(success, "loadDICOMFileAsync should succeed")
-
-        // Verify both methods produce equivalent results
-        XCTAssertEqual(decoder1.width, decoder2.width, "Both decoders should have same width")
-        XCTAssertEqual(decoder1.height, decoder2.height, "Both decoders should have same height")
-        XCTAssertEqual(decoder1.bitDepth, decoder2.bitDepth, "Both decoders should have same bit depth")
-        XCTAssertEqual(decoder1.samplesPerPixel, decoder2.samplesPerPixel, "Both decoders should have same samples per pixel")
-        XCTAssertEqual(decoder1.dicomFileReadSuccess, decoder2.dicomFileReadSuccess, "Both decoders should have same read success")
-        XCTAssertEqual(decoder1.dicomFound, decoder2.dicomFound, "Both decoders should have same DICM marker status")
+        // Verify decoder loaded successfully
+        XCTAssertGreaterThan(decoder.width, 0, "Decoder should have valid width")
+        XCTAssertGreaterThan(decoder.height, 0, "Decoder should have valid height")
+        XCTAssertGreaterThan(decoder.bitDepth, 0, "Decoder should have valid bit depth")
+        XCTAssertGreaterThan(decoder.samplesPerPixel, 0, "Decoder should have valid samples per pixel")
+        XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
     }
 
     // MARK: - Async Throwing Initializer Error Tests
@@ -689,7 +670,6 @@ final class DCMDecoderTests: XCTestCase {
 
         // All decoders should have loaded successfully and have same properties
         for decoder in decoders {
-            XCTAssertTrue(decoder.dicomFileReadSuccess, "Decoder should have read success")
             XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
             XCTAssertTrue(decoder.isValid(), "Decoder should be valid")
         }
@@ -797,37 +777,8 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertEqual(dimensions.height, 1, "Initial dimensions height should be 1")
     }
 
-    func testPixelSpacingProperty() {
-        let decoder = DCMDecoder()
-        let spacing = decoder.pixelSpacing
-
-        XCTAssertEqual(spacing.width, decoder.pixelWidth, "pixelSpacing.width should match pixelWidth")
-        XCTAssertEqual(spacing.height, decoder.pixelHeight, "pixelSpacing.height should match pixelHeight")
-        XCTAssertEqual(spacing.depth, decoder.pixelDepth, "pixelSpacing.depth should match pixelDepth")
-
-        XCTAssertEqual(spacing.width, 1.0, "Initial spacing width should be 1.0")
-        XCTAssertEqual(spacing.height, 1.0, "Initial spacing height should be 1.0")
-        XCTAssertEqual(spacing.depth, 1.0, "Initial spacing depth should be 1.0")
-    }
-
-    func testWindowSettingsProperty() {
-        let decoder = DCMDecoder()
-        let settings = decoder.windowSettings
-
-        XCTAssertEqual(settings.center, decoder.windowCenter, "windowSettings.center should match windowCenter")
-        XCTAssertEqual(settings.width, decoder.windowWidth, "windowSettings.width should match windowWidth")
-
-        XCTAssertEqual(settings.center, 0.0, "Initial window center should be 0.0")
-        XCTAssertEqual(settings.width, 0.0, "Initial window width should be 0.0")
-    }
-
-    func testRescaleParametersProperty() {
-        let decoder = DCMDecoder()
-        let parameters = decoder.rescaleParameters
-
-        XCTAssertEqual(parameters.intercept, 0.0, "Initial rescale intercept should be 0.0")
-        XCTAssertEqual(parameters.slope, 1.0, "Initial rescale slope should be 1.0")
-    }
+    // Deprecated property tests removed - these APIs have been removed in v2.0.0
+    // Use pixelSpacingV2, windowSettingsV2, and rescaleParametersV2 instead
 
     func testApplyRescaleMethod() {
         let decoder = DCMDecoder()
@@ -858,12 +809,6 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertEqual(spacingV2.x, 1.0, "Initial spacing x should be 1.0")
         XCTAssertEqual(spacingV2.y, 1.0, "Initial spacing y should be 1.0")
         XCTAssertEqual(spacingV2.z, 1.0, "Initial spacing z should be 1.0")
-
-        // Verify V2 API returns equivalent values to old tuple-based API
-        let spacingOld = decoder.pixelSpacing
-        XCTAssertEqual(spacingV2.x, spacingOld.width, "V2 API should match old API width")
-        XCTAssertEqual(spacingV2.y, spacingOld.height, "V2 API should match old API height")
-        XCTAssertEqual(spacingV2.z, spacingOld.depth, "V2 API should match old API depth")
     }
 
     func testWindowSettingsV2Property() {
@@ -877,11 +822,6 @@ final class DCMDecoderTests: XCTestCase {
         // Verify default values
         XCTAssertEqual(settingsV2.center, 0.0, "Initial window center should be 0.0")
         XCTAssertEqual(settingsV2.width, 0.0, "Initial window width should be 0.0")
-
-        // Verify V2 API returns equivalent values to old tuple-based API
-        let settingsOld = decoder.windowSettings
-        XCTAssertEqual(settingsV2.center, settingsOld.center, "V2 API should match old API center")
-        XCTAssertEqual(settingsV2.width, settingsOld.width, "V2 API should match old API width")
     }
 
     func testRescaleParametersV2Property() {
@@ -891,11 +831,6 @@ final class DCMDecoderTests: XCTestCase {
         // Verify default values
         XCTAssertEqual(parametersV2.intercept, 0.0, "Initial rescale intercept should be 0.0")
         XCTAssertEqual(parametersV2.slope, 1.0, "Initial rescale slope should be 1.0")
-
-        // Verify V2 API returns equivalent values to old tuple-based API
-        let parametersOld = decoder.rescaleParameters
-        XCTAssertEqual(parametersV2.intercept, parametersOld.intercept, "V2 API should match old API intercept")
-        XCTAssertEqual(parametersV2.slope, parametersOld.slope, "V2 API should match old API slope")
 
         // Verify isIdentity property
         XCTAssertTrue(parametersV2.isIdentity, "Default parameters should be identity transformation")
@@ -907,12 +842,6 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = try DCMDecoder(contentsOf: fileURL)
 
         let spacingV2 = decoder.pixelSpacingV2
-        let spacingOld = decoder.pixelSpacing
-
-        // Verify V2 API matches old API with real file data
-        XCTAssertEqual(spacingV2.x, spacingOld.width, "V2 API should match old API with loaded file")
-        XCTAssertEqual(spacingV2.y, spacingOld.height, "V2 API should match old API with loaded file")
-        XCTAssertEqual(spacingV2.z, spacingOld.depth, "V2 API should match old API with loaded file")
 
         // Verify spacing values match decoder properties
         XCTAssertEqual(spacingV2.x, decoder.pixelWidth, "V2 x should match pixelWidth")
@@ -926,11 +855,6 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = try DCMDecoder(contentsOf: fileURL)
 
         let settingsV2 = decoder.windowSettingsV2
-        let settingsOld = decoder.windowSettings
-
-        // Verify V2 API matches old API with real file data
-        XCTAssertEqual(settingsV2.center, settingsOld.center, "V2 API should match old API with loaded file")
-        XCTAssertEqual(settingsV2.width, settingsOld.width, "V2 API should match old API with loaded file")
 
         // Verify settings values match decoder properties
         XCTAssertEqual(settingsV2.center, decoder.windowCenter, "V2 center should match windowCenter")
@@ -943,11 +867,6 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = try DCMDecoder(contentsOf: fileURL)
 
         let parametersV2 = decoder.rescaleParametersV2
-        let parametersOld = decoder.rescaleParameters
-
-        // Verify V2 API matches old API with real file data
-        XCTAssertEqual(parametersV2.intercept, parametersOld.intercept, "V2 API should match old API with loaded file")
-        XCTAssertEqual(parametersV2.slope, parametersOld.slope, "V2 API should match old API with loaded file")
 
         // Verify apply() method produces same result as decoder's applyRescale
         let testValue = 100.0
@@ -966,31 +885,20 @@ final class DCMDecoderTests: XCTestCase {
             throw XCTSkip("File has no pixel data for optimal window calculation")
         }
 
-        // Test old API
-        guard let settingsOld = decoder.calculateOptimalWindow() else {
-            XCTFail("Old API returned nil but V2 API returned non-nil")
-            return
-        }
-
-        // Verify V2 API returns equivalent values to old tuple-based API
-        XCTAssertEqual(settingsV2.center, settingsOld.center, accuracy: 0.01, "V2 API should match old API center")
-        XCTAssertEqual(settingsV2.width, settingsOld.width, accuracy: 0.01, "V2 API should match old API width")
-
         // Verify returned settings are valid
         XCTAssertTrue(settingsV2.isValid, "Calculated settings should be valid")
         XCTAssertGreaterThan(settingsV2.width, 0, "Calculated window width should be positive")
+        XCTAssertGreaterThan(settingsV2.center, 0, "Calculated window center should be positive")
     }
 
     func testCalculateOptimalWindowV2WithNoPixelData() {
         // Create empty decoder with no pixel data
         let decoder = DCMDecoder()
 
-        // Both V2 and old API should return nil for empty decoder
+        // V2 API should return nil for empty decoder
         let settingsV2 = decoder.calculateOptimalWindowV2()
-        let settingsOld = decoder.calculateOptimalWindow()
 
         XCTAssertNil(settingsV2, "V2 API should return nil when no pixel data")
-        XCTAssertNil(settingsOld, "Old API should return nil when no pixel data")
     }
 
     func testV2APIStructTypeSafety() {
@@ -1079,10 +987,10 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test info method with uninitialized decoder
-        let patientName = decoder.info(for: 0x00100010)
+        let patientName = decoder.info(for: .patientName)
         XCTAssertEqual(patientName, "", "Info should return empty string for uninitialized decoder")
 
-        let modality = decoder.info(for: 0x00080060)
+        let modality = decoder.info(for: .modality)
         XCTAssertEqual(modality, "", "Info should return empty string for uninitialized decoder")
     }
 
@@ -1090,10 +998,10 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test intValue method with uninitialized decoder
-        let rows = decoder.intValue(for: 0x00280010)
+        let rows = decoder.intValue(for: .rows)
         XCTAssertNil(rows, "intValue should return nil for uninitialized decoder")
 
-        let columns = decoder.intValue(for: 0x00280011)
+        let columns = decoder.intValue(for: .columns)
         XCTAssertNil(columns, "intValue should return nil for uninitialized decoder")
     }
 
@@ -1101,10 +1009,10 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test doubleValue method with uninitialized decoder
-        let pixelSpacing = decoder.doubleValue(for: 0x00280030)
+        let pixelSpacing = decoder.doubleValue(for: .pixelSpacing)
         XCTAssertNil(pixelSpacing, "doubleValue should return nil for uninitialized decoder")
 
-        let sliceThickness = decoder.doubleValue(for: 0x00180050)
+        let sliceThickness = decoder.doubleValue(for: .sliceThickness)
         XCTAssertNil(sliceThickness, "doubleValue should return nil for uninitialized decoder")
     }
 
@@ -1163,40 +1071,40 @@ final class DCMDecoderTests: XCTestCase {
 
         // Test common DICOM tags return empty strings when decoder is uninitialized
         // Patient Information Tags
-        XCTAssertEqual(decoder.info(for: 0x00100010), "", "Patient Name should return empty string")
-        XCTAssertEqual(decoder.info(for: 0x00100020), "", "Patient ID should return empty string")
+        XCTAssertEqual(decoder.info(for: .patientName), "", "Patient Name should return empty string")
+        XCTAssertEqual(decoder.info(for: .patientID), "", "Patient ID should return empty string")
         XCTAssertEqual(decoder.info(for: 0x00100030), "", "Patient Birth Date should return empty string")
-        XCTAssertEqual(decoder.info(for: 0x00100040), "", "Patient Sex should return empty string")
+        XCTAssertEqual(decoder.info(for: .patientSex), "", "Patient Sex should return empty string")
 
         // Study Information Tags
-        XCTAssertEqual(decoder.info(for: 0x0020000D), "", "Study Instance UID should return empty string")
-        XCTAssertEqual(decoder.info(for: 0x00080020), "", "Study Date should return empty string")
-        XCTAssertEqual(decoder.info(for: 0x00080030), "", "Study Time should return empty string")
-        XCTAssertEqual(decoder.info(for: 0x00081030), "", "Study Description should return empty string")
+        XCTAssertEqual(decoder.info(for: .studyInstanceUID), "", "Study Instance UID should return empty string")
+        XCTAssertEqual(decoder.info(for: .studyDate), "", "Study Date should return empty string")
+        XCTAssertEqual(decoder.info(for: .studyTime), "", "Study Time should return empty string")
+        XCTAssertEqual(decoder.info(for: .studyDescription), "", "Study Description should return empty string")
 
         // Image Information Tags
-        XCTAssertNil(decoder.intValue(for: 0x00280010), "Rows should return nil")
-        XCTAssertNil(decoder.intValue(for: 0x00280011), "Columns should return nil")
-        XCTAssertEqual(decoder.info(for: 0x00080060), "", "Modality should return empty string")
+        XCTAssertNil(decoder.intValue(for: .rows), "Rows should return nil")
+        XCTAssertNil(decoder.intValue(for: .columns), "Columns should return nil")
+        XCTAssertEqual(decoder.info(for: .modality), "", "Modality should return empty string")
     }
 
     func testPatientInformationTagsExtraction() {
         let decoder = DCMDecoder()
 
         // Test patient information tags
-        let patientName = decoder.info(for: 0x00100010)
+        let patientName = decoder.info(for: .patientName)
         XCTAssertEqual(patientName, "", "Patient Name should be empty for uninitialized decoder")
 
-        let patientID = decoder.info(for: 0x00100020)
+        let patientID = decoder.info(for: .patientID)
         XCTAssertEqual(patientID, "", "Patient ID should be empty for uninitialized decoder")
 
         let patientBirthDate = decoder.info(for: 0x00100030)
         XCTAssertEqual(patientBirthDate, "", "Patient Birth Date should be empty for uninitialized decoder")
 
-        let patientSex = decoder.info(for: 0x00100040)
+        let patientSex = decoder.info(for: .patientSex)
         XCTAssertEqual(patientSex, "", "Patient Sex should be empty for uninitialized decoder")
 
-        let patientAge = decoder.info(for: 0x00101010)
+        let patientAge = decoder.info(for: .patientAge)
         XCTAssertEqual(patientAge, "", "Patient Age should be empty for uninitialized decoder")
 
         let patientWeight = decoder.info(for: 0x00101030)
@@ -1207,22 +1115,22 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test study information tags
-        let studyInstanceUID = decoder.info(for: 0x0020000D)
+        let studyInstanceUID = decoder.info(for: .studyInstanceUID)
         XCTAssertEqual(studyInstanceUID, "", "Study Instance UID should be empty for uninitialized decoder")
 
-        let studyID = decoder.info(for: 0x00200010)
+        let studyID = decoder.info(for: .studyID)
         XCTAssertEqual(studyID, "", "Study ID should be empty for uninitialized decoder")
 
-        let studyDate = decoder.info(for: 0x00080020)
+        let studyDate = decoder.info(for: .studyDate)
         XCTAssertEqual(studyDate, "", "Study Date should be empty for uninitialized decoder")
 
-        let studyTime = decoder.info(for: 0x00080030)
+        let studyTime = decoder.info(for: .studyTime)
         XCTAssertEqual(studyTime, "", "Study Time should be empty for uninitialized decoder")
 
-        let studyDescription = decoder.info(for: 0x00081030)
+        let studyDescription = decoder.info(for: .studyDescription)
         XCTAssertEqual(studyDescription, "", "Study Description should be empty for uninitialized decoder")
 
-        let referringPhysician = decoder.info(for: 0x00080090)
+        let referringPhysician = decoder.info(for: .referringPhysicianName)
         XCTAssertEqual(referringPhysician, "", "Referring Physician should be empty for uninitialized decoder")
 
         let accessionNumber = decoder.info(for: 0x00080050)
@@ -1233,25 +1141,25 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test series information tags
-        let seriesInstanceUID = decoder.info(for: 0x0020000E)
+        let seriesInstanceUID = decoder.info(for: .seriesInstanceUID)
         XCTAssertEqual(seriesInstanceUID, "", "Series Instance UID should be empty for uninitialized decoder")
 
-        let seriesNumber = decoder.info(for: 0x00200011)
+        let seriesNumber = decoder.info(for: .seriesNumber)
         XCTAssertEqual(seriesNumber, "", "Series Number should be empty for uninitialized decoder")
 
-        let seriesDate = decoder.info(for: 0x00080021)
+        let seriesDate = decoder.info(for: .seriesDate)
         XCTAssertEqual(seriesDate, "", "Series Date should be empty for uninitialized decoder")
 
-        let seriesTime = decoder.info(for: 0x00080031)
+        let seriesTime = decoder.info(for: .seriesTime)
         XCTAssertEqual(seriesTime, "", "Series Time should be empty for uninitialized decoder")
 
-        let seriesDescription = decoder.info(for: 0x0008103E)
+        let seriesDescription = decoder.info(for: .seriesDescription)
         XCTAssertEqual(seriesDescription, "", "Series Description should be empty for uninitialized decoder")
 
-        let modality = decoder.info(for: 0x00080060)
+        let modality = decoder.info(for: .modality)
         XCTAssertEqual(modality, "", "Modality should be empty for uninitialized decoder")
 
-        let bodyPartExamined = decoder.info(for: 0x00180015)
+        let bodyPartExamined = decoder.info(for: .bodyPartExamined)
         XCTAssertEqual(bodyPartExamined, "", "Body Part Examined should be empty for uninitialized decoder")
     }
 
@@ -1259,28 +1167,28 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test image dimension tags
-        let rows = decoder.intValue(for: 0x00280010)
+        let rows = decoder.intValue(for: .rows)
         XCTAssertNil(rows, "Rows should return nil for uninitialized decoder")
 
-        let columns = decoder.intValue(for: 0x00280011)
+        let columns = decoder.intValue(for: .columns)
         XCTAssertNil(columns, "Columns should return nil for uninitialized decoder")
 
-        let bitsAllocated = decoder.intValue(for: 0x00280100)
+        let bitsAllocated = decoder.intValue(for: .bitsAllocated)
         XCTAssertNil(bitsAllocated, "Bits Allocated should return nil for uninitialized decoder")
 
-        let bitsStored = decoder.intValue(for: 0x00280101)
+        let bitsStored = decoder.intValue(for: .bitsStored)
         XCTAssertNil(bitsStored, "Bits Stored should return nil for uninitialized decoder")
 
-        let highBit = decoder.intValue(for: 0x00280102)
+        let highBit = decoder.intValue(for: .highBit)
         XCTAssertNil(highBit, "High Bit should return nil for uninitialized decoder")
 
-        let samplesPerPixel = decoder.intValue(for: 0x00280002)
+        let samplesPerPixel = decoder.intValue(for: .samplesPerPixel)
         XCTAssertNil(samplesPerPixel, "Samples Per Pixel should return nil for uninitialized decoder")
 
-        let photometricInterpretation = decoder.info(for: 0x00280004)
+        let photometricInterpretation = decoder.info(for: .photometricInterpretation)
         XCTAssertEqual(photometricInterpretation, "", "Photometric Interpretation should be empty for uninitialized decoder")
 
-        let pixelRepresentation = decoder.intValue(for: 0x00280103)
+        let pixelRepresentation = decoder.intValue(for: .pixelRepresentation)
         XCTAssertNil(pixelRepresentation, "Pixel Representation should return nil for uninitialized decoder")
     }
 
@@ -1288,19 +1196,19 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test image position and orientation tags
-        let imagePositionPatient = decoder.info(for: 0x00200032)
+        let imagePositionPatient = decoder.info(for: .imagePositionPatient)
         XCTAssertEqual(imagePositionPatient, "", "Image Position (Patient) should be empty for uninitialized decoder")
 
-        let imageOrientationPatient = decoder.info(for: 0x00200037)
+        let imageOrientationPatient = decoder.info(for: .imageOrientationPatient)
         XCTAssertEqual(imageOrientationPatient, "", "Image Orientation (Patient) should be empty for uninitialized decoder")
 
         let sliceLocation = decoder.doubleValue(for: 0x00201041)
         XCTAssertNil(sliceLocation, "Slice Location should return nil for uninitialized decoder")
 
-        let sliceThickness = decoder.doubleValue(for: 0x00180050)
+        let sliceThickness = decoder.doubleValue(for: .sliceThickness)
         XCTAssertNil(sliceThickness, "Slice Thickness should return nil for uninitialized decoder")
 
-        let pixelSpacing = decoder.doubleValue(for: 0x00280030)
+        let pixelSpacing = decoder.doubleValue(for: .pixelSpacing)
         XCTAssertNil(pixelSpacing, "Pixel Spacing should return nil for uninitialized decoder")
     }
 
@@ -1308,16 +1216,16 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test windowing tags
-        let windowCenter = decoder.doubleValue(for: 0x00281050)
+        let windowCenter = decoder.doubleValue(for: .windowCenter)
         XCTAssertNil(windowCenter, "Window Center should return nil for uninitialized decoder")
 
-        let windowWidth = decoder.doubleValue(for: 0x00281051)
+        let windowWidth = decoder.doubleValue(for: .windowWidth)
         XCTAssertNil(windowWidth, "Window Width should return nil for uninitialized decoder")
 
-        let rescaleIntercept = decoder.doubleValue(for: 0x00281052)
+        let rescaleIntercept = decoder.doubleValue(for: .rescaleIntercept)
         XCTAssertNil(rescaleIntercept, "Rescale Intercept should return nil for uninitialized decoder")
 
-        let rescaleSlope = decoder.doubleValue(for: 0x00281053)
+        let rescaleSlope = decoder.doubleValue(for: .rescaleSlope)
         XCTAssertNil(rescaleSlope, "Rescale Slope should return nil for uninitialized decoder")
 
         let rescaleType = decoder.info(for: 0x00281054)
@@ -1364,7 +1272,7 @@ final class DCMDecoderTests: XCTestCase {
         let stationName = decoder.info(for: 0x00081010)
         XCTAssertEqual(stationName, "", "Station Name should be empty for uninitialized decoder")
 
-        let institutionName = decoder.info(for: 0x00080080)
+        let institutionName = decoder.info(for: .institutionName)
         XCTAssertEqual(institutionName, "", "Institution Name should be empty for uninitialized decoder")
 
         let softwareVersions = decoder.info(for: 0x00181020)
@@ -1375,25 +1283,25 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test instance information tags
-        let sopInstanceUID = decoder.info(for: 0x00080018)
+        let sopInstanceUID = decoder.info(for: .sopInstanceUID)
         XCTAssertEqual(sopInstanceUID, "", "SOP Instance UID should be empty for uninitialized decoder")
 
         let sopClassUID = decoder.info(for: 0x00080016)
         XCTAssertEqual(sopClassUID, "", "SOP Class UID should be empty for uninitialized decoder")
 
-        let instanceNumber = decoder.info(for: 0x00200013)
+        let instanceNumber = decoder.info(for: .instanceNumber)
         XCTAssertEqual(instanceNumber, "", "Instance Number should be empty for uninitialized decoder")
 
-        let contentDate = decoder.info(for: 0x00080023)
+        let contentDate = decoder.info(for: .contentDate)
         XCTAssertEqual(contentDate, "", "Content Date should be empty for uninitialized decoder")
 
-        let contentTime = decoder.info(for: 0x00080033)
+        let contentTime = decoder.info(for: .contentTime)
         XCTAssertEqual(contentTime, "", "Content Time should be empty for uninitialized decoder")
 
-        let acquisitionDate = decoder.info(for: 0x00080022)
+        let acquisitionDate = decoder.info(for: .acquisitionDate)
         XCTAssertEqual(acquisitionDate, "", "Acquisition Date should be empty for uninitialized decoder")
 
-        let acquisitionTime = decoder.info(for: 0x00080032)
+        let acquisitionTime = decoder.info(for: .acquisitionTime)
         XCTAssertEqual(acquisitionTime, "", "Acquisition Time should be empty for uninitialized decoder")
     }
 
@@ -1401,15 +1309,15 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test that info() returns strings
-        let patientName = decoder.info(for: 0x00100010)
+        let patientName = decoder.info(for: .patientName)
         XCTAssertTrue(patientName.isEmpty, "info() should return empty string for uninitialized decoder")
 
         // Test that intValue() returns Int? (nil for uninitialized)
-        let rows = decoder.intValue(for: 0x00280010)
+        let rows = decoder.intValue(for: .rows)
         XCTAssertNil(rows, "intValue() should return nil for uninitialized decoder")
 
         // Test that doubleValue() returns Double? (nil for uninitialized)
-        let pixelSpacing = decoder.doubleValue(for: 0x00280030)
+        let pixelSpacing = decoder.doubleValue(for: .pixelSpacing)
         XCTAssertNil(pixelSpacing, "doubleValue() should return nil for uninitialized decoder")
     }
 
@@ -1434,16 +1342,16 @@ final class DCMDecoderTests: XCTestCase {
         let decoder = DCMDecoder()
 
         // Test that multiple calls to the same tag return consistent results
-        let patientName1 = decoder.info(for: 0x00100010)
-        let patientName2 = decoder.info(for: 0x00100010)
+        let patientName1 = decoder.info(for: .patientName)
+        let patientName2 = decoder.info(for: .patientName)
         XCTAssertEqual(patientName1, patientName2, "Multiple calls should return consistent results")
 
-        let rows1 = decoder.intValue(for: 0x00280010)
-        let rows2 = decoder.intValue(for: 0x00280010)
+        let rows1 = decoder.intValue(for: .rows)
+        let rows2 = decoder.intValue(for: .rows)
         XCTAssertEqual(rows1, rows2, "Multiple intValue calls should return consistent results")
 
-        let pixelSpacing1 = decoder.doubleValue(for: 0x00280030)
-        let pixelSpacing2 = decoder.doubleValue(for: 0x00280030)
+        let pixelSpacing1 = decoder.doubleValue(for: .pixelSpacing)
+        let pixelSpacing2 = decoder.doubleValue(for: .pixelSpacing)
         XCTAssertEqual(pixelSpacing1, pixelSpacing2, "Multiple doubleValue calls should return consistent results")
     }
 
@@ -1606,66 +1514,85 @@ final class DCMDecoderTests: XCTestCase {
                        "doubleValue(for: .windowWidth) should equal doubleValue(for: 0x00281051)")
     }
 
-    // MARK: - File Loading Tests
+    // MARK: - File Loading Error Tests
 
-    func testSetDicomFilenameWithEmptyPath() {
-        let decoder = DCMDecoder()
+    func testThrowingInitializerWithEmptyPath() {
+        // Test throwing initializer with empty filename
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "")) { error in
+            guard let dicomError = error as? DICOMError else {
+                XCTFail("Error should be of type DICOMError")
+                return
+            }
 
-        // Test with empty filename
-        decoder.setDicomFilename("")
-
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with empty filename")
-        XCTAssertFalse(decoder.isValid(), "Should not be valid with empty filename")
+            // Should be fileNotFound or invalidFileFormat
+            switch dicomError {
+            case .fileNotFound:
+                break // Valid error for empty path
+            case .invalidFileFormat:
+                break // Also valid for empty path
+            default:
+                XCTFail("Error should be .fileNotFound or .invalidFileFormat, got \(dicomError)")
+            }
+        }
     }
 
-    func testSetDicomFilenameWithNonExistentFile() {
-        let decoder = DCMDecoder()
+    func testThrowingInitializerWithNonExistentFile() {
+        // Test throwing initializer with nonexistent file
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "/nonexistent/file.dcm")) { error in
+            guard let dicomError = error as? DICOMError else {
+                XCTFail("Error should be of type DICOMError")
+                return
+            }
 
-        // Test with nonexistent file
-        decoder.setDicomFilename("/nonexistent/file.dcm")
-
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with nonexistent file")
-        XCTAssertFalse(decoder.isValid(), "Should not be valid with nonexistent file")
+            // Verify it's the correct error type
+            if case .fileNotFound(let path) = dicomError {
+                XCTAssertTrue(path.contains("nonexistent"), "Error should reference the non-existent path")
+            } else {
+                XCTFail("Error should be .fileNotFound, got \(dicomError)")
+            }
+        }
     }
 
-    func testSetDicomFilenameWithInvalidPath() {
-        let decoder = DCMDecoder()
+    func testThrowingInitializerWithInvalidPaths() {
+        // Test throwing initializer with various invalid paths
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "/invalid/path/to/file.dcm")) { error in
+            XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
+        }
 
-        // Test with various invalid paths
-        decoder.setDicomFilename("/invalid/path/to/file.dcm")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with invalid path")
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "relative/path/file.dcm")) { error in
+            XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
+        }
 
-        decoder.setDicomFilename("relative/path/file.dcm")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with relative invalid path")
-
-        decoder.setDicomFilename("/")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with root directory")
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "/")) { error in
+            XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
+        }
     }
 
-    func testSetDicomFilenameStateReset() {
-        let decoder = DCMDecoder()
+    func testThrowingInitializerMultipleAttempts() {
+        // Test multiple failed initialization attempts
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "/nonexistent/file1.dcm")) { error in
+            XCTAssertTrue(error is DICOMError, "First attempt should throw DICOMError")
+        }
 
-        // First attempt with nonexistent file
-        decoder.setDicomFilename("/nonexistent/file1.dcm")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "First load should fail")
-
-        // Second attempt should also fail and not retain previous state
-        decoder.setDicomFilename("/nonexistent/file2.dcm")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Second load should also fail")
-        XCTAssertFalse(decoder.isValid(), "Decoder should remain invalid")
+        // Second attempt should also fail
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "/nonexistent/file2.dcm")) { error in
+            XCTAssertTrue(error is DICOMError, "Second attempt should throw DICOMError")
+        }
     }
 
-    func testSetDicomFilenameThreadSafety() {
-        let decoder = DCMDecoder()
-        let expectation = self.expectation(description: "Thread-safe file loading")
+    func testThrowingInitializerThreadSafety() {
+        let expectation = self.expectation(description: "Thread-safe initialization")
         expectation.expectedFulfillmentCount = 5
 
-        // Test concurrent file loading attempts
+        // Test concurrent initialization attempts
         for i in 0..<5 {
             DispatchQueue.global().async {
-                decoder.setDicomFilename("/nonexistent/file\(i).dcm")
-                _ = decoder.isValid()
-                _ = decoder.dicomFileReadSuccess
+                do {
+                    _ = try DCMDecoder(contentsOfFile: "/nonexistent/file\(i).dcm")
+                    XCTFail("Should have thrown an error")
+                } catch {
+                    XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
+                }
                 expectation.fulfill()
             }
         }
@@ -1674,74 +1601,94 @@ final class DCMDecoderTests: XCTestCase {
     }
 
     @available(macOS 10.15, iOS 13.0, *)
-    func testLoadDICOMFileAsyncWithEmptyPath() async {
-        let decoder = DCMDecoder()
-
-        // Test async loading with empty path
-        let success = await decoder.loadDICOMFileAsync("")
-
-        XCTAssertFalse(success, "Async load should fail with empty path")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not have read success")
-        XCTAssertFalse(decoder.isValid(), "Should not be valid")
+    func testAsyncThrowingInitializerWithEmptyPath() async {
+        // Test async throwing initializer with empty path
+        do {
+            _ = try await DCMDecoder(contentsOfFile: "")
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            // Should be fileNotFound or invalidFileFormat
+            switch error {
+            case .fileNotFound:
+                break // Valid error for empty path
+            case .invalidFileFormat:
+                break // Also valid for empty path
+            default:
+                XCTFail("Error should be .fileNotFound or .invalidFileFormat, got \(error)")
+            }
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
     }
 
     @available(macOS 10.15, iOS 13.0, *)
-    func testLoadDICOMFileAsyncWithNonExistentFile() async {
-        let decoder = DCMDecoder()
-
-        // Test async loading with nonexistent file
-        let success = await decoder.loadDICOMFileAsync("/nonexistent/file.dcm")
-
-        XCTAssertFalse(success, "Async load should fail with nonexistent file")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not have read success")
-        XCTAssertFalse(decoder.isValid(), "Should not be valid")
+    func testAsyncThrowingInitializerWithNonExistentFileV2() async {
+        // Test async throwing initializer with nonexistent file
+        do {
+            _ = try await DCMDecoder(contentsOfFile: "/nonexistent/file.dcm")
+            XCTFail("Should have thrown an error")
+        } catch let error as DICOMError {
+            // Verify it's the correct error type
+            if case .fileNotFound(let path) = error {
+                XCTAssertTrue(path.contains("nonexistent"), "Error should reference the non-existent path")
+            } else {
+                XCTFail("Error should be .fileNotFound, got \(error)")
+            }
+        } catch {
+            XCTFail("Error should be of type DICOMError")
+        }
     }
 
     @available(macOS 10.15, iOS 13.0, *)
-    func testLoadDICOMFileAsyncMultipleCalls() async {
-        let decoder = DCMDecoder()
+    func testAsyncThrowingInitializerMultipleCalls() async {
+        // Test multiple async throwing initializer attempts
+        do {
+            _ = try await DCMDecoder(contentsOfFile: "/nonexistent/file1.dcm")
+            XCTFail("First attempt should have thrown an error")
+        } catch {
+            XCTAssertTrue(error is DICOMError, "First attempt should throw DICOMError")
+        }
 
-        // Test multiple async loading attempts
-        let success1 = await decoder.loadDICOMFileAsync("/nonexistent/file1.dcm")
-        XCTAssertFalse(success1, "First async load should fail")
-
-        let success2 = await decoder.loadDICOMFileAsync("/nonexistent/file2.dcm")
-        XCTAssertFalse(success2, "Second async load should fail")
-
-        XCTAssertFalse(decoder.isValid(), "Decoder should remain invalid after multiple failed loads")
+        do {
+            _ = try await DCMDecoder(contentsOfFile: "/nonexistent/file2.dcm")
+            XCTFail("Second attempt should have thrown an error")
+        } catch {
+            XCTAssertTrue(error is DICOMError, "Second attempt should throw DICOMError")
+        }
     }
 
     @available(macOS 10.15, iOS 13.0, *)
-    func testLoadDICOMFileAsyncConcurrentCalls() async {
-        let decoder = DCMDecoder()
-
-        // Test concurrent async loading
-        async let result1 = decoder.loadDICOMFileAsync("/nonexistent/file1.dcm")
-        async let result2 = decoder.loadDICOMFileAsync("/nonexistent/file2.dcm")
-        async let result3 = decoder.loadDICOMFileAsync("/nonexistent/file3.dcm")
+    func testAsyncThrowingInitializerConcurrentErrorCalls() async {
+        // Test concurrent async throwing initializer calls with nonexistent files
+        async let result1 = try? DCMDecoder(contentsOfFile: "/nonexistent/file1.dcm")
+        async let result2 = try? DCMDecoder(contentsOfFile: "/nonexistent/file2.dcm")
+        async let result3 = try? DCMDecoder(contentsOfFile: "/nonexistent/file3.dcm")
 
         let results = await [result1, result2, result3]
 
-        // All should fail
-        XCTAssertTrue(results.allSatisfy { !$0 }, "All concurrent loads should fail")
-        XCTAssertFalse(decoder.isValid(), "Decoder should remain invalid")
+        // All should be nil (failed to initialize)
+        for result in results {
+            XCTAssertNil(result, "Decoder should be nil for non-existent file")
+        }
     }
 
-    func testFileLoadingPreservesDecoderState() {
-        let decoder = DCMDecoder()
+    func testThrowingInitializerDoesNotAffectOtherDecoders() {
+        // Test that failed initialization doesn't affect other decoder instances
+        let validDecoder = DCMDecoder()
+        let initialWidth = validDecoder.width
+        let initialHeight = validDecoder.height
 
-        // Get initial state
-        let initialWidth = decoder.width
-        let initialHeight = decoder.height
-        let initialBitDepth = decoder.bitDepth
+        // Attempt to create invalid decoder
+        do {
+            _ = try DCMDecoder(contentsOfFile: "/nonexistent/file.dcm")
+            XCTFail("Should have thrown an error")
+        } catch {
+            XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
+        }
 
-        // Attempt to load nonexistent file
-        decoder.setDicomFilename("/nonexistent/file.dcm")
-
-        // State should be preserved or reset to defaults
-        XCTAssertEqual(decoder.width, initialWidth, "Width should remain unchanged")
-        XCTAssertEqual(decoder.height, initialHeight, "Height should remain unchanged")
-        XCTAssertEqual(decoder.bitDepth, initialBitDepth, "Bit depth should remain unchanged")
+        // Original decoder should be unaffected
+        XCTAssertEqual(validDecoder.width, initialWidth, "Width should remain unchanged")
+        XCTAssertEqual(validDecoder.height, initialHeight, "Height should remain unchanged")
     }
 
     func testValidationBeforeLoading() {
@@ -1757,7 +1704,6 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertFalse(validation2.isValid, "Validation should fail for empty path")
 
         // Decoder should still be in initial state
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Validation should not trigger file loading")
         XCTAssertFalse(decoder.isValid(), "Decoder should remain invalid")
     }
 
@@ -1775,38 +1721,33 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertFalse(issuesString.isEmpty, "Issues should not be empty")
     }
 
-    func testFileLoadingWithDirectoryPath() {
-        let decoder = DCMDecoder()
-
-        // Test loading a directory instead of file
-        decoder.setDicomFilename("/tmp")
-
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with directory path")
-        XCTAssertFalse(decoder.isValid(), "Should not be valid with directory path")
+    func testThrowingInitializerWithDirectoryPath() {
+        // Test throwing initializer with directory instead of file
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "/tmp")) { error in
+            XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
+        }
     }
 
-    func testFileLoadingWithSymbolicPaths() {
-        let decoder = DCMDecoder()
+    func testThrowingInitializerWithSymbolicPaths() {
+        // Test throwing initializer with various symbolic paths
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "~/nonexistent/file.dcm")) { error in
+            XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
+        }
 
-        // Test with various symbolic paths
-        decoder.setDicomFilename("~/nonexistent/file.dcm")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with tilde path")
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "./nonexistent/file.dcm")) { error in
+            XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
+        }
 
-        decoder.setDicomFilename("./nonexistent/file.dcm")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with relative path")
-
-        decoder.setDicomFilename("../nonexistent/file.dcm")
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Should not succeed with parent relative path")
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "../nonexistent/file.dcm")) { error in
+            XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
+        }
     }
 
-    func testLoadingStateAfterFailure() {
+    func testUninitializedDecoderState() {
+        // Test that uninitialized decoder has correct default state
         let decoder = DCMDecoder()
-
-        // Load invalid file
-        decoder.setDicomFilename("/nonexistent/file.dcm")
 
         // Check all state flags
-        XCTAssertFalse(decoder.dicomFileReadSuccess, "Read success should be false")
         XCTAssertFalse(decoder.dicomFound, "DICM marker should not be found")
         XCTAssertFalse(decoder.isValid(), "Should not be valid")
 
@@ -1815,21 +1756,13 @@ final class DCMDecoderTests: XCTestCase {
         XCTAssertFalse(status.isValid, "Validation status should be invalid")
         XCTAssertFalse(status.hasPixels, "Should not have pixels")
 
-        // Check pixel buffers are still nil
+        // Check pixel buffers are nil
         XCTAssertNil(decoder.getPixels8(), "pixels8 should be nil")
         XCTAssertNil(decoder.getPixels16(), "pixels16 should be nil")
         XCTAssertNil(decoder.getPixels24(), "pixels24 should be nil")
     }
 
     // MARK: - Quality Methods Tests
-
-    func testCalculateOptimalWindowWithNoData() {
-        let decoder = DCMDecoder()
-
-        // Test calculateOptimalWindow with no pixel data
-        let optimal = decoder.calculateOptimalWindow()
-        XCTAssertNil(optimal, "calculateOptimalWindow should return nil with no pixel data")
-    }
 
     func testGetQualityMetricsWithNoData() {
         let decoder = DCMDecoder()
@@ -1868,9 +1801,9 @@ final class DCMDecoderTests: XCTestCase {
         // Test concurrent info method calls
         for _ in 0..<10 {
             DispatchQueue.global().async {
-                _ = decoder.info(for: 0x00100010)
-                _ = decoder.intValue(for: 0x00280010)
-                _ = decoder.doubleValue(for: 0x00280030)
+                _ = decoder.info(for: .patientName)
+                _ = decoder.intValue(for: .rows)
+                _ = decoder.doubleValue(for: .pixelSpacing)
                 _ = decoder.getPatientInfo()
                 expectation.fulfill()
             }

@@ -49,7 +49,7 @@ import Accelerate
 /// medical imaging.  The underlying raw values mirror those used
 /// in the Objective‑C NS_ENUM.  Each case describes a typical
 /// anatomy or modality and can be mapped to a pair of centre and
-/// width values via ``getPresetValues(preset:)``.
+/// width values via ``getPresetValuesV2(preset:)``.
 public enum MedicalPreset: Int, CaseIterable {
     // Original CT presets (raw values preserved for backward compatibility)
     case lung       = 0
@@ -254,14 +254,11 @@ public enum ProcessingMode {
 /// ### Medical Presets
 ///
 /// - ``MedicalPreset``
-/// - ``getPresetValues(preset:)``
 /// - ``getPresetValuesV2(preset:)``
-/// - ``getPresetValues(named:)``
 /// - ``getPresetValuesV2(named:)``
 /// - ``suggestPresets(for:bodyPart:)``
 /// - ``getPreset(for:)``
 /// - ``getPresetName(settings:tolerance:)``
-/// - ``getPresetName(center:width:tolerance:)``
 ///
 /// ### Image Enhancement
 ///
@@ -408,17 +405,29 @@ public struct DCMWindowingProcessor {
 
     /// Calculates an optimal window centre and width based on the
     /// 1st and 99th percentiles of the pixel value distribution.
-    /// This mirrors the Objective‑C
-    /// `calculateOptimalWindowLevel:length:center:width:` function.
-    /// If the input array is empty the mean and full range are
+    /// This is the type-safe version that returns a ``WindowSettings``
+    /// struct. If the input array is empty the mean and full range are
     /// returned.  The histogram is computed using 256 bins.
     ///
     /// - Parameter pixels16: Array of 16‑bit pixel values.
-    /// - Returns: A tuple `(center, width)` representing the
+    /// - Returns: A ``WindowSettings`` struct representing the
     ///   calculated window centre and width.
-    @available(*, deprecated, message: "Use calculateOptimalWindowLevelV2(pixels16:) instead for type-safe WindowSettings")
-    static func calculateOptimalWindowLevel(pixels16: [UInt16]) -> (center: Double, width: Double) {
-        guard !pixels16.isEmpty else { return (0.0, 0.0) }
+    ///
+    /// ## Usage Example
+    /// ```swift
+    /// let pixels: [UInt16] = decoder.getPixels16()
+    /// let settings = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
+    /// if settings.isValid {
+    ///     // Apply windowing to image
+    ///     let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
+    ///         pixels16: pixels,
+    ///         center: settings.center,
+    ///         width: settings.width
+    ///     )
+    /// }
+    /// ```
+    public static func calculateOptimalWindowLevelV2(pixels16: [UInt16]) -> WindowSettings {
+        guard !pixels16.isEmpty else { return WindowSettings(center: 0.0, width: 0.0) }
         // Compute histogram and basic stats
         var minValue: Double = 0
         var maxValue: Double = 0
@@ -430,7 +439,7 @@ public struct DCMWindowingProcessor {
         guard !histogram.isEmpty else {
             // Ensure minimum width of 1.0 for edge cases
             let width = max(maxValue - minValue, 1.0)
-            return (center: meanValue, width: width)
+            return WindowSettings(center: meanValue, width: width)
         }
         // Determine thresholds for 1st and 99th percentiles
         let totalPixels = pixels16.count
@@ -455,36 +464,7 @@ public struct DCMWindowingProcessor {
         let width = p99Value - p1Value
         // Ensure minimum width of 1.0 for edge cases (single pixel, uniform values)
         let finalWidth = max(width, 1.0)
-        return (center, finalWidth)
-    }
-
-    /// Calculates an optimal window centre and width based on the
-    /// 1st and 99th percentiles of the pixel value distribution.
-    /// This is the type-safe version of ``calculateOptimalWindowLevel(pixels16:)``
-    /// that returns a ``WindowSettings`` struct instead of a tuple.
-    /// If the input array is empty the mean and full range are
-    /// returned.  The histogram is computed using 256 bins.
-    ///
-    /// - Parameter pixels16: Array of 16‑bit pixel values.
-    /// - Returns: A ``WindowSettings`` struct representing the
-    ///   calculated window centre and width.
-    ///
-    /// ## Usage Example
-    /// ```swift
-    /// let pixels: [UInt16] = decoder.getPixels16()
-    /// let settings = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels)
-    /// if settings.isValid {
-    ///     // Apply windowing to image
-    ///     let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
-    ///         pixels16: pixels,
-    ///         center: settings.center,
-    ///         width: settings.width
-    ///     )
-    /// }
-    /// ```
-    public static func calculateOptimalWindowLevelV2(pixels16: [UInt16]) -> WindowSettings {
-        let result = calculateOptimalWindowLevel(pixels16: pixels16)
-        return WindowSettings(center: result.center, width: result.width)
+        return WindowSettings(center: center, width: finalWidth)
     }
 
     // MARK: - Image Enhancement Methods
@@ -767,56 +747,6 @@ public struct DCMWindowingProcessor {
     // MARK: - Preset Management
 
     /// Returns preset window/level values corresponding to a given
-    /// medical preset.  If the preset is ``custom`` the full
-    /// dynamic range is returned.  These values correspond to
-    /// standard Hounsfield Unit ranges used in radiology.
-    ///
-    /// - Parameter preset: The anatomical preset.
-    /// - Returns: A tuple `(center, width)` with default values.
-    @available(*, deprecated, message: "Use getPresetValuesV2(preset:) instead for type-safe WindowSettings")
-    public static func getPresetValues(preset: MedicalPreset) -> (center: Double, width: Double) {
-        switch preset {
-        // Original CT Presets
-        case .lung:
-            return (-600.0, 1500.0)  // Enhanced for better lung visualization
-        case .bone:
-            return (400.0, 1800.0)
-        case .softTissue:
-            return (50.0, 350.0)
-        case .brain:
-            return (40.0, 80.0)
-        case .liver:
-            return (120.0, 200.0)
-
-        // Additional CT Presets
-        case .mediastinum:
-            return (50.0, 350.0)
-        case .abdomen:
-            return (60.0, 400.0)
-        case .spine:
-            return (50.0, 250.0)
-        case .pelvis:
-            return (40.0, 400.0)
-
-        // Angiography Presets
-        case .angiography:
-            return (300.0, 600.0)
-        case .pulmonaryEmbolism:
-            return (100.0, 500.0)
-
-        // Other Modalities
-        case .mammography:
-            return (2000.0, 4000.0)  // For digital mammography
-        case .petScan:
-            return (2500.0, 5000.0)  // SUV units
-
-        // Custom/Default
-        case .custom:
-            return (0.0, 4096.0)
-        }
-    }
-
-    /// Returns preset window/level values corresponding to a given
     /// medical preset, using the type-safe ``WindowSettings`` struct.
     /// If the preset is ``custom`` the full dynamic range is returned.
     /// These values correspond to standard Hounsfield Unit ranges used
@@ -838,8 +768,47 @@ public struct DCMWindowingProcessor {
     /// }
     /// ```
     public static func getPresetValuesV2(preset: MedicalPreset) -> WindowSettings {
-        let result = getPresetValues(preset: preset)
-        return WindowSettings(center: result.center, width: result.width)
+        let (center, width): (Double, Double)
+        switch preset {
+        // Original CT Presets
+        case .lung:
+            (center, width) = (-600.0, 1500.0)  // Enhanced for better lung visualization
+        case .bone:
+            (center, width) = (400.0, 1800.0)
+        case .softTissue:
+            (center, width) = (50.0, 350.0)
+        case .brain:
+            (center, width) = (40.0, 80.0)
+        case .liver:
+            (center, width) = (120.0, 200.0)
+
+        // Additional CT Presets
+        case .mediastinum:
+            (center, width) = (50.0, 350.0)
+        case .abdomen:
+            (center, width) = (60.0, 400.0)
+        case .spine:
+            (center, width) = (50.0, 250.0)
+        case .pelvis:
+            (center, width) = (40.0, 400.0)
+
+        // Angiography Presets
+        case .angiography:
+            (center, width) = (300.0, 600.0)
+        case .pulmonaryEmbolism:
+            (center, width) = (100.0, 500.0)
+
+        // Other Modalities
+        case .mammography:
+            (center, width) = (2000.0, 4000.0)  // For digital mammography
+        case .petScan:
+            (center, width) = (2500.0, 5000.0)  // SUV units
+
+        // Custom/Default
+        case .custom:
+            (center, width) = (0.0, 4096.0)
+        }
+        return WindowSettings(center: center, width: width)
     }
 
     /// Suggests appropriate presets based on modality and body part
@@ -1101,16 +1070,7 @@ extension DCMWindowingProcessor {
     }
     
     /// Calculate optimal window/level for a batch of images
-    @available(*, deprecated, message: "Use batchCalculateOptimalWindowLevelV2(imagePixels:) instead for type-safe WindowSettings")
-    static func batchCalculateOptimalWindowLevel(imagePixels: [[UInt16]]) -> [(center: Double, width: Double)] {
-        return imagePixels.map { pixels in
-            calculateOptimalWindowLevel(pixels16: pixels)
-        }
-    }
-
-    /// Calculate optimal window/level for a batch of images
-    /// This is the type-safe version of ``batchCalculateOptimalWindowLevel(imagePixels:)``
-    /// that returns an array of ``WindowSettings`` structs instead of tuples.
+    /// This method returns an array of ``WindowSettings`` structs.
     /// For each image in the batch, calculates the optimal window center and width
     /// based on the 1st and 99th percentiles of the pixel value distribution.
     ///
@@ -1158,28 +1118,6 @@ extension DCMWindowingProcessor {
                 .abdomen, .spine, .pelvis, .angiography, .pulmonaryEmbolism]
     }
 
-    /// Get preset values by name
-    @available(*, deprecated, message: "Use getPresetValuesV2(named:) instead for type-safe WindowSettings")
-    public static func getPresetValues(named presetName: String) -> (center: Double, width: Double)? {
-        switch presetName.lowercased() {
-        case "lung": return getPresetValues(preset: .lung)
-        case "bone": return getPresetValues(preset: .bone)
-        case "soft tissue", "softtissue": return getPresetValues(preset: .softTissue)
-        case "brain": return getPresetValues(preset: .brain)
-        case "liver": return getPresetValues(preset: .liver)
-        case "mediastinum": return getPresetValues(preset: .mediastinum)
-        case "abdomen": return getPresetValues(preset: .abdomen)
-        case "spine": return getPresetValues(preset: .spine)
-        case "pelvis": return getPresetValues(preset: .pelvis)
-        case "angiography": return getPresetValues(preset: .angiography)
-        case "pulmonary embolism", "pulmonaryembolism", "pe":
-            return getPresetValues(preset: .pulmonaryEmbolism)
-        case "mammography", "mammo": return getPresetValues(preset: .mammography)
-        case "pet", "petscan", "pet scan": return getPresetValues(preset: .petScan)
-        default: return nil
-        }
-    }
-
     /// Returns preset window/level values corresponding to a preset name,
     /// using the type-safe ``WindowSettings`` struct.  This method accepts
     /// common preset names and their variations (e.g., "soft tissue" or
@@ -1203,10 +1141,23 @@ extension DCMWindowingProcessor {
     /// }
     /// ```
     public static func getPresetValuesV2(named presetName: String) -> WindowSettings? {
-        guard let result = getPresetValues(named: presetName) else {
-            return nil
+        switch presetName.lowercased() {
+        case "lung": return getPresetValuesV2(preset: .lung)
+        case "bone": return getPresetValuesV2(preset: .bone)
+        case "soft tissue", "softtissue": return getPresetValuesV2(preset: .softTissue)
+        case "brain": return getPresetValuesV2(preset: .brain)
+        case "liver": return getPresetValuesV2(preset: .liver)
+        case "mediastinum": return getPresetValuesV2(preset: .mediastinum)
+        case "abdomen": return getPresetValuesV2(preset: .abdomen)
+        case "spine": return getPresetValuesV2(preset: .spine)
+        case "pelvis": return getPresetValuesV2(preset: .pelvis)
+        case "angiography": return getPresetValuesV2(preset: .angiography)
+        case "pulmonary embolism", "pulmonaryembolism", "pe":
+            return getPresetValuesV2(preset: .pulmonaryEmbolism)
+        case "mammography", "mammo": return getPresetValuesV2(preset: .mammography)
+        case "pet", "petscan", "pet scan": return getPresetValuesV2(preset: .petScan)
+        default: return nil
         }
-        return WindowSettings(center: result.center, width: result.width)
     }
 
     /// Get preset name from window settings (approximate match using type-safe WindowSettings)
@@ -1229,15 +1180,9 @@ extension DCMWindowingProcessor {
     /// }
     /// ```
     public static func getPresetName(settings: WindowSettings, tolerance: Double = 50.0) -> String? {
-        return getPresetName(center: settings.center, width: settings.width, tolerance: tolerance)
-    }
-
-    /// Get preset name from values (approximate match)
-    @available(*, deprecated, message: "Use getPresetName(settings:tolerance:) instead for type-safe WindowSettings")
-    public static func getPresetName(center: Double, width: Double, tolerance: Double = 50.0) -> String? {
         for preset in allPresets {
-            let values = getPresetValues(preset: preset)
-            if abs(values.center - center) <= tolerance && abs(values.width - width) <= tolerance {
+            let values = getPresetValuesV2(preset: preset)
+            if abs(values.center - settings.center) <= tolerance && abs(values.width - settings.width) <= tolerance {
                 return preset.displayName
             }
         }
@@ -1246,7 +1191,7 @@ extension DCMWindowingProcessor {
 
     /// Get preset by enum case
     public static func getPreset(for preset: MedicalPreset) -> (name: String, center: Double, width: Double, modality: String) {
-        let values = getPresetValues(preset: preset)
+        let values = getPresetValuesV2(preset: preset)
         return (preset.displayName, values.center, values.width, preset.associatedModality)
     }
 }
@@ -1255,7 +1200,13 @@ extension DCMWindowingProcessor {
 
 extension DCMWindowingProcessor {
     
-    /// Performance-optimized window/level for large datasets
+    /// Apply a linear window/level transform to a 16-bit pixel buffer and produce an 8-bit image.
+    /// - Parameters:
+    ///   - pixels16: Array of 16-bit pixel values (row-major order).
+    ///   - center: Window center in the same units as the pixel values.
+    ///   - width: Window width; must be greater than 0.
+    ///   - useParallel: If `true`, the implementation will attempt parallel processing for large buffers (threshold: > 10,000 pixels).
+    /// - Returns: 8-bit image data where values are linearly mapped from the window [center - width/2, center + width/2] to the 0–255 range and clamped; returns `nil` if `pixels16` is empty or `width` is not greater than 0.
     static func optimizedApplyWindowLevel(
         pixels16: [UInt16],
         center: Double,
@@ -1268,18 +1219,20 @@ extension DCMWindowingProcessor {
         let maxLevel = center + width / 2.0
         let range = maxLevel - minLevel
         let rangeInv: Double = range > 0 ? 255.0 / range : 1.0
-        
+
         var bytes = [UInt8](repeating: 0, count: pixels16.count)
-        
+
         if useParallel && pixels16.count > 10000 {
-            // Use parallel processing for large datasets
-            DispatchQueue.concurrentPerform(iterations: 4) { chunk in
-                let start = chunk * pixels16.count / 4
-                let end = (chunk == 3) ? pixels16.count : (chunk + 1) * pixels16.count / 4
-                
-                for i in start..<end {
-                    let value = (Double(pixels16[i]) - minLevel) * rangeInv
-                    bytes[i] = UInt8(max(0.0, min(255.0, value)))
+            // Use parallel processing for large datasets with thread-safe buffer access
+            bytes.withUnsafeMutableBufferPointer { bufferPointer in
+                DispatchQueue.concurrentPerform(iterations: 4) { chunk in
+                    let start = chunk * pixels16.count / 4
+                    let end = (chunk == 3) ? pixels16.count : (chunk + 1) * pixels16.count / 4
+
+                    for i in start..<end {
+                        let value = (Double(pixels16[i]) - minLevel) * rangeInv
+                        bufferPointer[i] = UInt8(max(0.0, min(255.0, value)))
+                    }
                 }
             }
         } else {
@@ -1289,7 +1242,7 @@ extension DCMWindowingProcessor {
                 bytes[i] = UInt8(max(0.0, min(255.0, value)))
             }
         }
-        
+
         return Data(bytes)
     }
 }

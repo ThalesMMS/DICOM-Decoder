@@ -40,8 +40,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         let maliciousLength: UInt32 = 150 * 1024 * 1024  // 150 MB
         let filePath = createDICOMWithLargeLength(length: maliciousLength)
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Decoder should gracefully handle excessive length by clamping or rejecting
         // It should not crash. The file may parse minimally (width=1 is default) but
@@ -54,8 +53,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM with multiple elements claiming excessive lengths
         let filePath = createDICOMWithMultipleLargeElements()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should not allocate excessive memory for multiple large elements
         XCTAssertTrue(true, "Decoder survived multiple excessive element lengths without crash")
@@ -65,8 +63,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Test signed/unsigned confusion: 0xFFFFFFFF interpreted as -1
         let filePath = createDICOMWithNegativeLength()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should handle negative length values gracefully
         // (0xFFFFFFFF is valid undefined length in DICOM, but not for all VRs)
@@ -81,11 +78,10 @@ final class DCMDecoderSecurityTests: XCTestCase {
         let height: UInt16 = 0xFFFF  // 65535 - at limit
         let filePath = createDICOMWithDimensions(width: width, height: height)
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should reject dimensions that would cause excessive memory allocation
-        if decoder.dicomFileReadSuccess {
+        if let decoder = decoder {
             // If it accepts the file, verify dimensions are within safe limits
             XCTAssertLessThanOrEqual(decoder.width, 65536, "Width should not exceed MAX_IMAGE_DIMENSION")
             XCTAssertLessThanOrEqual(decoder.height, 65536, "Height should not exceed MAX_IMAGE_DIMENSION")
@@ -96,13 +92,12 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM with both dimensions at maximum (65535 is max for UInt16)
         let filePath = createDICOMWithDimensions(width: 65535, height: 65535)
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should reject image with total pixel count exceeding reasonable limits
         // 65535 * 65535 * 2 bytes = 8.5 GB which exceeds MAX_PIXEL_BUFFER_SIZE (2 GB)
-        XCTAssertFalse(decoder.dicomFileReadSuccess,
-                       "Decoder should reject image with excessive total pixel count")
+        XCTAssertNil(decoder,
+                     "Decoder should reject image with excessive total pixel count")
     }
 
     func testImageDimensionIntegerOverflow() {
@@ -112,11 +107,10 @@ final class DCMDecoderSecurityTests: XCTestCase {
         let height: UInt16 = 50000  // 2.5 billion pixels
         let filePath = createDICOMWithDimensions(width: width, height: height, bitDepth: 16)
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should detect and reject dimensions that would cause overflow
-        if decoder.dicomFileReadSuccess {
+        if let decoder = decoder {
             let totalPixels = Int64(decoder.width) * Int64(decoder.height)
             let bytesPerPixel = Int64(decoder.bitDepth / 8)
             let totalBytes = totalPixels * bytesPerPixel
@@ -132,11 +126,10 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM claiming to have huge pixel data without actually including it
         let filePath = createDICOMWithClaimedPixelData(claimedSize: 1_000_000_000)  // 1 GB claimed
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should detect mismatch between claimed and actual pixel data size
-        if decoder.dicomFileReadSuccess {
+        if let decoder = decoder {
             // Attempt to read pixels - should fail gracefully
             let pixels16 = decoder.getPixels16()
 
@@ -154,10 +147,9 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM where pixel data size doesn't match declared dimensions
         let filePath = createDICOMWithMismatchedPixelData()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
-        if decoder.dicomFileReadSuccess {
+        if let decoder = decoder {
             // Pixel reading should fail or return nil
             let pixels = decoder.getPixels16()
 
@@ -177,11 +169,10 @@ final class DCMDecoderSecurityTests: XCTestCase {
         let filePath = createDICOMWithDimensions(width: width, height: height,
                                                   bitDepth: 24, samplesPerPixel: 3)
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should reject RGB image with excessive total memory requirement
-        XCTAssertFalse(decoder.dicomFileReadSuccess,
+        XCTAssertNil(decoder,
                        "Decoder should reject 24-bit RGB with excessive memory requirement")
     }
 
@@ -191,8 +182,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM with sequence nesting exceeding MAX_SEQUENCE_DEPTH (32)
         let filePath = createDICOMWithDeepSequences(depth: 40)
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should reject or safely handle deeply nested sequences without stack overflow
         XCTAssertTrue(true, "Decoder handled deeply nested sequences without crash")
@@ -202,8 +192,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM with sequence that could cause infinite loop
         let filePath = createDICOMWithCircularSequence()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should not hang or crash on circular references
         // Use timeout in real implementation
@@ -214,8 +203,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Test exactly at MAX_SEQUENCE_DEPTH limit (32)
         let filePath = createDICOMWithDeepSequences(depth: 32)
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should accept sequences up to max depth
         XCTAssertTrue(true, "Decoder handled maximum sequence depth")
@@ -228,10 +216,8 @@ final class DCMDecoderSecurityTests: XCTestCase {
 
         // Scenario 1: width * height overflow
         let filePath1 = createDICOMWithDimensions(width: 65535, height: 65535)
-        let decoder1 = DCMDecoder()
-        decoder1.setDicomFilename(filePath1.path)
 
-        if decoder1.dicomFileReadSuccess {
+        if let decoder1 = try? DCMDecoder(contentsOf: filePath1) {
             // Verify calculations used Int64 to prevent overflow
             let safePixelCount = Int64(decoder1.width) * Int64(decoder1.height)
             XCTAssertGreaterThan(safePixelCount, Int64(Int.max / 2),
@@ -244,12 +230,11 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Use dimensions that would exceed 2GB: 40000 * 40000 * 2 = 3.2 GB
         let filePath = createDICOMWithDimensions(width: 40000, height: 40000, bitDepth: 16)
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should reject file with dimensions exceeding MAX_PIXEL_BUFFER_SIZE (2 GB)
         // Or if it accepts, verify calculations used safe 64-bit arithmetic
-        if decoder.dicomFileReadSuccess {
+        if let decoder = decoder {
             let width64 = Int64(decoder.width)
             let height64 = Int64(decoder.height)
             let bpp64 = Int64(decoder.bitDepth / 8)
@@ -269,10 +254,9 @@ final class DCMDecoderSecurityTests: XCTestCase {
         let filePath = createDICOMWithDimensions(width: 30000, height: 30000,
                                                   bitDepth: 16, samplesPerPixel: 3)
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
-        if decoder.dicomFileReadSuccess {
+        if let decoder = decoder {
             // Verify multiplication didn't overflow
             let total = Int64(decoder.width) * Int64(decoder.height) *
                        Int64(decoder.samplesPerPixel) * Int64(decoder.bitDepth / 8)
@@ -287,8 +271,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM with undefined length sequence (0xFFFFFFFF)
         let filePath = createDICOMWithUndefinedLength()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should handle undefined length sequences correctly
         // They should be terminated by sequence delimiter tags
@@ -299,8 +282,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Malicious: undefined length but no delimiter tag
         let filePath = createDICOMWithUndefinedLengthNoDelimiter()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should not read past end of file
         XCTAssertTrue(true, "Decoder handled undefined length without delimiter")
@@ -310,8 +292,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM mixing undefined and explicit length encoding
         let filePath = createDICOMWithMixedLengths()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should correctly parse mixed length encoding
         XCTAssertTrue(true, "Decoder handled mixed length encoding")
@@ -323,8 +304,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Combine multiple malicious techniques
         let filePath = createMaliciousDICOM()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should reject or safely handle file with multiple issues
         XCTAssertTrue(true, "Decoder survived combined attack scenario")
@@ -334,11 +314,10 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM that claims large size but file is truncated
         let filePath = createTruncatedDICOM()
 
-        let decoder = DCMDecoder()
-        decoder.setDicomFilename(filePath.path)
+        let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should detect and handle truncation gracefully
-        if decoder.dicomFileReadSuccess {
+        if let decoder = decoder {
             // If parsing succeeded, verify it didn't read past file end
             XCTAssertTrue(true, "File truncation handled")
         }

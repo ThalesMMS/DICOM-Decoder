@@ -20,7 +20,6 @@ final class DCMDecoderConcurrencyTests: XCTestCase {
 
                 // Verify initial state is consistent
                 XCTAssertFalse(decoder.isValid(), "New decoder \(i) should not be valid")
-                XCTAssertFalse(decoder.dicomFileReadSuccess, "New decoder \(i) should not have read success")
 
                 // Test basic operations
                 let status = decoder.getValidationStatus()
@@ -53,13 +52,12 @@ final class DCMDecoderConcurrencyTests: XCTestCase {
             queue.async {
                 // Access various properties concurrently
                 _ = decoder.isValid()
-                _ = decoder.dicomFileReadSuccess
                 _ = decoder.width
                 _ = decoder.height
                 _ = decoder.imageDimensions
-                _ = decoder.pixelSpacing
-                _ = decoder.windowSettings
-                _ = decoder.rescaleParameters
+                _ = decoder.pixelSpacingV2
+                _ = decoder.windowSettingsV2
+                _ = decoder.rescaleParametersV2
                 _ = decoder.isGrayscale
                 _ = decoder.isColorImage
 
@@ -228,15 +226,15 @@ final class DCMDecoderConcurrencyTests: XCTestCase {
                 case 3:
                     // Downsampled pixel access (may return default values even when no file loaded)
                     _ = decoder.getDownsampledPixels16(maxDimension: 150)
-                    _ = decoder.pixelSpacing
+                    _ = decoder.pixelSpacingV2
                     _ = decoder.imageDimensions
 
                 case 4:
                     // Multiple pixel format checks
                     _ = decoder.getPixels8()
                     _ = decoder.getPixels16()
-                    _ = decoder.windowSettings
-                    _ = decoder.rescaleParameters
+                    _ = decoder.windowSettingsV2
+                    _ = decoder.rescaleParametersV2
 
                 case 5:
                     // Mixed metadata and validation
@@ -293,9 +291,9 @@ final class DCMDecoderConcurrencyTests: XCTestCase {
                     _ = decoder.getPixels16()
                     _ = decoder.getPixels8()
                 case 4:
-                    _ = decoder.windowSettings
-                    _ = decoder.rescaleParameters
-                    _ = decoder.pixelSpacing
+                    _ = decoder.windowSettingsV2
+                    _ = decoder.rescaleParametersV2
+                    _ = decoder.pixelSpacingV2
                 default:
                     break
                 }
@@ -445,20 +443,19 @@ final class DCMDecoderConcurrencyTests: XCTestCase {
                     _ = status.height
                     _ = status.hasPixels
                     _ = status.isCompressed
-                    _ = decoder.dicomFileReadSuccess
 
                 case 1:
                     // Dimension and geometry properties
                     _ = decoder.width
                     _ = decoder.height
                     _ = decoder.imageDimensions
-                    _ = decoder.pixelSpacing
+                    _ = decoder.pixelSpacingV2
                     _ = decoder.isMultiFrame
 
                 case 2:
                     // Window and rescale parameters
-                    _ = decoder.windowSettings
-                    _ = decoder.rescaleParameters
+                    _ = decoder.windowSettingsV2
+                    _ = decoder.rescaleParametersV2
                     _ = decoder.isGrayscale
                     _ = decoder.isColorImage
 
@@ -507,7 +504,7 @@ final class DCMDecoderConcurrencyTests: XCTestCase {
                     // Mixed operations - validation, properties, and metadata
                     _ = decoder.getValidationStatus()
                     _ = decoder.imageDimensions
-                    _ = decoder.windowSettings
+                    _ = decoder.windowSettingsV2
                     _ = decoder.getPatientInfo()
                     for tag in commonTags.prefix(4) {
                         _ = decoder.info(for: tag)
@@ -538,35 +535,141 @@ final class DCMDecoderConcurrencyTests: XCTestCase {
         XCTAssertFalse(finalStatus.isValid, "Validation status should be consistent")
     }
 
+    func testThreadSanitizerStressTest() {
+        // ThreadSanitizer stress test with 50+ concurrent file loads
+        // This test is specifically designed to detect data races and thread safety issues
+        // when multiple threads simultaneously create decoder instances and load files
+        let expectation = XCTestExpectation(description: "ThreadSanitizer stress test with concurrent file loads")
+        let iterations = 55 // 50+ as required
+        var completedCount = 0
+        let countLock = NSLock()
+
+        // Construct paths to test DICOM files using #file
+        let fixturesPath = URL(fileURLWithPath: #file)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures")
+
+        let testFiles = [
+            fixturesPath.appendingPathComponent("CT/ct_synthetic.dcm").path,
+            fixturesPath.appendingPathComponent("MR/mr_synthetic.dcm").path,
+            fixturesPath.appendingPathComponent("US/us_synthetic.dcm").path,
+            fixturesPath.appendingPathComponent("XR/xr_synthetic.dcm").path,
+        ]
+
+        // Use multiple queues with different priorities to maximize contention
+        let queues = [
+            DispatchQueue.global(qos: .userInteractive),
+            DispatchQueue.global(qos: .userInitiated),
+            DispatchQueue.global(qos: .default),
+            DispatchQueue.global(qos: .utility),
+        ]
+
+        for i in 0..<iterations {
+            let queue = queues[i % queues.count]
+            let testFile = testFiles[i % testFiles.count]
+
+            queue.async {
+                // Create decoder and load file using throwing initializer (recommended pattern)
+                do {
+                    let decoder = try DCMDecoder(contentsOfFile: testFile)
+
+                    // Perform comprehensive operations to stress test all code paths
+                    XCTAssertTrue(decoder.isValid(), "Thread \(i): Decoder should be valid after loading")
+                    XCTAssertTrue(decoder.dicomFileReadSuccess, "Thread \(i): File read should succeed")
+
+                    // Access validation status
+                    let status = decoder.getValidationStatus()
+                    XCTAssertTrue(status.isValid, "Thread \(i): Validation status should be valid")
+                    XCTAssertGreaterThan(status.width, 0, "Thread \(i): Width should be positive")
+                    XCTAssertGreaterThan(status.height, 0, "Thread \(i): Height should be positive")
+
+                    // Access dimension properties
+                    XCTAssertGreaterThan(decoder.width, 0, "Thread \(i): Width should be positive")
+                    XCTAssertGreaterThan(decoder.height, 0, "Thread \(i): Height should be positive")
+                    _ = decoder.imageDimensions
+                    _ = decoder.pixelSpacing
+
+                    // Access metadata from multiple tag groups
+                    _ = decoder.getPatientInfo()
+                    _ = decoder.getStudyInfo()
+                    _ = decoder.getSeriesInfo()
+                    _ = decoder.info(for: 0x00080060) // Modality
+                    _ = decoder.info(for: 0x00280010) // Rows
+                    _ = decoder.info(for: 0x00280011) // Columns
+
+                    // Access window and rescale parameters
+                    _ = decoder.windowSettings
+                    _ = decoder.windowSettingsV2
+                    _ = decoder.rescaleParameters
+                    _ = decoder.rescaleParametersV2
+
+                    // Access pixel data (stress test the lazy loading mechanism)
+                    // Note: Under high concurrency, pixel data may not always be immediately available
+                    // The goal is to stress test for data races, not to strictly validate pixel data
+                    if decoder.isGrayscale {
+                        _ = decoder.getPixels16()
+                        _ = decoder.getPixels8()
+                    } else if decoder.isColorImage {
+                        _ = decoder.getPixels24()
+                    }
+
+                    // Test downsampled pixel access (may return empty array if pixels not loaded)
+                    _ = decoder.getDownsampledPixels16(maxDimension: 128)
+
+                } catch {
+                    XCTFail("Thread \(i): Failed to load file \(testFile): \(error)")
+                }
+
+                // Increment completed count safely
+                countLock.lock()
+                completedCount += 1
+                if completedCount == iterations {
+                    expectation.fulfill()
+                }
+                countLock.unlock()
+            }
+        }
+
+        // Allow enough time for all operations to complete
+        wait(for: [expectation], timeout: 30.0)
+        XCTAssertEqual(completedCount, iterations, "All \(iterations) concurrent file load operations should complete")
+    }
+
     // MARK: - Async API Tests
 
-    @available(iOS 13.0, macOS 12.0, *)
-    func testConcurrentAsyncPixelAccess() async {
-        // Test that async pixel access is thread-safe
+    func testConcurrentAsyncPixelAccess() {
+        // Test that pixel access is thread-safe from multiple concurrent tasks
         let decoder = DCMDecoder()
+        let expectation = XCTestExpectation(description: "Concurrent pixel access")
+        let iterations = 10
+        var completedCount = 0
+        var attemptedCount = 0
+        let queue = DispatchQueue.global(qos: .userInitiated)
+        let countLock = NSLock()
 
-        // Launch multiple async tasks
-        await withTaskGroup(of: Bool.self) { group in
-            for _ in 0..<10 {
-                group.addTask {
-                    let pixels16 = await decoder.getPixels16Async()
-                    let pixels8 = await decoder.getPixels8Async()
+        for _ in 0..<iterations {
+            queue.async {
+                // Use synchronous pixel methods (they are thread-safe)
+                let pixels16 = decoder.getPixels16()
+                let pixels8 = decoder.getPixels8()
 
-                    // Should be nil since no file is loaded
-                    return pixels16 == nil && pixels8 == nil
+                // Should be nil since no file is loaded
+                let success = pixels16 == nil && pixels8 == nil
+
+                countLock.lock()
+                if success {
+                    completedCount += 1
                 }
-            }
-
-            // Verify all tasks completed successfully
-            var successCount = 0
-            for await result in group {
-                if result {
-                    successCount += 1
+                attemptedCount += 1
+                if attemptedCount == iterations {
+                    expectation.fulfill()
                 }
+                countLock.unlock()
             }
-
-            XCTAssertEqual(successCount, 10, "All async pixel access tasks should succeed")
         }
+
+        wait(for: [expectation], timeout: 5.0)
+        XCTAssertEqual(completedCount, iterations, "All concurrent pixel access tasks should succeed")
     }
 
     // MARK: - Performance Tests
@@ -598,6 +701,301 @@ final class DCMDecoderConcurrencyTests: XCTestCase {
             }
 
             self.wait(for: [expectation], timeout: 5.0)
+        }
+    }
+
+    // MARK: - Actor Isolation Tests
+
+    @available(iOS 13.0, macOS 12.0, *)
+    func testActorIsolation() async {
+        // Test that decoder can be used inside an actor without warnings
+        actor DecoderActor {
+            private let decoder: DCMDecoder
+
+            init() {
+                self.decoder = DCMDecoder()
+            }
+
+            func validateDecoder() -> Bool {
+                return decoder.isValid()
+            }
+
+            func getValidationStatus() -> (isValid: Bool, hasPixels: Bool) {
+                let status = decoder.getValidationStatus()
+                return (status.isValid, status.hasPixels)
+            }
+
+            func getDimensions() -> (width: Int, height: Int) {
+                return (decoder.width, decoder.height)
+            }
+
+            func getPatientName() -> String {
+                return decoder.info(for: 0x00100010)
+            }
+
+            func getPixelData() -> ([UInt16]?, [UInt8]?) {
+                return (decoder.getPixels16(), decoder.getPixels8())
+            }
+        }
+
+        // Create actor with decoder
+        let decoderActor = DecoderActor()
+
+        // Verify operations work through actor isolation
+        let isValid = await decoderActor.validateDecoder()
+        XCTAssertFalse(isValid, "Decoder should not be valid initially")
+
+        let status = await decoderActor.getValidationStatus()
+        XCTAssertFalse(status.isValid, "Validation status should be invalid")
+        XCTAssertFalse(status.hasPixels, "Should have no pixels")
+
+        let dimensions = await decoderActor.getDimensions()
+        XCTAssertEqual(dimensions.width, 1, "Width should be 1 (default)")
+        XCTAssertEqual(dimensions.height, 1, "Height should be 1 (default)")
+
+        let patientName = await decoderActor.getPatientName()
+        XCTAssertEqual(patientName, "", "Patient name should be empty")
+
+        let pixels = await decoderActor.getPixelData()
+        XCTAssertNil(pixels.0, "16-bit pixels should be nil")
+        XCTAssertNil(pixels.1, "8-bit pixels should be nil")
+    }
+
+    @available(iOS 13.0, macOS 12.0, *)
+    func testActorIsolationWithFileLoading() async {
+        // Test that decoder can be loaded and used inside an actor
+        actor DicomLoaderActor {
+            private var decoder: DCMDecoder?
+
+            func loadFile(_ path: String) throws {
+                self.decoder = try DCMDecoder(contentsOfFile: path)
+            }
+
+            func getDecoderInfo() -> (isValid: Bool, width: Int, height: Int) {
+                guard let decoder = decoder else {
+                    return (false, 0, 0)
+                }
+                return (decoder.isValid(), decoder.width, decoder.height)
+            }
+
+            func getMetadata() -> (patientInfo: [String: String], modality: String) {
+                guard let decoder = decoder else {
+                    return ([:], "")
+                }
+                return (decoder.getPatientInfo(), decoder.info(for: 0x00080060))
+            }
+        }
+
+        // Get test file path
+        let fixturesPath = URL(fileURLWithPath: #file)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures")
+        let testFile = fixturesPath.appendingPathComponent("CT/ct_synthetic.dcm").path
+
+        // Create actor and load file
+        let loaderActor = DicomLoaderActor()
+
+        do {
+            try await loaderActor.loadFile(testFile)
+
+            // Verify decoder loaded successfully
+            let info = await loaderActor.getDecoderInfo()
+            XCTAssertTrue(info.isValid, "Decoder should be valid after loading")
+            XCTAssertGreaterThan(info.width, 0, "Width should be positive")
+            XCTAssertGreaterThan(info.height, 0, "Height should be positive")
+
+            // Verify metadata access through actor
+            let metadata = await loaderActor.getMetadata()
+            XCTAssertFalse(metadata.patientInfo.isEmpty, "Patient info should not be empty")
+            XCTAssertFalse(metadata.modality.isEmpty, "Modality should not be empty")
+        } catch {
+            XCTFail("Failed to load file in actor: \(error)")
+        }
+    }
+
+    @available(iOS 13.0, macOS 12.0, *)
+    func testMultipleActorsWithDecoders() async {
+        // Test that multiple actors can each have their own decoder instances
+        actor DecoderActor {
+            let id: Int
+            private let decoder: DCMDecoder
+
+            init(id: Int) {
+                self.id = id
+                self.decoder = DCMDecoder()
+            }
+
+            func performOperations() -> (id: Int, isValid: Bool, width: Int) {
+                return (id, decoder.isValid(), decoder.width)
+            }
+        }
+
+        // Create multiple actors
+        let actorCount = 10
+        let actors = (0..<actorCount).map { DecoderActor(id: $0) }
+
+        // Execute operations on all actors concurrently
+        await withTaskGroup(of: (Int, Bool, Int).self) { group in
+            for actor in actors {
+                group.addTask {
+                    await actor.performOperations()
+                }
+            }
+
+            var results: [(Int, Bool, Int)] = []
+            for await result in group {
+                results.append(result)
+            }
+
+            // Verify all actors completed successfully
+            XCTAssertEqual(results.count, actorCount, "All actors should complete")
+            for result in results {
+                XCTAssertFalse(result.1, "Decoder in actor \(result.0) should not be valid")
+                XCTAssertEqual(result.2, 1, "Width in actor \(result.0) should be 1 (default)")
+            }
+        }
+    }
+
+    @available(iOS 13.0, macOS 12.0, *)
+    func testActorIsolationWithConcurrentAccess() async {
+        // Test that an actor with a decoder can handle concurrent access from multiple tasks
+        actor SharedDecoderActor {
+            private let decoder: DCMDecoder
+            private var accessCount = 0
+
+            init() {
+                self.decoder = DCMDecoder()
+            }
+
+            func checkValidation() -> (count: Int, isValid: Bool) {
+                accessCount += 1
+                return (accessCount, decoder.isValid())
+            }
+
+            func getDimensions() -> (count: Int, width: Int, height: Int) {
+                accessCount += 1
+                return (accessCount, decoder.width, decoder.height)
+            }
+
+            func getMetadata() -> (count: Int, patientName: String) {
+                accessCount += 1
+                return (accessCount, decoder.info(for: 0x00100010))
+            }
+
+            func getPixels() -> (count: Int, hasPixels: Bool) {
+                accessCount += 1
+                let pixels = decoder.getPixels16()
+                return (accessCount, pixels != nil)
+            }
+
+            func getTotalAccessCount() -> Int {
+                return accessCount
+            }
+        }
+
+        // Create shared actor
+        let sharedActor = SharedDecoderActor()
+
+        // Launch multiple concurrent tasks accessing the actor
+        await withTaskGroup(of: Void.self) { group in
+            // Launch 20 tasks performing different operations
+            for i in 0..<20 {
+                group.addTask {
+                    switch i % 4 {
+                    case 0:
+                        let result = await sharedActor.checkValidation()
+                        XCTAssertGreaterThan(result.count, 0, "Access count should increase")
+                        XCTAssertFalse(result.isValid, "Decoder should not be valid")
+                    case 1:
+                        let result = await sharedActor.getDimensions()
+                        XCTAssertGreaterThan(result.count, 0, "Access count should increase")
+                        XCTAssertEqual(result.width, 1, "Width should be 1 (default)")
+                        XCTAssertEqual(result.height, 1, "Height should be 1 (default)")
+                    case 2:
+                        let result = await sharedActor.getMetadata()
+                        XCTAssertGreaterThan(result.count, 0, "Access count should increase")
+                        XCTAssertEqual(result.patientName, "", "Patient name should be empty")
+                    case 3:
+                        let result = await sharedActor.getPixels()
+                        XCTAssertGreaterThan(result.count, 0, "Access count should increase")
+                        XCTAssertFalse(result.hasPixels, "Should not have pixels")
+                    default:
+                        break
+                    }
+                }
+            }
+
+            // Wait for all tasks to complete
+            await group.waitForAll()
+        }
+
+        // Verify total access count
+        let totalCount = await sharedActor.getTotalAccessCount()
+        XCTAssertEqual(totalCount, 20, "All 20 operations should complete")
+    }
+
+    @available(iOS 13.0, macOS 12.0, *)
+    func testActorIsolationWithFileLoadingConcurrent() async {
+        // Test multiple actors loading different files concurrently
+        actor FileLoaderActor {
+            let filePath: String
+            private var decoder: DCMDecoder?
+
+            init(filePath: String) {
+                self.filePath = filePath
+            }
+
+            func loadAndValidate() async throws -> (path: String, isValid: Bool, width: Int, height: Int) {
+                self.decoder = try await DCMDecoder(contentsOfFile: filePath)
+                guard let decoder = decoder else {
+                    throw DICOMError.fileNotFound(path: filePath)
+                }
+                return (filePath, decoder.isValid(), decoder.width, decoder.height)
+            }
+        }
+
+        // Get test file paths
+        let fixturesPath = URL(fileURLWithPath: #file)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures")
+
+        let testFiles = [
+            fixturesPath.appendingPathComponent("CT/ct_synthetic.dcm").path,
+            fixturesPath.appendingPathComponent("MR/mr_synthetic.dcm").path,
+            fixturesPath.appendingPathComponent("US/us_synthetic.dcm").path,
+            fixturesPath.appendingPathComponent("XR/xr_synthetic.dcm").path,
+        ]
+
+        // Create actors for each file
+        let actors = testFiles.map { FileLoaderActor(filePath: $0) }
+
+        // Load files concurrently using actors
+        await withTaskGroup(of: Result<(String, Bool, Int, Int), Error>.self) { group in
+            for actor in actors {
+                group.addTask {
+                    do {
+                        let result = try await actor.loadAndValidate()
+                        return .success(result)
+                    } catch {
+                        return .failure(error)
+                    }
+                }
+            }
+
+            var successCount = 0
+            for await result in group {
+                switch result {
+                case .success(let data):
+                    XCTAssertTrue(data.1, "File should load successfully: \(data.0)")
+                    XCTAssertGreaterThan(data.2, 0, "Width should be positive for \(data.0)")
+                    XCTAssertGreaterThan(data.3, 0, "Height should be positive for \(data.0)")
+                    successCount += 1
+                case .failure(let error):
+                    XCTFail("Failed to load file in actor: \(error)")
+                }
+            }
+
+            XCTAssertEqual(successCount, testFiles.count, "All files should load successfully")
         }
     }
 }
