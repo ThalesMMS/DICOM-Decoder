@@ -31,6 +31,10 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         let numPixels = width * height
         let numBytes = numPixels * 2
 
+        // Clear and reset pool statistics for clean baseline
+        BufferPool.shared.clear()
+        BufferPool.shared.resetStatistics()
+
         // Create synthetic big endian pixel data
         var testData = Data(count: numBytes + 100) // Extra offset bytes
         testData.withUnsafeMutableBytes { bytes in
@@ -70,6 +74,9 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         let avgTime = (totalTime / Double(iterations)) * 1000
         let pixelsPerSecond = Double(numPixels) / (totalTime / Double(iterations))
 
+        // Capture pool statistics
+        let stats = BufferPool.shared.statistics
+
         print("""
 
         ========== Big Endian Conversion Performance ==========
@@ -77,6 +84,14 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         Iterations: \(iterations)
         Avg time: \(String(format: "%.2f", avgTime))ms
         Throughput: \(String(format: "%.2f", pixelsPerSecond / 1_000_000))M pixels/sec
+
+        Buffer Pool Metrics:
+          Total acquires: \(stats.totalAcquires)
+          Pool hits: \(stats.hits)
+          Pool misses: \(stats.misses)
+          Hit rate: \(String(format: "%.1f", stats.hitRate))%
+          Peak pool size: \(stats.peakPoolSize)
+          Allocation reduction: \(String(format: "%.1f", (Double(stats.hits) / Double(iterations)) * 100.0))%
         ========================================================
 
         """)
@@ -84,6 +99,9 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         // Performance target: Big endian requires byte swapping for every pixel
         // 4M pixels in <1200ms = 3.5M+ pixels/sec (still much faster than scalar loops)
         XCTAssertLessThan(avgTime, 1200.0, "Big endian conversion should be <1200ms for 2048x2048 image")
+
+        // Pool should provide benefit through buffer reuse (expect high hit rate after warmup)
+        XCTAssertGreaterThan(stats.hitRate, 50.0, "Pool hit rate should exceed 50% with buffer reuse")
     }
 
     // MARK: - Signed Pixel Normalization Benchmarks
@@ -96,6 +114,10 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         let height = largeHeight
         let numPixels = width * height
         let numBytes = numPixels * 2
+
+        // Clear and reset pool statistics for clean baseline
+        BufferPool.shared.clear()
+        BufferPool.shared.resetStatistics()
 
         // Create synthetic signed pixel data (little endian)
         var testData = Data(count: numBytes + 100)
@@ -138,6 +160,9 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         let avgTime = (totalTime / Double(iterations)) * 1000
         let pixelsPerSecond = Double(numPixels) / (totalTime / Double(iterations))
 
+        // Capture pool statistics
+        let stats = BufferPool.shared.statistics
+
         print("""
 
         ========== Signed Pixel Normalization Performance ==========
@@ -145,6 +170,14 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         Iterations: \(iterations)
         Avg time: \(String(format: "%.2f", avgTime))ms
         Throughput: \(String(format: "%.2f", pixelsPerSecond / 1_000_000))M pixels/sec
+
+        Buffer Pool Metrics:
+          Total acquires: \(stats.totalAcquires)
+          Pool hits: \(stats.hits)
+          Pool misses: \(stats.misses)
+          Hit rate: \(String(format: "%.1f", stats.hitRate))%
+          Peak pool size: \(stats.peakPoolSize)
+          Allocation reduction: \(String(format: "%.1f", (Double(stats.hits) / Double(iterations)) * 100.0))%
         ================================================================
 
         """)
@@ -152,6 +185,9 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         // Performance target: Vectorized vDSP implementation should be very fast
         // 4M pixels in <50ms = 80M+ pixels/sec (SIMD processing)
         XCTAssertLessThan(avgTime, 50.0, "Signed normalization should be <50ms for 2048x2048 image")
+
+        // Pool should provide excellent reuse for temporary buffers (Int16 and Float)
+        XCTAssertGreaterThan(stats.hitRate, 50.0, "Pool hit rate should exceed 50% with buffer reuse")
     }
 
     // MARK: - MONOCHROME1 Inversion Benchmarks
@@ -164,6 +200,10 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         let height = largeHeight
         let numPixels = width * height
         let numBytes = numPixels * 2
+
+        // Clear and reset pool statistics for clean baseline
+        BufferPool.shared.clear()
+        BufferPool.shared.resetStatistics()
 
         // Create synthetic unsigned pixel data for MONOCHROME1
         var testData = Data(count: numBytes + 100)
@@ -204,6 +244,9 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         let avgTime = (totalTime / Double(iterations)) * 1000
         let pixelsPerSecond = Double(numPixels) / (totalTime / Double(iterations))
 
+        // Capture pool statistics
+        let stats = BufferPool.shared.statistics
+
         print("""
 
         ========== MONOCHROME1 Inversion Performance ==========
@@ -211,6 +254,14 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         Iterations: \(iterations)
         Avg time: \(String(format: "%.2f", avgTime))ms
         Throughput: \(String(format: "%.2f", pixelsPerSecond / 1_000_000))M pixels/sec
+
+        Buffer Pool Metrics:
+          Total acquires: \(stats.totalAcquires)
+          Pool hits: \(stats.hits)
+          Pool misses: \(stats.misses)
+          Hit rate: \(String(format: "%.1f", stats.hitRate))%
+          Peak pool size: \(stats.peakPoolSize)
+          Allocation reduction: \(String(format: "%.1f", (Double(stats.hits) / Double(iterations)) * 100.0))%
         ========================================================
 
         """)
@@ -218,6 +269,9 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         // Performance target: Vectorized vDSP inversion should be very fast
         // 4M pixels in <30ms = 130M+ pixels/sec (SIMD processing)
         XCTAssertLessThan(avgTime, 30.0, "MONOCHROME1 inversion should be <30ms for 2048x2048 image")
+
+        // Pool should provide benefit through Float buffer reuse
+        XCTAssertGreaterThan(stats.hitRate, 50.0, "Pool hit rate should exceed 50% with buffer reuse")
     }
 
     /// Benchmarks vectorized MONOCHROME1 inversion for signed pixels.
@@ -420,6 +474,10 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         let numPixels = width * height
         let numBytes = numPixels * 2
 
+        // Clear and reset pool statistics for clean baseline
+        BufferPool.shared.clear()
+        BufferPool.shared.resetStatistics()
+
         // Create synthetic big endian signed pixel data
         var testData = Data(count: numBytes + 100)
         testData.withUnsafeMutableBytes { bytes in
@@ -459,6 +517,9 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         let avgTime = (totalTime / Double(iterations)) * 1000
         let pixelsPerSecond = Double(numPixels) / (totalTime / Double(iterations))
 
+        // Capture pool statistics
+        let stats = BufferPool.shared.statistics
+
         print("""
 
         ========== Combined Operations (Big Endian + Signed + MONOCHROME1) ==========
@@ -466,6 +527,14 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         Iterations: \(iterations)
         Avg time: \(String(format: "%.2f", avgTime))ms
         Throughput: \(String(format: "%.2f", pixelsPerSecond / 1_000_000))M pixels/sec
+
+        Buffer Pool Metrics:
+          Total acquires: \(stats.totalAcquires)
+          Pool hits: \(stats.hits)
+          Pool misses: \(stats.misses)
+          Hit rate: \(String(format: "%.1f", stats.hitRate))%
+          Peak pool size: \(stats.peakPoolSize)
+          Allocation reduction: \(String(format: "%.1f", (Double(stats.hits) / Double(iterations)) * 100.0))%
         ==============================================================================
 
         """)
@@ -473,6 +542,9 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         // Performance target: Worst case (big endian + signed + MONOCHROME1)
         // Still much faster than non-vectorized implementation
         XCTAssertLessThan(avgTime, 800.0, "Combined operations should be <800ms for 2048x2048 image")
+
+        // Pool should provide excellent reuse for multiple temporary buffers
+        XCTAssertGreaterThan(stats.hitRate, 50.0, "Pool hit rate should exceed 50% with buffer reuse")
     }
 
     // MARK: - Memory Efficiency Tests

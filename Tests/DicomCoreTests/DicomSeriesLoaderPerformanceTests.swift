@@ -96,6 +96,10 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         var totalLoadTime: CFAbsoluteTime = 0
         var totalDecoderInstantiations = 0
 
+        // Clear and reset pool statistics for clean baseline
+        BufferPool.shared.clear()
+        BufferPool.shared.resetStatistics()
+
         for _ in 0..<iterations {
             var instantiationCount = 0
 
@@ -138,12 +142,22 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         let avgLoadTime = totalLoadTime / Double(iterations)
         let avgDecoderCount = Double(totalDecoderInstantiations) / Double(iterations)
 
+        // Capture pool statistics
+        let stats = BufferPool.shared.statistics
+
         print("""
 
         ========== Series Loading Performance ==========
         Iterations: \(iterations)
         Avg initialization time: \(String(format: "%.6f", avgLoadTime))s
         Avg decoder instantiations: \(String(format: "%.1f", avgDecoderCount))
+
+        Buffer Pool Metrics:
+          Total acquires: \(stats.totalAcquires)
+          Pool hits: \(stats.hits)
+          Pool misses: \(stats.misses)
+          Hit rate: \(String(format: "%.1f", stats.hitRate))%
+          Peak pool size: \(stats.peakPoolSize)
         ================================================
 
         """)
@@ -444,6 +458,10 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
     /// Simulates real-world series loading performance with realistic parameters.
     /// Uses typical CT scan dimensions and slice counts.
     func testRealWorldPerformanceSimulation() {
+        // Clear and reset pool statistics for clean baseline
+        BufferPool.shared.clear()
+        BufferPool.shared.resetStatistics()
+
         let scenarios = [
             ("Small CT scan", sliceCount: 50, width: 512, height: 512),
             ("Medium CT scan", sliceCount: 150, width: 512, height: 512),
@@ -477,6 +495,9 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
             """)
         }
 
+        // Capture pool statistics
+        let stats = BufferPool.shared.statistics
+
         print("""
 
         Performance Impact Summary:
@@ -484,6 +505,13 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         - Speedup is consistent across different image dimensions
         - Larger series benefit more from optimization (amortized overhead)
         - Memory footprint remains unchanged (cache cleared after loading)
+
+        Buffer Pool Metrics:
+          Total acquires: \(stats.totalAcquires)
+          Pool hits: \(stats.hits)
+          Pool misses: \(stats.misses)
+          Hit rate: \(String(format: "%.1f", stats.hitRate))%
+          Peak pool size: \(stats.peakPoolSize)
         =======================================================
 
         """)
@@ -496,6 +524,10 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
     /// Benchmarks batch loading performance with concurrent vs sequential processing.
     /// Expected: Concurrent loading shows measurable speedup over sequential loading.
     func testBatchLoadingPerformance() {
+        // Clear and reset pool statistics for clean baseline
+        BufferPool.shared.clear()
+        BufferPool.shared.resetStatistics()
+
         let processorCount = ProcessInfo.processInfo.processorCount
         let fileCount = 100
         let iterations = 3
@@ -572,6 +604,9 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
         let minSpeedup = processorCount > 1 ? 1.2 : 1.0
         let minSpeedupString = String(format: "%.1f", minSpeedup)
 
+        // Capture pool statistics
+        let stats = BufferPool.shared.statistics
+
         print("""
 
         ========== Batch Loading Performance Benchmark ==========
@@ -584,17 +619,26 @@ final class DicomSeriesLoaderPerformanceTests: XCTestCase {
           Concurrent loading: \(String(format: "%.4f", avgConcurrent))s
           Speedup: \(String(format: "%.2f", avgSpeedup))x
 
+        Buffer Pool Metrics:
+          Total acquires: \(stats.totalAcquires)
+          Pool hits: \(stats.hits)
+          Pool misses: \(stats.misses)
+          Hit rate: \(String(format: "%.1f", stats.hitRate))%
+          Peak pool size: \(stats.peakPoolSize)
+
         Performance Characteristics:
         - Concurrent processing enables parallel file I/O
         - Speedup increases with available CPU cores
         - Thread-safe decoder instantiation is critical
         - Optimal for loading large series (100+ slices)
+        - Buffer pool provides allocation reduction across concurrent operations
 
         Expected Impact:
         - Small series (50 slices): ~1.5-2x speedup
         - Medium series (150 slices): ~2-3x speedup
         - Large series (300+ slices): ~2-4x speedup
         - Speedup limited by CPU core count and I/O bandwidth
+        - Pool hit rate improves with series size
         ==========================================================
 
         """)

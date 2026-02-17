@@ -71,5 +71,6 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 ### Reference
 
 - <doc:SupportedFormats>
+- <doc:ConformanceStatement>
 - <doc:DicomGlossary>
 - <doc:Troubleshooting>

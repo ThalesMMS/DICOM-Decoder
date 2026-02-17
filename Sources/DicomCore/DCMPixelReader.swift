@@ -113,10 +113,18 @@ internal final class DCMPixelReader {
         count: Int,
         littleEndian: Bool
     ) {
-        // Allocate temporary buffer for signed Int16 values
-        var signedPixels = [Int16](repeating: 0, count: count)
+        // Acquire temporary buffers from pool
+        var signedPixels = BufferPool.shared.acquire(type: [Int16].self, count: count)
+        var floatPixels = BufferPool.shared.acquire(type: [Float].self, count: count)
+
+        // Ensure buffers are released back to pool when done
+        defer {
+            BufferPool.shared.release(signedPixels)
+            BufferPool.shared.release(floatPixels)
+        }
 
         // Copy raw bytes into Int16 buffer with appropriate endianness
+        // Note: Buffer may be larger than count due to bucketing, so use only first count elements
         signedPixels.withUnsafeMutableBytes { signedBytes in
             let signedPtr = signedBytes.baseAddress!
             _ = memcpy(signedPtr, sourcePtr, count * 2)
@@ -131,7 +139,6 @@ internal final class DCMPixelReader {
         }
 
         // Convert signed Int16 to Float for vDSP processing
-        var floatPixels = [Float](repeating: 0, count: count)
         signedPixels.withUnsafeBufferPointer { signedBuffer in
             vDSP_vflt16(signedBuffer.baseAddress!, 1, &floatPixels, 1, vDSP_Length(count))
         }
@@ -165,8 +172,15 @@ internal final class DCMPixelReader {
         buffer: inout [UInt16],
         count: Int
     ) {
+        // Acquire temporary buffer from pool
+        var floatPixels = BufferPool.shared.acquire(type: [Float].self, count: count)
+
+        // Ensure buffer is released back to pool when done
+        defer {
+            BufferPool.shared.release(floatPixels)
+        }
+
         // Convert UInt16 to Float for vDSP processing
-        var floatPixels = [Float](repeating: 0, count: count)
         buffer.withUnsafeBufferPointer { uint16Buffer in
             vDSP_vfltu16(uint16Buffer.baseAddress!, 1, &floatPixels, 1, vDSP_Length(count))
         }
@@ -387,9 +401,22 @@ internal final class DCMPixelReader {
                 return result
             }
 
-            // OPTIMIZATION: Use withUnsafeBytes for much faster pixel reading
-            result.pixels16 = Array(repeating: 0, count: numPixels)
-            guard var pixels = result.pixels16 else { return result }
+            // OPTIMIZATION: Use buffer pool to reduce allocation overhead
+            // For very large images (>2048×2048), allocate directly since pool buckets max out
+            var pixels: [UInt16]
+            var pooledBuffer: [UInt16]? = nil
+            if numPixels <= 4194304 { // xlarge bucket size
+                pooledBuffer = BufferPool.shared.acquire(type: [UInt16].self, count: numPixels)
+                pixels = pooledBuffer!
+            } else {
+                pixels = Array(repeating: 0, count: numPixels)
+            }
+            defer {
+                // Release pooled buffer back to pool if used
+                if let buffer = pooledBuffer {
+                    BufferPool.shared.release(buffer)
+                }
+            }
 
             data.withUnsafeBytes { dataBytes in
                 let basePtr = dataBytes.baseAddress!.advanced(by: offset)
@@ -464,7 +491,12 @@ internal final class DCMPixelReader {
                 }
             }
 
-            result.pixels16 = pixels
+            // Copy pixels to result (slice if using pooled buffer to get exact size)
+            if let _ = pooledBuffer {
+                result.pixels16 = Array(pixels[0..<min(numPixels, pixels.count)])
+            } else {
+                result.pixels16 = pixels
+            }
 
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
             logger?.debug("[PERF] readPixels (16-bit): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height)")
@@ -618,8 +650,21 @@ internal final class DCMPixelReader {
             samplesPerPixel: 1
         )
 
-        // Allocate buffer for requested range
-        var pixels = [UInt16](repeating: 0, count: rangeCount)
+        // Acquire buffer from pool for requested range
+        // For very large ranges (>2048×2048), allocate directly
+        var pixels: [UInt16]
+        var pooledBuffer: [UInt16]? = nil
+        if rangeCount <= 4194304 { // xlarge bucket size
+            pooledBuffer = BufferPool.shared.acquire(type: [UInt16].self, count: rangeCount)
+            pixels = pooledBuffer!
+        } else {
+            pixels = Array(repeating: 0, count: rangeCount)
+        }
+        defer {
+            if let buffer = pooledBuffer {
+                BufferPool.shared.release(buffer)
+            }
+        }
 
         data.withUnsafeBytes { dataBytes in
             let basePtr = dataBytes.baseAddress!.advanced(by: rangeByteOffset)
@@ -689,7 +734,12 @@ internal final class DCMPixelReader {
             }
         }
 
-        result.pixels16 = pixels
+        // Copy pixels to result (slice if using pooled buffer to get exact size)
+        if let _ = pooledBuffer {
+            result.pixels16 = Array(pixels[0..<min(rangeCount, pixels.count)])
+        } else {
+            result.pixels16 = pixels
+        }
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
         logger?.debug("[PERF] readPixels16 (range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound) | size: \(width)x\(height)")
@@ -811,8 +861,21 @@ internal final class DCMPixelReader {
             samplesPerPixel: 1
         )
 
-        // Allocate buffer for requested range
-        var pixels = [UInt8](repeating: 0, count: rangeCount)
+        // Acquire buffer from pool for requested range
+        // For very large ranges (>2048×2048), allocate directly
+        var pixels: [UInt8]
+        var pooledBuffer: [UInt8]? = nil
+        if rangeCount <= 4194304 { // xlarge bucket size
+            pooledBuffer = BufferPool.shared.acquire(type: [UInt8].self, count: rangeCount)
+            pixels = pooledBuffer!
+        } else {
+            pixels = Array(repeating: 0, count: rangeCount)
+        }
+        defer {
+            if let buffer = pooledBuffer {
+                BufferPool.shared.release(buffer)
+            }
+        }
 
         // Use withUnsafeBytes for efficient memory-mapped access
         data.withUnsafeBytes { dataBytes in
@@ -832,7 +895,12 @@ internal final class DCMPixelReader {
             }
         }
 
-        result.pixels8 = pixels
+        // Copy pixels to result (slice if using pooled buffer to get exact size)
+        if let _ = pooledBuffer {
+            result.pixels8 = Array(pixels[0..<min(rangeCount, pixels.count)])
+        } else {
+            result.pixels8 = pixels
+        }
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
         logger?.debug("[PERF] readPixels8 (range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound) | size: \(width)x\(height)")
@@ -946,8 +1014,21 @@ internal final class DCMPixelReader {
             samplesPerPixel: 3
         )
 
-        // Allocate buffer for requested range
-        var pixels = [UInt8](repeating: 0, count: rangeBytes)
+        // Acquire buffer from pool for requested range
+        // For very large ranges (>2048×2048×3), allocate directly
+        var pixels: [UInt8]
+        var pooledBuffer: [UInt8]? = nil
+        if rangeBytes <= 12582912 { // xlarge bucket size * 3 for RGB
+            pooledBuffer = BufferPool.shared.acquire(type: [UInt8].self, count: rangeBytes)
+            pixels = pooledBuffer!
+        } else {
+            pixels = Array(repeating: 0, count: rangeBytes)
+        }
+        defer {
+            if let buffer = pooledBuffer {
+                BufferPool.shared.release(buffer)
+            }
+        }
 
         // Use withUnsafeBytes for efficient memory-mapped access
         data.withUnsafeBytes { dataBytes in
@@ -960,7 +1041,12 @@ internal final class DCMPixelReader {
             }
         }
 
-        result.pixels24 = pixels
+        // Copy pixels to result (slice if using pooled buffer to get exact size)
+        if let _ = pooledBuffer {
+            result.pixels24 = Array(pixels[0..<min(rangeBytes, pixels.count)])
+        } else {
+            result.pixels24 = pixels
+        }
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
         logger?.debug("[PERF] readPixels24 (range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound) | size: \(width)x\(height)")

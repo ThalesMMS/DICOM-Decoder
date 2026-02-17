@@ -444,27 +444,47 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                                seriesDescription: seriesDescription)
 
         var loadError: Error?
+
+        // Acquire a single pooled buffer for reuse across all slices
+        var sliceBuffer = BufferPool.shared.acquire(type: [Int16].self, count: sliceVoxelCount)
+
+        // Ensure buffer is large enough (pool uses bucketing, may return larger buffer)
+        if sliceBuffer.count < sliceVoxelCount {
+            // Shouldn't happen, but handle gracefully by extending buffer
+            sliceBuffer.append(contentsOf: repeatElement(Int16(0), count: sliceVoxelCount - sliceBuffer.count))
+        }
+
         // Allocate voxel buffer and copy slices sequentially for safety.
         voxelData.withUnsafeMutableBytes { rawBuffer in
             let dest = rawBuffer.bindMemory(to: Int16.self)
             for (index, slice) in slices.enumerated() {
-                let pixels = try? self.decodeSlice(at: slice.url,
-                                                   expectedWidth: width,
-                                                   expectedHeight: height,
-                                                   isSigned: pixelRepresentation == 1)
-                guard let pixels, pixels.count == sliceVoxelCount else {
+                // Decode directly into reused buffer
+                let pixelCount = try? self.decodeSliceIntoBuffer(
+                    at: slice.url,
+                    buffer: &sliceBuffer,
+                    expectedWidth: width,
+                    expectedHeight: height,
+                    isSigned: pixelRepresentation == 1
+                )
+
+                guard let pixelCount, pixelCount == sliceVoxelCount else {
                     loadError = DicomSeriesLoaderError.failedToDecode(slice.url)
                     break
                 }
+
                 let base = dest.baseAddress!.advanced(by: index * sliceVoxelCount)
-                base.update(from: pixels, count: sliceVoxelCount)
+                base.update(from: sliceBuffer, count: sliceVoxelCount)
+
                 if let progress {
                     let fraction = Double(index + 1) / Double(depth)
-                    let sliceData = Data(bytes: pixels, count: pixels.count * MemoryLayout<Int16>.size)
+                    let sliceData = Data(bytes: sliceBuffer, count: sliceVoxelCount * MemoryLayout<Int16>.size)
                     progress(fraction, index + 1, sliceData, progressVolume)
                 }
             }
         }
+
+        // Release pooled buffer after all slices are processed
+        BufferPool.shared.release(sliceBuffer)
 
         if let error = loadError {
             throw error
@@ -547,6 +567,69 @@ private extension DicomSeriesLoader {
         } else {
             return pixels.map { Int16(bitPattern: $0) }
         }
+    }
+
+    /// Decodes a DICOM slice directly into a provided buffer for memory efficiency.
+    ///
+    /// This method writes decoded pixel data directly into the provided buffer,
+    /// avoiding intermediate allocations. Used by loadSeries() to reuse a single
+    /// buffer across multiple slices.
+    ///
+    /// - Parameters:
+    ///   - url: File URL of the DICOM slice
+    ///   - buffer: Mutable buffer to write decoded pixels into (must have sufficient capacity)
+    ///   - expectedWidth: Expected image width for validation
+    ///   - expectedHeight: Expected image height for validation
+    ///   - isSigned: Whether pixel representation is signed
+    /// - Returns: Number of pixels written to buffer
+    /// - Throws: DicomSeriesLoaderError if decoding fails or validation fails
+    func decodeSliceIntoBuffer(
+        at url: URL,
+        buffer: inout [Int16],
+        expectedWidth: Int,
+        expectedHeight: Int,
+        isSigned: Bool
+    ) throws -> Int {
+        // Try to use cached decoder first, fallback to creating new one
+        let decoder: DicomDecoderProtocol
+        if let cachedDecoder = decoderCache[url] {
+            decoder = cachedDecoder
+        } else {
+            // Load DICOM file using factory
+            decoder = try decoderFactory(url.path)
+        }
+
+        guard decoder.width == expectedWidth,
+              decoder.height == expectedHeight,
+              decoder.bitDepth == 16,
+              decoder.samplesPerPixel == 1 else {
+            throw DicomSeriesLoaderError.failedToDecode(url)
+        }
+
+        guard let pixels = decoder.getPixels16() else {
+            throw DicomSeriesLoaderError.failedToDecode(url)
+        }
+
+        let pixelCount = pixels.count
+
+        // Ensure buffer has sufficient capacity
+        guard buffer.count >= pixelCount else {
+            throw DicomSeriesLoaderError.failedToDecode(url)
+        }
+
+        // Convert pixel values directly into provided buffer
+        if isSigned {
+            for i in 0..<pixelCount {
+                let signed = Int32(pixels[i]) + Int32(Int16.min)
+                buffer[i] = Int16(truncatingIfNeeded: signed)
+            }
+        } else {
+            for i in 0..<pixelCount {
+                buffer[i] = Int16(bitPattern: pixels[i])
+            }
+        }
+
+        return pixelCount
     }
 
     func computeZSpacing(from slices: [SliceMeta],

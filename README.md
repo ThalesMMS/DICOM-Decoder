@@ -5,6 +5,8 @@
   <img src="https://img.shields.io/badge/iOS-13.0+-blue.svg" />
   <img src="https://img.shields.io/badge/macOS-12.0+-blue.svg" />
   <img src="https://img.shields.io/badge/license-MIT-green.svg" />
+  <br/>
+  <img src="https://github.com/ThalesMMS/DICOM-Decoder/actions/workflows/benchmarks.yml/badge.svg" alt="Benchmarks" />
 </p>
 
 ![UI Screenshot](screenshot/screenshot.png)
@@ -27,6 +29,8 @@ Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and res
 - [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Usage Examples](#usage-examples)
+- [Command-Line Tool](#command-line-tool)
+- [SwiftUI Components](#swiftui-components)
 - [Architecture](#architecture)
 - [Documentation](#documentation)
 - [Integration](#integration)
@@ -159,6 +163,8 @@ let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
 ```
 
 See [CLAUDE.md](CLAUDE.md#gpu-acceleration) for detailed usage examples and performance characteristics.
+
+**📊 Comprehensive Benchmarks:** For complete benchmark methodology, regression detection, and historical performance tracking, see [BENCHMARKS.md](BENCHMARKS.md). Our automated benchmarking suite validates these performance claims on every commit and detects performance regressions >10%.
 
 ---
 
@@ -450,6 +456,677 @@ if hu < -500 {
 ```
 
 More examples: [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md).
+
+---
+
+## Command-Line Tool
+
+The `dicomtool` command-line utility provides fast DICOM file inspection, validation, and image export capabilities for developer workflows, scripting, and CI integration.
+
+### Installation
+
+**Homebrew** (recommended):
+
+```bash
+# Install from Homebrew tap (once published)
+brew install thalesmms/dicom/dicomtool
+
+# Or install from local formula
+brew install ./dicomtool.rb
+```
+
+**Build from source:**
+
+```bash
+git clone https://github.com/ThalesMMS/DICOM-Decoder.git
+cd DICOM-Decoder
+swift build -c release
+cp .build/release/dicomtool /usr/local/bin/
+```
+
+### Quick Reference
+
+```bash
+# Inspect DICOM metadata
+dicomtool inspect image.dcm
+
+# Validate DICOM file conformance
+dicomtool validate image.dcm
+
+# Extract image with lung preset
+dicomtool extract ct.dcm --output lung.png --preset lung
+
+# Batch process directory
+dicomtool batch --pattern "*.dcm" --operation validate --format json
+```
+
+### Commands
+
+#### `inspect` - Extract Metadata
+
+Display DICOM metadata in human-readable or JSON format.
+
+```bash
+# Show common metadata tags
+dicomtool inspect image.dcm
+
+# Show all available tags
+dicomtool inspect image.dcm --all
+
+# Show specific tags
+dicomtool inspect image.dcm --tags PatientName,Modality,StudyDate
+
+# JSON output for scripting
+dicomtool inspect image.dcm --format json
+```
+
+**Example output (text):**
+
+```text
+DICOM File: image.dcm
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Patient Information:
+  Patient Name:     DOE^JOHN
+  Patient ID:       12345
+  Patient Birth:    1970-01-01
+
+Study Information:
+  Study Date:       2024-01-15
+  Study Description: CT Chest with Contrast
+  Modality:         CT
+
+Image Properties:
+  Dimensions:       512 × 512
+  Bits Allocated:   16
+  Pixel Spacing:    0.742 × 0.742 mm
+```
+
+#### `validate` - DICOM Conformance
+
+Validate DICOM file structure and report issues.
+
+```bash
+# Validate single file
+dicomtool validate image.dcm
+
+# JSON output with detailed errors
+dicomtool validate image.dcm --format json
+```
+
+**Example output:**
+
+```text
+✓ Valid DICOM file: image.dcm
+
+Validation Results:
+  • File size: 524,288 bytes
+  • DICOM prefix: Present
+  • Transfer syntax: 1.2.840.10008.1.2.1 (Explicit VR Little Endian)
+  • Required tags: Complete
+```
+
+#### `extract` - Export Images
+
+Extract pixel data with medical windowing presets or custom parameters.
+
+**Medical presets available:**
+- `lung` - Lung tissue (-600/1500 HU)
+- `bone` - Bone structures (400/1800 HU)
+- `brain` - Brain tissue (40/80 HU)
+- `softtissue` - Soft tissue (50/350 HU)
+- `liver` - Liver imaging (80/150 HU)
+- `mediastinum` - Mediastinum (50/350 HU)
+- `abdomen` - Abdominal organs (60/400 HU)
+- `spine` - Spine imaging (40/400 HU)
+- `pelvis` - Pelvic structures (40/400 HU)
+- `angiography` - Vascular imaging (300/600 HU)
+- `pulmonaryembolism` - PE protocol (100/700 HU)
+- `mammography` - Breast imaging (50/500 HU)
+- `petscan` - PET imaging (0/5000)
+
+```bash
+# Extract with medical preset
+dicomtool extract ct.dcm --output lung.png --preset lung
+
+# Custom window/level
+dicomtool extract ct.dcm --output custom.png \
+  --window-center 50 --window-width 400
+
+# Automatic optimal windowing
+dicomtool extract ct.dcm --output auto.png
+
+# TIFF format with GPU acceleration
+dicomtool extract ct.dcm --output high-quality.tiff \
+  --format tiff --processing-mode metal
+
+# Overwrite existing file
+dicomtool extract ct.dcm --output result.png --overwrite
+```
+
+**Processing modes:**
+- `vdsp` - CPU acceleration (best for <800×800 images)
+- `metal` - GPU acceleration (best for ≥800×800 images, 3.94× speedup)
+- `auto` - Automatic selection based on image size (default)
+
+#### `batch` - Batch Processing
+
+Process multiple DICOM files using glob patterns with concurrent execution.
+
+```bash
+# Inspect all DICOM files in directory
+dicomtool batch --pattern "*.dcm" --operation inspect
+
+# Validate all files recursively with JSON output
+dicomtool batch --pattern "**/*.dcm" --operation validate --format json
+
+# Extract all files with lung preset to exports directory
+dicomtool batch --pattern "studies/*/*.dcm" --operation extract \
+  --output-dir ./exports --preset lung --image-format png
+
+# Sequential processing (no concurrency)
+dicomtool batch --pattern "*.dcm" --operation inspect --max-concurrent 1
+
+# Custom windowing for batch extraction
+dicomtool batch --pattern "*.dcm" --operation extract \
+  --output-dir ./out --window-center 40 --window-width 80
+```
+
+**Glob pattern examples:**
+- `*.dcm` - All .dcm files in current directory
+- `**/*.dcm` - All .dcm files recursively
+- `study_*/series_*/*.dcm` - Complex patterns with wildcards
+- `{CT,MR}/*.dcm` - Multiple alternatives (brace expansion)
+
+**Example output:**
+
+```text
+Processing 48 files with pattern: *.dcm
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Progress: [████████████████████] 48/48 (100%)
+
+Summary:
+  Total files:   48
+  Successful:    46
+  Failed:        2
+  Duration:      3.2s
+
+Failed files:
+  • corrupt.dcm: Invalid DICOM format
+  • partial.dcm: Unexpected EOF
+```
+
+### Use Cases
+
+**Developer workflows:**
+
+```bash
+# Quick file inspection during debugging
+dicomtool inspect mysterious_file.dcm
+
+# Verify DICOM conformance before processing
+if dicomtool validate input.dcm --format json | jq -e '.valid'; then
+  echo "Processing valid DICOM file"
+fi
+
+# Generate preview images for web display
+dicomtool extract series/*.dcm --output-dir ./previews --preset softtissue
+```
+
+**CI/CD integration:**
+
+```bash
+#!/bin/bash
+# Validate DICOM test fixtures in CI pipeline
+
+echo "Validating DICOM test files..."
+if dicomtool batch --pattern "tests/fixtures/**/*.dcm" \
+                    --operation validate \
+                    --format json > validation.json; then
+  echo "✓ All DICOM files valid"
+  exit 0
+else
+  echo "✗ DICOM validation failed"
+  cat validation.json | jq '.errors'
+  exit 1
+fi
+```
+
+**Batch conversion scripts:**
+
+```bash
+#!/bin/bash
+# Convert hospital study archive to PNG previews
+
+for study_dir in /mnt/pacs/studies/*; do
+  study_id=$(basename "$study_dir")
+  echo "Processing study: $study_id"
+
+  dicomtool batch \
+    --pattern "$study_dir/**/*.dcm" \
+    --operation extract \
+    --output-dir "./previews/$study_id" \
+    --preset softtissue \
+    --max-concurrent 8
+done
+```
+
+**Research data validation:**
+
+```bash
+# Validate and report on research dataset
+dicomtool batch --pattern "dataset/**/*.dcm" \
+                --operation validate \
+                --format json | \
+  jq -r '.results[] | select(.valid == false) | .file' > invalid_files.txt
+
+echo "Found $(wc -l < invalid_files.txt) invalid files"
+```
+
+### JSON Output Format
+
+All commands support `--format json` for programmatic parsing:
+
+```json
+{
+  "file": "image.dcm",
+  "valid": true,
+  "metadata": {
+    "PatientName": "DOE^JOHN",
+    "Modality": "CT",
+    "StudyDate": "20240115",
+    "Rows": "512",
+    "Columns": "512"
+  }
+}
+```
+
+### Performance
+
+- **Concurrent processing**: Default 4 concurrent operations (configurable with `--max-concurrent`)
+- **Memory efficient**: Processes files individually, no bulk loading
+- **GPU acceleration**: Optional Metal backend for extract operations (3.94× speedup on 1024×1024 images)
+
+### Requirements
+
+- macOS 12.0+ (10.15+ for basic functionality)
+- Swift 5.9+
+- Xcode 14.0+ (for building from source)
+
+---
+
+
+## SwiftUI Components
+
+The library includes **DicomSwiftUI**, a complete set of pre-built SwiftUI components for building DICOM medical image viewers with minimal code.
+> Requires iOS 14+ / macOS 12+ (SwiftUI components use `@StateObject`).
+
+### Available Components
+
+| Component | Description | Key Features |
+|-----------|-------------|--------------|
+| **DicomImageView** | Display DICOM images | Automatic scaling, windowing modes, GPU acceleration |
+| **WindowingControlView** | Interactive window/level controls | 13 medical presets, sliders, automatic optimization |
+| **SeriesNavigatorView** | Navigate DICOM series | Slice navigation, progress indicator, keyboard shortcuts |
+| **MetadataView** | Display DICOM metadata | Organized sections, formatted values, accessibility |
+
+### Installation
+
+Add DicomSwiftUI to your SwiftUI project:
+
+```swift
+// Package.swift
+dependencies: [
+    .package(url: "https://github.com/ThalesMMS/DICOM-Decoder.git", from: "1.0.0")
+],
+targets: [
+    .target(
+        name: "MyApp",
+        dependencies: [
+            .product(name: "DicomSwiftUI", package: "DICOM-Decoder")
+        ]
+    )
+]
+```
+
+```swift
+import SwiftUI
+import DicomSwiftUI
+```
+
+### Quick Start Examples
+
+#### 1. Basic DICOM Image Display
+
+Display a DICOM image with automatic windowing:
+
+```swift
+import SwiftUI
+import DicomSwiftUI
+
+struct ContentView: View {
+    let dicomURL: URL
+
+    var body: some View {
+        DicomImageView(url: dicomURL)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+```
+
+**Features:**
+- Automatic file loading
+- Optimal window/level calculation
+- Aspect ratio preservation
+- Loading and error states
+
+#### 2. Interactive Windowing Controls
+
+Add medical preset buttons and interactive sliders:
+
+```swift
+struct DicomViewerView: View {
+    let dicomURL: URL
+    @StateObject private var imageViewModel = DicomImageViewModel()
+    @StateObject private var windowingViewModel = WindowingViewModel()
+
+    var body: some View {
+        VStack {
+            // Display image
+            DicomImageView(url: dicomURL, viewModel: imageViewModel)
+
+            // Windowing controls with presets
+            if let decoder = imageViewModel.decoder {
+                WindowingControlView(
+                    decoder: decoder,
+                    viewModel: windowingViewModel,
+                    onWindowChange: { center, width in
+                        imageViewModel.updateWindowing(.custom(center: center, width: width))
+                    }
+                )
+            }
+        }
+    }
+}
+```
+
+Compatibility note:
+- The `DicomViewerView` example above uses `@StateObject` with `DicomImageViewModel` and `WindowingViewModel`, which requires iOS 14+.
+- For iOS 13 targets, use `@ObservedObject` and initialize/inject the view models in `init`:
+
+```swift
+struct DicomViewerView: View {
+    let dicomURL: URL
+    @ObservedObject private var imageViewModel: DicomImageViewModel
+    @ObservedObject private var windowingViewModel: WindowingViewModel
+
+    init(
+        dicomURL: URL,
+        imageViewModel: DicomImageViewModel = DicomImageViewModel(),
+        windowingViewModel: WindowingViewModel = WindowingViewModel()
+    ) {
+        self.dicomURL = dicomURL
+        self.imageViewModel = imageViewModel
+        self.windowingViewModel = windowingViewModel
+    }
+
+    var body: some View {
+        // Same body as the @StateObject example
+        DicomImageView(url: dicomURL, viewModel: imageViewModel)
+    }
+}
+```
+
+**Available presets:**
+- **CT**: Lung, Bone, Brain, Liver, Mediastinum, Abdomen, Spine, Pelvis
+- **Specialized**: Angiography, Pulmonary Embolism, Mammography, PET Scan
+
+#### 3. Series Navigation
+
+Navigate through multi-slice DICOM series:
+
+```swift
+struct SeriesViewerView: View {
+    let seriesURLs: [URL]
+    @State private var currentIndex = 0
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Display current slice
+            DicomImageView(url: seriesURLs[currentIndex])
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            // Navigation controls
+            SeriesNavigatorView(
+                currentIndex: $currentIndex,
+                totalCount: seriesURLs.count,
+                onNavigate: { newIndex in
+                    // Optional: Preload adjacent slices
+                    preloadSlice(at: newIndex)
+                }
+            )
+            .frame(height: 80)
+        }
+    }
+
+    func preloadSlice(at index: Int) {
+        // Preload logic here
+    }
+}
+```
+
+**Features:**
+- First/Previous/Next/Last buttons
+- Interactive slider
+- Slice counter with progress percentage
+- Keyboard shortcuts support
+- Thumbnail strip placeholder
+
+#### 4. Metadata Display
+
+Show formatted DICOM metadata:
+
+```swift
+struct MetadataDisplayView: View {
+    let dicomURL: URL
+
+    var body: some View {
+        VStack(spacing: 0) {
+            DicomImageView(url: dicomURL)
+                .frame(maxHeight: 400)
+
+            Divider()
+
+            MetadataView(url: dicomURL)
+                .frame(maxHeight: 250)
+        }
+    }
+}
+```
+
+**Displayed information:**
+- **Patient**: Name, ID, Age, Sex, Birth Date
+- **Study**: Date, Time, Description, Modality, Study UID
+- **Series**: Number, Description, Series UID
+- **Image**: Dimensions, Spacing, Position, Window/Level settings
+
+#### 5. Complete DICOM Viewer
+
+Combine all components into a full-featured viewer:
+
+```swift
+struct CompleteDicomViewerView: View {
+    let seriesURLs: [URL]
+    @State private var currentIndex = 0
+    @StateObject private var imageViewModel = DicomImageViewModel()
+    @StateObject private var windowingViewModel = WindowingViewModel()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Main image display
+            DicomImageView(
+                url: seriesURLs[currentIndex],
+                viewModel: imageViewModel,
+                windowingMode: .custom(
+                    center: windowingViewModel.center,
+                    width: windowingViewModel.width
+                )
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            // Metadata panel
+            MetadataView(url: seriesURLs[currentIndex])
+                .frame(height: 150)
+
+            Divider()
+
+            // Windowing controls
+            if let decoder = imageViewModel.decoder {
+                WindowingControlView(
+                    decoder: decoder,
+                    viewModel: windowingViewModel,
+                    layout: .compact,
+                    onWindowChange: { center, width in
+                        imageViewModel.updateWindowing(.custom(center: center, width: width))
+                    }
+                )
+                .padding()
+            }
+
+            Divider()
+
+            // Series navigation
+            SeriesNavigatorView(
+                currentIndex: $currentIndex,
+                totalCount: seriesURLs.count
+            )
+            .frame(height: 80)
+        }
+    }
+}
+```
+
+### Windowing Modes
+
+DicomImageView supports multiple windowing strategies:
+
+```swift
+// Automatic optimal window calculation
+DicomImageView(url: dicomURL, windowingMode: .automatic)
+
+// Medical preset (13 presets available)
+DicomImageView(url: dicomURL, windowingMode: .preset(.lung))
+DicomImageView(url: dicomURL, windowingMode: .preset(.bone))
+DicomImageView(url: dicomURL, windowingMode: .preset(.brain))
+
+// Custom window/level values
+DicomImageView(url: dicomURL, windowingMode: .custom(center: 50.0, width: 400.0))
+
+// Use window/level from DICOM file tags
+DicomImageView(url: dicomURL, windowingMode: .fromDecoder)
+```
+
+### GPU Acceleration
+
+Enable GPU acceleration for large images:
+
+```swift
+// Automatic selection (recommended)
+DicomImageView(
+    url: dicomURL,
+    processingMode: .auto  // Uses Metal for ≥800×800 images
+)
+
+// Force GPU processing
+DicomImageView(
+    url: dicomURL,
+    processingMode: .metal  // Always use Metal (falls back to vDSP if unavailable)
+)
+
+// Force CPU processing
+DicomImageView(
+    url: dicomURL,
+    processingMode: .vdsp  // Always use vDSP (Accelerate framework)
+)
+```
+
+**Performance benefits:**
+- 3.94× speedup for 1024×1024 images on Apple Silicon
+- Automatic fallback to vDSP if Metal unavailable
+- See [Performance](#performance) section for benchmarks
+
+### Customization
+
+All components support customization:
+
+```swift
+// Custom styling
+DicomImageView(url: dicomURL)
+    .background(Color.black)
+    .cornerRadius(8)
+    .shadow(radius: 4)
+
+// Compact layout
+WindowingControlView(decoder: decoder, layout: .compact)
+
+// Expanded layout with more controls
+WindowingControlView(decoder: decoder, layout: .expanded)
+
+// Custom error handling
+DicomImageView(url: dicomURL)
+    .overlay {
+        if let error = viewModel.error {
+            ErrorView(error: error)
+        }
+    }
+```
+
+### Accessibility & Dark Mode
+
+All components include comprehensive accessibility support:
+
+- ✅ **VoiceOver** labels and hints
+- ✅ **Dynamic Type** text scaling
+- ✅ **Keyboard navigation** support
+- ✅ **Dark mode** adaptive colors
+- ✅ **High contrast** compatibility
+- ✅ **Reduced motion** preferences
+
+### Example Application
+
+A complete reference implementation is available in `Examples/DicomSwiftUIExample/`:
+
+```bash
+# Run the example app
+swift run DicomSwiftUIExample
+```
+
+**Demonstrates:**
+- All four SwiftUI components
+- Multiple windowing modes (automatic, presets, custom, GPU)
+- Series loading and navigation
+- Metadata display with different layouts
+- Dark mode and accessibility features
+
+See [Examples/DicomSwiftUIExample/README.md](Examples/DicomSwiftUIExample/README.md) for detailed usage.
+
+### Documentation
+
+- **Getting Started**: `Sources/DicomSwiftUI/DicomSwiftUI.docc/GettingStarted.md`
+- **API Reference**: Run `swift package generate-documentation --target DicomSwiftUI`
+- **Code Samples**: `Sources/DicomSwiftUI/DicomSwiftUI.docc/Resources/code-samples/`
+- **Example App**: `Examples/DicomSwiftUIExample/`
+
+### Platform Support
+
+- **Core vs SwiftUI**: `DicomCore` supports iOS 13.0+ / macOS 12.0+; `DicomSwiftUI` components require iOS 14.0+ because examples use `@StateObject`.
+- **Recommended (new)**: Use the `@StateObject` examples on iOS 14+ / macOS 12+.
+- **Legacy fallback (iOS 13)**: Use the `@ObservedObject` initialization/injection pattern shown above, then migrate to `@StateObject` when iOS 14+ is your minimum target.
 
 ---
 
