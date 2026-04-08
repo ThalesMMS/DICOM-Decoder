@@ -8,10 +8,9 @@
 //
 //  Usage:
 //
-//    let dict = DCMDictionary()
 //    let parser = DCMTagParser(
 //        data: dicomData,
-//        dict: dict,
+//        dict: DCMDictionary.shared,
 //        binaryReader: reader
 //    )
 //    var location = 132
@@ -81,60 +80,48 @@ internal final class DCMTagParser {
     /// - Parameters:
     ///   - location: Current read position (updated after reading)
     ///   - littleEndian: Byte order flag
+    ///   - isExplicitVR: Whether to parse as explicit or implicit VR
     /// - Returns: Element length in bytes
-    internal func getLength(location: inout Int, littleEndian: Bool) -> Int {
-        // Read four bytes for VR and initial length field
-        let b0 = binaryReader.readByte(location: &location)
-        let b1 = binaryReader.readByte(location: &location)
-        let b2 = binaryReader.readByte(location: &location)
-        let b3 = binaryReader.readByte(location: &location)
-
-        // Combine the first two bytes into a VR code; this will be
-        // overwritten later if we detect an implicit VR
-        let rawVR = Int(UInt16(b0) << 8 | UInt16(b1))
-        vr = DicomVR(rawValue: rawVR) ?? .unknown
-
-        var retValue: Int = 0
-
-        switch vr {
-        case .OB, .OW, .SQ, .UN, .UT:
-            // Explicit VRs with 32‑bit lengths have two reserved
-            // bytes (b2 and b3).  If those bytes are zero we
-            // interpret the following 4 bytes as the length.
-            if b2 == 0 || b3 == 0 {
-                retValue = binaryReader.readInt(location: &location)
-            } else {
-                // This is actually an implicit VR; the four bytes
-                // read constitute the length.
-                vr = .implicitRaw
+    internal func getLength(location: inout Int, littleEndian: Bool, isExplicitVR: Bool) -> Int {
+        if isExplicitVR {
+            // Read two bytes for VR
+            let b0 = binaryReader.readByte(location: &location)
+            let b1 = binaryReader.readByte(location: &location)
+            let rawVR = Int(UInt16(b0) << 8 | UInt16(b1))
+            vr = DicomVR(rawValue: rawVR) ?? .unknown
+            
+            if vr.uses32BitLength {
+                // Skip two reserved bytes
+                location += 2
+                // Read 32-bit length
+                elementLength = binaryReader.readInt(location: &location)
+            } else if vr == .unknown {
+                // Fallback for unknown VR in explicit mode: assume it might be 16-bit length
+                // or try to guess if it's actually implicit. This is a safety measure.
                 if littleEndian {
-                    retValue = Int(b3) << 24 | Int(b2) << 16 | Int(b1) << 8 | Int(b0)
+                    elementLength = Int(binaryReader.readShort(location: &location))
                 } else {
-                    retValue = Int(b0) << 24 | Int(b1) << 16 | Int(b2) << 8 | Int(b3)
+                    let b2 = binaryReader.readByte(location: &location)
+                    let b3 = binaryReader.readByte(location: &location)
+                    elementLength = Int(b2) << 8 | Int(b3)
+                }
+            } else {
+                // 16-bit length for all other explicit VRs
+                if littleEndian {
+                    elementLength = Int(binaryReader.readShort(location: &location))
+                } else {
+                    let b2 = binaryReader.readByte(location: &location)
+                    let b3 = binaryReader.readByte(location: &location)
+                    elementLength = Int(b2) << 8 | Int(b3)
                 }
             }
-
-        case .AE, .AS, .AT, .CS, .DA, .DS, .DT, .FD, .FL, .IS, .LO,
-             .LT, .PN, .SH, .SL, .SS, .ST, .TM, .UI, .UL, .US, .QQ, .RT:
-            // Explicit VRs with 16‑bit lengths
-            if littleEndian {
-                retValue = Int(b3) << 8 | Int(b2)
-            } else {
-                retValue = Int(b2) << 8 | Int(b3)
-            }
-
-        default:
-            // Implicit VR with 32‑bit length
+        } else {
+            // Implicit VR - all tags have 32-bit length, VR is inferred from dictionary
             vr = .implicitRaw
-            if littleEndian {
-                retValue = Int(b3) << 24 | Int(b2) << 16 | Int(b1) << 8 | Int(b0)
-            } else {
-                retValue = Int(b0) << 24 | Int(b1) << 16 | Int(b2) << 8 | Int(b3)
-            }
+            elementLength = binaryReader.readInt(location: &location)
         }
-
-        elementLength = retValue
-        return retValue
+        
+        return elementLength
     }
 
     /// Reads the next tag from the stream.  Returns the tag value
@@ -146,12 +133,14 @@ internal final class DCMTagParser {
     ///   - location: Current read position (updated after reading)
     ///   - data: DICOM file data
     ///   - littleEndian: Byte order flag (may be modified for big endian detection)
+    ///   - isExplicitVR: Whether to parse as explicit or implicit VR
     ///   - bigEndianTransferSyntax: Flag indicating big endian transfer syntax
     /// - Returns: Tag value as 32-bit integer (group << 16 | element)
     internal func getNextTag(
         location: inout Int,
         data: Data,
         littleEndian: inout Bool,
+        isExplicitVR: Bool,
         bigEndianTransferSyntax: Bool
     ) -> Int {
         // Check if we have enough data to read a tag
@@ -162,8 +151,7 @@ internal final class DCMTagParser {
         let group = Int(binaryReader.readShort(location: &location))
 
         // Endianness detection: if the group appears as 0x0800 in a
-        // big endian transfer syntax we flip endianness.  This
-        // mirrors the hack in the original implementation.
+        // big endian transfer syntax we flip endianness.
         var actualGroup = group
         if group == 0x0800 && bigEndianTransferSyntax {
             littleEndian = false
@@ -173,7 +161,7 @@ internal final class DCMTagParser {
         let element = Int(binaryReader.readShort(location: &location))
         let tag = actualGroup << 16 | element
 
-        elementLength = getLength(location: &location, littleEndian: littleEndian)
+        elementLength = getLength(location: &location, littleEndian: littleEndian, isExplicitVR: isExplicitVR)
 
         // Handle undefined lengths indicating the start of a sequence
         if elementLength == -1 || elementLength == 0xFFFFFFFF {
@@ -262,7 +250,7 @@ internal final class DCMTagParser {
             // Skip elementLength bytes (4 bytes per float)
             location += elementLength
 
-        case .AE, .AS, .AT, .CS, .DA, .DS, .DT, .IS, .LO, .LT, .PN, .SH, .ST, .TM, .UI:
+        case .AE, .AS, .AT, .CS, .DA, .DS, .DT, .LO, .LT, .PN, .SH, .ST, .TM, .UI:
             value = binaryReader.readString(length: elementLength, location: &location)
 
         case .US:
@@ -314,31 +302,6 @@ internal final class DCMTagParser {
             let desc = description ?? "---"
             return "\(desc): \(value ?? "")"
         }
-    }
-
-    /// Extracts raw tag metadata without formatting to a string.
-    /// Returns TagMetadata containing the tag's location, VR, and element length.
-    /// This is used for lazy parsing where the tag value is not immediately needed.
-    ///
-    /// - Parameters:
-    ///   - tag: The DICOM tag
-    ///   - location: Current read position (pointing to tag value start)
-    /// - Returns: TagMetadata if the tag should be stored, nil if it should be skipped
-    internal func getTagMetadata(tag: Int, location: Int) -> TagMetadata? {
-        let key = String(format: "%08X", tag)
-
-        // Handle sequence delimiters - these are not stored
-        if key == "FFFEE000" || key == "FFFEE00D" || key == "FFFEE0DD" {
-            return nil
-        }
-
-        // Return metadata capturing current parser state
-        return TagMetadata(
-            tag: tag,
-            offset: location,
-            vr: vr,
-            elementLength: elementLength
-        )
     }
 
     /// Adds the provided value to the DICOM info dictionary keyed by the raw

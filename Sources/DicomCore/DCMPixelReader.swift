@@ -27,7 +27,6 @@
 //
 
 import Foundation
-import Accelerate
 import CoreGraphics
 import ImageIO
 
@@ -75,6 +74,12 @@ internal final class DCMPixelReader {
     /// Protects against excessive memory use and integer overflow.
     private static let maxPixelBufferSize: Int64 = 2 * 1024 * 1024 * 1024
 
+    /// DICOM item tag `(FFFE,E000)` stored in little-endian byte order.
+    private static let itemTag: UInt32 = 0xE000FFFE
+
+    /// DICOM sequence delimitation tag `(FFFE,E0DD)` stored in little-endian byte order.
+    private static let sequenceDelimitationTag: UInt32 = 0xE0DDFFFE
+
     // MARK: - Pixel Reading Methods
 
     /// Converts a two's complement encoded 16‑bit value into an
@@ -95,156 +100,6 @@ internal final class DCMPixelReader {
         return UInt16(shifted)
     }
 
-    /// Vectorized conversion of signed 16‑bit pixels to unsigned
-    /// representation using Accelerate vDSP operations.  This
-    /// function reads signed Int16 values from raw bytes and shifts
-    /// them into the unsigned UInt16 range by subtracting Int16.min
-    /// (i.e., adding 32768).  The conversion is performed using SIMD
-    /// operations for optimal performance.
-    ///
-    /// - Parameters:
-    ///   - sourcePtr: Pointer to raw byte data containing signed 16‑bit pixels
-    ///   - outputBuffer: Destination buffer for normalized UInt16 pixels
-    ///   - count: Number of pixels to convert
-    ///   - littleEndian: True if source data is little endian
-    private static func normaliseSigned16Vectorized(
-        sourcePtr: UnsafeRawPointer,
-        outputBuffer: inout [UInt16],
-        count: Int,
-        littleEndian: Bool
-    ) {
-        // Acquire temporary buffers from pool
-        var signedPixels = BufferPool.shared.acquire(type: [Int16].self, count: count)
-        var floatPixels = BufferPool.shared.acquire(type: [Float].self, count: count)
-
-        // Ensure buffers are released back to pool when done
-        defer {
-            BufferPool.shared.release(signedPixels)
-            BufferPool.shared.release(floatPixels)
-        }
-
-        // Copy raw bytes into Int16 buffer with appropriate endianness
-        // Note: Buffer may be larger than count due to bucketing, so use only first count elements
-        signedPixels.withUnsafeMutableBytes { signedBytes in
-            let signedPtr = signedBytes.baseAddress!
-            _ = memcpy(signedPtr, sourcePtr, count * 2)
-
-            // Handle big endian byte swapping if needed
-            if !littleEndian {
-                let int16Ptr = signedPtr.assumingMemoryBound(to: Int16.self)
-                for i in 0..<count {
-                    int16Ptr[i] = Int16(bigEndian: int16Ptr[i])
-                }
-            }
-        }
-
-        // Convert signed Int16 to Float for vDSP processing
-        signedPixels.withUnsafeBufferPointer { signedBuffer in
-            vDSP_vflt16(signedBuffer.baseAddress!, 1, &floatPixels, 1, vDSP_Length(count))
-        }
-
-        // Add offset to shift signed range [-32768, 32767] to unsigned [0, 65535]
-        var offset: Float = 32768.0
-        vDSP_vsadd(floatPixels, 1, &offset, &floatPixels, 1, vDSP_Length(count))
-
-        // Clamp to valid range [0, 65535] to handle any edge cases
-        var lowerBound: Float = 0.0
-        var upperBound: Float = 65535.0
-        vDSP_vclip(floatPixels, 1, &lowerBound, &upperBound, &floatPixels, 1, vDSP_Length(count))
-
-        // Convert back to UInt16
-        floatPixels.withUnsafeBufferPointer { floatBuffer in
-            outputBuffer.withUnsafeMutableBufferPointer { uint16Buffer in
-                vDSP_vfixu16(floatBuffer.baseAddress!, 1, uint16Buffer.baseAddress!, 1, vDSP_Length(count))
-            }
-        }
-    }
-
-    /// Vectorized inversion of 16‑bit pixels for MONOCHROME1 photometric
-    /// interpretation using Accelerate vDSP operations.  This function
-    /// performs the operation: output[i] = 65535 - input[i] using SIMD
-    /// operations for optimal performance on large pixel buffers.
-    ///
-    /// - Parameters:
-    ///   - buffer: Buffer of UInt16 pixels to invert in-place
-    ///   - count: Number of pixels to invert
-    private static func invertMonochrome1Vectorized(
-        buffer: inout [UInt16],
-        count: Int
-    ) {
-        // Acquire temporary buffer from pool
-        var floatPixels = BufferPool.shared.acquire(type: [Float].self, count: count)
-
-        // Ensure buffer is released back to pool when done
-        defer {
-            BufferPool.shared.release(floatPixels)
-        }
-
-        // Convert UInt16 to Float for vDSP processing
-        buffer.withUnsafeBufferPointer { uint16Buffer in
-            vDSP_vfltu16(uint16Buffer.baseAddress!, 1, &floatPixels, 1, vDSP_Length(count))
-        }
-
-        // Negate values: -input
-        vDSP_vneg(floatPixels, 1, &floatPixels, 1, vDSP_Length(count))
-
-        // Add 65535: 65535 + (-input) = 65535 - input
-        var offset: Float = 65535.0
-        vDSP_vsadd(floatPixels, 1, &offset, &floatPixels, 1, vDSP_Length(count))
-
-        // Clamp to valid range [0, 65535] to handle any edge cases
-        var lowerBound: Float = 0.0
-        var upperBound: Float = 65535.0
-        vDSP_vclip(floatPixels, 1, &lowerBound, &upperBound, &floatPixels, 1, vDSP_Length(count))
-
-        // Convert back to UInt16
-        floatPixels.withUnsafeBufferPointer { floatBuffer in
-            buffer.withUnsafeMutableBufferPointer { uint16Buffer in
-                vDSP_vfixu16(floatBuffer.baseAddress!, 1, uint16Buffer.baseAddress!, 1, vDSP_Length(count))
-            }
-        }
-    }
-
-    /// Vectorized inversion of signed 16‑bit pixels for MONOCHROME1
-    /// photometric interpretation using Accelerate vDSP operations.
-    /// This function performs the operation:
-    /// output[i] = 32768 - (input[i] - 32768) = 65536 - input[i]
-    /// which inverts pixel values around the midpoint 32768 for
-    /// normalized signed pixels.
-    ///
-    /// - Parameters:
-    ///   - buffer: Buffer of UInt16 pixels to invert in-place
-    ///   - count: Number of pixels to invert
-    private static func invertMonochrome1SignedVectorized(
-        buffer: inout [UInt16],
-        count: Int
-    ) {
-        // Convert UInt16 to Float for vDSP processing
-        var floatPixels = [Float](repeating: 0, count: count)
-        buffer.withUnsafeBufferPointer { uint16Buffer in
-            vDSP_vfltu16(uint16Buffer.baseAddress!, 1, &floatPixels, 1, vDSP_Length(count))
-        }
-
-        // Negate values: -input
-        vDSP_vneg(floatPixels, 1, &floatPixels, 1, vDSP_Length(count))
-
-        // Add 65536: 65536 + (-input) = 65536 - input
-        var offset: Float = 65536.0
-        vDSP_vsadd(floatPixels, 1, &offset, &floatPixels, 1, vDSP_Length(count))
-
-        // Clamp to valid range [0, 65535] to handle wrapping
-        var lowerBound: Float = 0.0
-        var upperBound: Float = 65535.0
-        vDSP_vclip(floatPixels, 1, &lowerBound, &upperBound, &floatPixels, 1, vDSP_Length(count))
-
-        // Convert back to UInt16
-        floatPixels.withUnsafeBufferPointer { floatBuffer in
-            buffer.withUnsafeMutableBufferPointer { uint16Buffer in
-                vDSP_vfixu16(floatBuffer.baseAddress!, 1, uint16Buffer.baseAddress!, 1, vDSP_Length(count))
-            }
-        }
-    }
-
     /// Validates dimensions and computes pixel counts and byte sizes safely.
     /// Returns nil when dimensions are invalid or allocations would be unsafe.
     private static func computePixelMetrics(
@@ -252,7 +107,7 @@ internal final class DCMPixelReader {
         height: Int,
         bytesPerPixel: Int64,
         context: String,
-        logger: LoggerProtocol?
+        logger: AnyLogger?
     ) -> (numPixels: Int, numBytes: Int)? {
         guard width > 0, height > 0 else {
             logger?.warning("Invalid image dimensions: width=\(width), height=\(height)")
@@ -334,7 +189,7 @@ internal final class DCMPixelReader {
         pixelRepresentation: Int,
         littleEndian: Bool,
         photometricInterpretation: String,
-        logger: LoggerProtocol? = nil
+        logger: AnyLogger? = nil
     ) -> DCMPixelReadResult {
         let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -401,22 +256,9 @@ internal final class DCMPixelReader {
                 return result
             }
 
-            // OPTIMIZATION: Use buffer pool to reduce allocation overhead
-            // For very large images (>2048×2048), allocate directly since pool buckets max out
-            var pixels: [UInt16]
-            var pooledBuffer: [UInt16]? = nil
-            if numPixels <= 4194304 { // xlarge bucket size
-                pooledBuffer = BufferPool.shared.acquire(type: [UInt16].self, count: numPixels)
-                pixels = pooledBuffer!
-            } else {
-                pixels = Array(repeating: 0, count: numPixels)
-            }
-            defer {
-                // Release pooled buffer back to pool if used
-                if let buffer = pooledBuffer {
-                    BufferPool.shared.release(buffer)
-                }
-            }
+            // OPTIMIZATION: Use withUnsafeBytes for much faster pixel reading
+            result.pixels16 = Array(repeating: 0, count: numPixels)
+            guard var pixels = result.pixels16 else { return result }
 
             data.withUnsafeBytes { dataBytes in
                 let basePtr = dataBytes.baseAddress!.advanced(by: offset)
@@ -429,74 +271,65 @@ internal final class DCMPixelReader {
                         if offset % 2 == 0 {
                             // Aligned - can use fast path
                             basePtr.withMemoryRebound(to: UInt16.self, capacity: numPixels) { uint16Ptr in
-                                // Direct copy for aligned data
-                                pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                                    _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, numBytes)
-                                }
-
-                                // Handle MONOCHROME1 inversion if needed using vectorized operations
                                 if photometricInterpretation == "MONOCHROME1" {
-                                    invertMonochrome1Vectorized(buffer: &pixels, count: numPixels)
+                                    // Invert for MONOCHROME1 (white is zero)
+                                    for i in 0..<numPixels {
+                                        pixels[i] = 65535 - uint16Ptr[i]
+                                    }
+                                } else {
+                                    // Direct copy for MONOCHROME2
+                                    pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                                        _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, numBytes)
+                                    }
                                 }
                             }
                         } else {
-                            // Unaligned - use optimized vectorized copy
-                            // Even though source is unaligned, memcpy handles this efficiently
-                            // and the destination buffer is always aligned
-                            pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                                _ = memcpy(pixelBuffer.baseAddress!, basePtr, numBytes)
-                            }
-
-                            // Handle MONOCHROME1 inversion if needed using vectorized operations
-                            if photometricInterpretation == "MONOCHROME1" {
-                                invertMonochrome1Vectorized(buffer: &pixels, count: numPixels)
+                            // Unaligned - use byte-by-byte reading
+                            let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+                            for i in 0..<numPixels {
+                                let byteIndex = i * 2
+                                let b0 = uint8Ptr[byteIndex]
+                                let b1 = uint8Ptr[byteIndex + 1]
+                                var value = UInt16(b0) | (UInt16(b1) << 8)  // Little endian
+                                if photometricInterpretation == "MONOCHROME1" {
+                                    value = 65535 - value
+                                }
+                                pixels[i] = value
                             }
                         }
                     } else {
-                        // Big endian (rare) - use optimized vectorized byte swapping
-                        pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                            // First copy data to output buffer (vectorized by system)
-                            _ = memcpy(pixelBuffer.baseAddress!, basePtr, numBytes)
-
-                            // Perform in-place byte swapping
-                            // Swift's byteSwapped is optimized to use hardware instructions
-                            let pixelPtr = pixelBuffer.baseAddress!
-                            for i in 0..<numPixels {
-                                pixelPtr[i] = pixelPtr[i].byteSwapped
+                        // Big endian (rare)
+                        let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+                        for i in 0..<numPixels {
+                            let byteIndex = i * 2
+                            let b0 = uint8Ptr[byteIndex]
+                            let b1 = uint8Ptr[byteIndex + 1]
+                            var value = UInt16(b0) << 8 | UInt16(b1)
+                            if photometricInterpretation == "MONOCHROME1" {
+                                value = 65535 - value
                             }
-                        }
-
-                        // Handle MONOCHROME1 inversion if needed using vectorized operations
-                        if photometricInterpretation == "MONOCHROME1" {
-                            invertMonochrome1Vectorized(buffer: &pixels, count: numPixels)
+                            pixels[i] = value
                         }
                     }
                     result.signedImage = false
                 } else {
-                    // Signed pixels (less common) - use vectorized conversion
+                    // Signed pixels (less common)
                     result.signedImage = true
-
-                    // Use vectorized normalization for signed pixels
-                    normaliseSigned16Vectorized(
-                        sourcePtr: basePtr,
-                        outputBuffer: &pixels,
-                        count: numPixels,
-                        littleEndian: littleEndian
-                    )
-
-                    // Handle MONOCHROME1 inversion if needed using vectorized operations
-                    if photometricInterpretation == "MONOCHROME1" {
-                        invertMonochrome1SignedVectorized(buffer: &pixels, count: numPixels)
+                    let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+                    for i in 0..<numPixels {
+                        let byteIndex = i * 2
+                        let b0 = uint8Ptr[byteIndex]
+                        let b1 = uint8Ptr[byteIndex + 1]
+                        var value = normaliseSigned16(bytes: b0, b1: b1)
+                        if photometricInterpretation == "MONOCHROME1" {
+                            value = UInt16(32768) - (value - UInt16(32768))
+                        }
+                        pixels[i] = value
                     }
                 }
             }
 
-            // Copy pixels to result (slice if using pooled buffer to get exact size)
-            if let _ = pooledBuffer {
-                result.pixels16 = Array(pixels[0..<min(numPixels, pixels.count)])
-            } else {
-                result.pixels16 = pixels
-            }
+            result.pixels16 = pixels
 
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
             logger?.debug("[PERF] readPixels (16-bit): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height)")
@@ -568,7 +401,7 @@ internal final class DCMPixelReader {
         pixelRepresentation: Int,
         littleEndian: Bool,
         photometricInterpretation: String,
-        logger: LoggerProtocol? = nil
+        logger: AnyLogger? = nil
     ) -> DCMPixelReadResult? {
         let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -650,21 +483,8 @@ internal final class DCMPixelReader {
             samplesPerPixel: 1
         )
 
-        // Acquire buffer from pool for requested range
-        // For very large ranges (>2048×2048), allocate directly
-        var pixels: [UInt16]
-        var pooledBuffer: [UInt16]? = nil
-        if rangeCount <= 4194304 { // xlarge bucket size
-            pooledBuffer = BufferPool.shared.acquire(type: [UInt16].self, count: rangeCount)
-            pixels = pooledBuffer!
-        } else {
-            pixels = Array(repeating: 0, count: rangeCount)
-        }
-        defer {
-            if let buffer = pooledBuffer {
-                BufferPool.shared.release(buffer)
-            }
-        }
+        // Allocate buffer for requested range
+        var pixels = [UInt16](repeating: 0, count: rangeCount)
 
         data.withUnsafeBytes { dataBytes in
             let basePtr = dataBytes.baseAddress!.advanced(by: rangeByteOffset)
@@ -676,70 +496,63 @@ internal final class DCMPixelReader {
                     if rangeByteOffset % 2 == 0 {
                         // Aligned - can use fast path
                         basePtr.withMemoryRebound(to: UInt16.self, capacity: rangeCount) { uint16Ptr in
-                            // Direct copy for aligned data
-                            pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                                _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, rangeBytes)
-                            }
-
-                            // Handle MONOCHROME1 inversion if needed using vectorized operations
                             if photometricInterpretation == "MONOCHROME1" {
-                                invertMonochrome1Vectorized(buffer: &pixels, count: rangeCount)
+                                // Invert for MONOCHROME1 (white is zero)
+                                for i in 0..<rangeCount {
+                                    pixels[i] = 65535 - uint16Ptr[i]
+                                }
+                            } else {
+                                // Direct copy for MONOCHROME2
+                                pixels.withUnsafeMutableBufferPointer { pixelBuffer in
+                                    _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, rangeBytes)
+                                }
                             }
                         }
                     } else {
-                        // Unaligned - use optimized vectorized copy
-                        // Even though source is unaligned, memcpy handles this efficiently
-                        // and the destination buffer is always aligned
-                        pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                            _ = memcpy(pixelBuffer.baseAddress!, basePtr, rangeBytes)
-                        }
-
-                        // Handle MONOCHROME1 inversion if needed using vectorized operations
-                        if photometricInterpretation == "MONOCHROME1" {
-                            invertMonochrome1Vectorized(buffer: &pixels, count: rangeCount)
+                        // Unaligned - use byte-by-byte reading
+                        let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+                        for i in 0..<rangeCount {
+                            let byteIndex = i * 2
+                            let b0 = uint8Ptr[byteIndex]
+                            let b1 = uint8Ptr[byteIndex + 1]
+                            var value = UInt16(b0) | (UInt16(b1) << 8)  // Little endian
+                            if photometricInterpretation == "MONOCHROME1" {
+                                value = 65535 - value
+                            }
+                            pixels[i] = value
                         }
                     }
                 } else {
-                    // Big endian (rare) - use optimized vectorized byte swapping
-                    pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                        // First copy data to output buffer (vectorized by system)
-                        _ = memcpy(pixelBuffer.baseAddress!, basePtr, rangeBytes)
-
-                        // Perform in-place byte swapping
-                        // Swift's byteSwapped is optimized to use hardware instructions
-                        let pixelPtr = pixelBuffer.baseAddress!
-                        for i in 0..<rangeCount {
-                            pixelPtr[i] = pixelPtr[i].byteSwapped
+                    // Big endian (rare)
+                    let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+                    for i in 0..<rangeCount {
+                        let byteIndex = i * 2
+                        let b0 = uint8Ptr[byteIndex]
+                        let b1 = uint8Ptr[byteIndex + 1]
+                        var value = UInt16(b0) << 8 | UInt16(b1)
+                        if photometricInterpretation == "MONOCHROME1" {
+                            value = 65535 - value
                         }
-                    }
-
-                    // Handle MONOCHROME1 inversion if needed using vectorized operations
-                    if photometricInterpretation == "MONOCHROME1" {
-                        invertMonochrome1Vectorized(buffer: &pixels, count: rangeCount)
+                        pixels[i] = value
                     }
                 }
             } else {
-                // Signed pixels (less common) - use vectorized conversion
-                normaliseSigned16Vectorized(
-                    sourcePtr: basePtr,
-                    outputBuffer: &pixels,
-                    count: rangeCount,
-                    littleEndian: littleEndian
-                )
-
-                // Handle MONOCHROME1 inversion if needed using vectorized operations
-                if photometricInterpretation == "MONOCHROME1" {
-                    invertMonochrome1SignedVectorized(buffer: &pixels, count: rangeCount)
+                // Signed pixels (less common)
+                let uint8Ptr = basePtr.assumingMemoryBound(to: UInt8.self)
+                for i in 0..<rangeCount {
+                    let byteIndex = i * 2
+                    let b0 = uint8Ptr[byteIndex]
+                    let b1 = uint8Ptr[byteIndex + 1]
+                    var value = normaliseSigned16(bytes: b0, b1: b1)
+                    if photometricInterpretation == "MONOCHROME1" {
+                        value = UInt16(32768) - (value - UInt16(32768))
+                    }
+                    pixels[i] = value
                 }
             }
         }
 
-        // Copy pixels to result (slice if using pooled buffer to get exact size)
-        if let _ = pooledBuffer {
-            result.pixels16 = Array(pixels[0..<min(rangeCount, pixels.count)])
-        } else {
-            result.pixels16 = pixels
-        }
+        result.pixels16 = pixels
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
         logger?.debug("[PERF] readPixels16 (range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound) | size: \(width)x\(height)")
@@ -759,7 +572,7 @@ internal final class DCMPixelReader {
     ///   - photometricInterpretation: MONOCHROME1 or MONOCHROME2
     ///   - logger: Optional logger for performance metrics
     /// Reads a contiguous range of 8-bit grayscale pixels for a single-frame image and returns them as a DCMPixelReadResult.
-    /// 
+    ///
     /// The returned result contains the requested pixels in `pixels8`. If `photometricInterpretation` equals `"MONOCHROME1"`,
     /// pixel values are inverted (255 - value). The function validates image dimensions, range bounds, and data availability and
     /// returns `nil` if any validation fails.
@@ -779,7 +592,7 @@ internal final class DCMPixelReader {
         height: Int,
         offset: Int,
         photometricInterpretation: String,
-        logger: LoggerProtocol? = nil
+        logger: AnyLogger? = nil
     ) -> DCMPixelReadResult? {
         let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -861,21 +674,8 @@ internal final class DCMPixelReader {
             samplesPerPixel: 1
         )
 
-        // Acquire buffer from pool for requested range
-        // For very large ranges (>2048×2048), allocate directly
-        var pixels: [UInt8]
-        var pooledBuffer: [UInt8]? = nil
-        if rangeCount <= 4194304 { // xlarge bucket size
-            pooledBuffer = BufferPool.shared.acquire(type: [UInt8].self, count: rangeCount)
-            pixels = pooledBuffer!
-        } else {
-            pixels = Array(repeating: 0, count: rangeCount)
-        }
-        defer {
-            if let buffer = pooledBuffer {
-                BufferPool.shared.release(buffer)
-            }
-        }
+        // Allocate buffer for requested range
+        var pixels = [UInt8](repeating: 0, count: rangeCount)
 
         // Use withUnsafeBytes for efficient memory-mapped access
         data.withUnsafeBytes { dataBytes in
@@ -895,12 +695,7 @@ internal final class DCMPixelReader {
             }
         }
 
-        // Copy pixels to result (slice if using pooled buffer to get exact size)
-        if let _ = pooledBuffer {
-            result.pixels8 = Array(pixels[0..<min(rangeCount, pixels.count)])
-        } else {
-            result.pixels8 = pixels
-        }
+        result.pixels8 = pixels
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
         logger?.debug("[PERF] readPixels8 (range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound) | size: \(width)x\(height)")
@@ -933,7 +728,7 @@ internal final class DCMPixelReader {
         width: Int,
         height: Int,
         offset: Int,
-        logger: LoggerProtocol? = nil
+        logger: AnyLogger? = nil
     ) -> DCMPixelReadResult? {
         let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -1014,21 +809,8 @@ internal final class DCMPixelReader {
             samplesPerPixel: 3
         )
 
-        // Acquire buffer from pool for requested range
-        // For very large ranges (>2048×2048×3), allocate directly
-        var pixels: [UInt8]
-        var pooledBuffer: [UInt8]? = nil
-        if rangeBytes <= 12582912 { // xlarge bucket size * 3 for RGB
-            pooledBuffer = BufferPool.shared.acquire(type: [UInt8].self, count: rangeBytes)
-            pixels = pooledBuffer!
-        } else {
-            pixels = Array(repeating: 0, count: rangeBytes)
-        }
-        defer {
-            if let buffer = pooledBuffer {
-                BufferPool.shared.release(buffer)
-            }
-        }
+        // Allocate buffer for requested range
+        var pixels = [UInt8](repeating: 0, count: rangeBytes)
 
         // Use withUnsafeBytes for efficient memory-mapped access
         data.withUnsafeBytes { dataBytes in
@@ -1041,12 +823,7 @@ internal final class DCMPixelReader {
             }
         }
 
-        // Copy pixels to result (slice if using pooled buffer to get exact size)
-        if let _ = pooledBuffer {
-            result.pixels24 = Array(pixels[0..<min(rangeBytes, pixels.count)])
-        } else {
-            result.pixels24 = pixels
-        }
+        result.pixels24 = pixels
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
         logger?.debug("[PERF] readPixels24 (range): \(String(format: "%.2f", elapsed))ms | range: \(range.lowerBound)..<\(range.upperBound) | size: \(width)x\(height)")
@@ -1068,16 +845,21 @@ internal final class DCMPixelReader {
     internal static func decodeCompressedPixelData(
         data: Data,
         offset: Int,
-        logger: LoggerProtocol? = nil
+        transferSyntaxUID: String,
+        numberOfFrames: Int,
+        pixelRepresentation: Int,
+        photometricInterpretation: String,
+        logger: AnyLogger? = nil
     ) -> DCMPixelReadResult? {
-        // Extract the encapsulated pixel data from the offset to
-        // the end of the file.  Some DICOM files encapsulate each
-        // frame into separate items; for simplicity we treat the
-        // entire remaining data as one JPEG/JP2 codestream.  For
-        // robust handling you would need to parse the Basic Offset
-        // Table and items (see PS3.5).  This implementation is
-        // designed to handle single–frame images.
-        let compressedData = data.subdata(in: offset..<data.count)
+        guard let compressedData = extractEncapsulatedSingleFrame(
+            data: data,
+            offset: offset,
+            numberOfFrames: numberOfFrames,
+            transferSyntaxUID: transferSyntaxUID,
+            logger: logger
+        ) else {
+            return nil
+        }
 
         // Check if this is JPEG Lossless format (SOF3 marker 0xFFC3)
         // JPEG files start with SOI marker 0xFFD8
@@ -1113,13 +895,13 @@ internal final class DCMPixelReader {
         // Create an image source from the compressed data.  ImageIO
         // automatically detects JPEG, JPEG2000 and JPEG‑LS formats.
         guard let source = CGImageSourceCreateWithData(compressedData as CFData, nil) else {
-            logger?.warning("Failed to create image source from compressed data")
+            logger?.warning("Failed to create image source from compressed data for transfer syntax \(transferSyntaxUID)")
             return nil
         }
 
         // Decode the first image in the source.
         guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-            logger?.warning("Failed to decode image from source")
+            logger?.warning("Failed to decode image from source for transfer syntax \(transferSyntaxUID)")
             return nil
         }
 
@@ -1149,27 +931,70 @@ internal final class DCMPixelReader {
         // images we render into a BGRA 32‑bit buffer; for grayscale
         // we render into an 8‑bit buffer.
         if samplesPerPixel == 1 {
-            // Grayscale output
-            let colorSpace = CGColorSpaceCreateDeviceGray()
-            let bytesPerRow = width
-            guard let ctx = CGContext(data: nil,
-                                      width: width,
-                                      height: height,
-                                      bitsPerComponent: 8,
-                                      bytesPerRow: bytesPerRow,
-                                      space: colorSpace,
-                                      bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
-                logger?.warning("Failed to create grayscale context")
-                return nil
-            }
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-            guard let dataPtr = ctx.data else {
-                logger?.warning("Failed to get context data pointer")
-                return nil
-            }
-            let buffer = dataPtr.assumingMemoryBound(to: UInt8.self)
             let count = width * height
-            result.pixels8 = [UInt8](UnsafeBufferPointer(start: buffer, count: count))
+
+            if bitDepth > 8 {
+                let colorSpace = CGColorSpaceCreateDeviceGray()
+                let bytesPerRow = width * MemoryLayout<UInt16>.size
+                let bitmapInfo = CGImageAlphaInfo.none.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
+                guard let ctx = CGContext(data: nil,
+                                          width: width,
+                                          height: height,
+                                          bitsPerComponent: 16,
+                                          bytesPerRow: bytesPerRow,
+                                          space: colorSpace,
+                                          bitmapInfo: bitmapInfo) else {
+                    logger?.warning("Failed to create 16-bit grayscale context for transfer syntax \(transferSyntaxUID)")
+                    return nil
+                }
+                ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+                guard let dataPtr = ctx.data else {
+                    logger?.warning("Failed to get 16-bit context data pointer")
+                    return nil
+                }
+
+                let buffer = dataPtr.assumingMemoryBound(to: UInt16.self)
+                var pixels = [UInt16](UnsafeBufferPointer(start: buffer, count: count))
+                if pixelRepresentation == 1 {
+                    pixels = pixels.map { value in
+                        let signed = Int16(bitPattern: value)
+                        let shifted = Int(signed) - min16
+                        return UInt16(truncatingIfNeeded: shifted)
+                    }
+                    result.signedImage = true
+                }
+                if photometricInterpretation == "MONOCHROME1" {
+                    pixels = pixels.map { UInt16.max &- $0 }
+                }
+                result.pixels16 = pixels
+                result.bitDepth = 16
+            } else {
+                // Grayscale output
+                let colorSpace = CGColorSpaceCreateDeviceGray()
+                let bytesPerRow = width
+                guard let ctx = CGContext(data: nil,
+                                          width: width,
+                                          height: height,
+                                          bitsPerComponent: 8,
+                                          bytesPerRow: bytesPerRow,
+                                          space: colorSpace,
+                                          bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
+                    logger?.warning("Failed to create grayscale context for transfer syntax \(transferSyntaxUID)")
+                    return nil
+                }
+                ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+                guard let dataPtr = ctx.data else {
+                    logger?.warning("Failed to get 8-bit context data pointer")
+                    return nil
+                }
+                let buffer = dataPtr.assumingMemoryBound(to: UInt8.self)
+                var pixels = [UInt8](UnsafeBufferPointer(start: buffer, count: count))
+                if photometricInterpretation == "MONOCHROME1" {
+                    pixels = pixels.map { UInt8.max &- $0 }
+                }
+                result.pixels8 = pixels
+                result.bitDepth = 8
+            }
         } else {
             // Colour output.  Render into BGRA and then strip alpha.
             let colorSpace = CGColorSpaceCreateDeviceRGB()
@@ -1255,5 +1080,111 @@ internal final class DCMPixelReader {
         }
 
         return false
+    }
+
+    /// Extracts a single-frame encapsulated codestream from DICOM pixel data.
+    internal static func extractEncapsulatedSingleFrame(
+        data: Data,
+        offset: Int,
+        numberOfFrames: Int,
+        transferSyntaxUID: String,
+        logger: AnyLogger? = nil
+    ) -> Data? {
+        guard offset >= 0, offset + 8 <= data.count else {
+            logger?.warning("Compressed pixel data offset \(offset) is out of bounds for transfer syntax \(transferSyntaxUID)")
+            return nil
+        }
+        guard numberOfFrames <= 1 else {
+            logger?.warning("Unsupported compressed multi-frame DICOM: transfer syntax \(transferSyntaxUID), frames=\(numberOfFrames)")
+            return nil
+        }
+
+        var cursor = offset
+        guard readUInt32LE(in: data, at: cursor) == itemTag else {
+            logger?.warning("Expected Basic Offset Table item at pixel data offset \(offset) for transfer syntax \(transferSyntaxUID)")
+            return nil
+        }
+        cursor += 4
+
+        guard let botLength32 = readUInt32LE(in: data, at: cursor) else {
+            logger?.warning("Failed reading Basic Offset Table length for transfer syntax \(transferSyntaxUID)")
+            return nil
+        }
+        cursor += 4
+
+        let botLength = Int(botLength32)
+        guard cursor + botLength <= data.count else {
+            logger?.warning("Basic Offset Table exceeds pixel data bounds for transfer syntax \(transferSyntaxUID)")
+            return nil
+        }
+
+        let botData = data.subdata(in: cursor..<(cursor + botLength))
+        cursor += botLength
+
+        if botLength % 4 != 0 {
+            logger?.warning("Invalid Basic Offset Table length \(botLength) for transfer syntax \(transferSyntaxUID)")
+            return nil
+        }
+        if botLength >= 8 {
+            logger?.warning("Unsupported multi-frame Basic Offset Table with \(botLength / 4) entries for transfer syntax \(transferSyntaxUID)")
+            return nil
+        }
+
+        var frameData = Data()
+        var itemCount = 0
+
+        while cursor + 8 <= data.count {
+            guard let tag = readUInt32LE(in: data, at: cursor) else {
+                logger?.warning("Failed reading encapsulated item tag for transfer syntax \(transferSyntaxUID)")
+                return nil
+            }
+            cursor += 4
+
+            guard let itemLength32 = readUInt32LE(in: data, at: cursor) else {
+                logger?.warning("Failed reading encapsulated item length for transfer syntax \(transferSyntaxUID)")
+                return nil
+            }
+            cursor += 4
+
+            if tag == sequenceDelimitationTag {
+                break
+            }
+            guard tag == itemTag else {
+                logger?.warning("Unexpected encapsulated item tag 0x\(String(tag, radix: 16)) for transfer syntax \(transferSyntaxUID)")
+                return nil
+            }
+
+            let itemLength = Int(itemLength32)
+            guard itemLength >= 0, cursor + itemLength <= data.count else {
+                logger?.warning("Encapsulated item length \(itemLength) exceeds bounds for transfer syntax \(transferSyntaxUID)")
+                return nil
+            }
+
+            frameData.append(data[cursor..<(cursor + itemLength)])
+            cursor += itemLength
+            itemCount += 1
+        }
+
+        guard itemCount > 0, !frameData.isEmpty else {
+            logger?.warning("No encapsulated frame items found for transfer syntax \(transferSyntaxUID)")
+            return nil
+        }
+
+        if botLength == 4, let firstOffset = readUInt32LE(in: botData, at: 0), firstOffset != 0 {
+            logger?.debug("Single-frame Basic Offset Table starts at byte \(firstOffset) for transfer syntax \(transferSyntaxUID)")
+        }
+
+        return frameData
+    }
+
+    private static func readUInt32LE(in data: Data, at offset: Int) -> UInt32? {
+        guard offset >= 0, offset + 4 <= data.count else { return nil }
+        return data.withUnsafeBytes { rawBuffer in
+            let base = rawBuffer.baseAddress!.assumingMemoryBound(to: UInt8.self).advanced(by: offset)
+            return UInt32(base[0])
+                | (UInt32(base[1]) << 8)
+                | (UInt32(base[2]) << 16)
+                | (UInt32(base[3]) << 24)
+        }
     }
 }
