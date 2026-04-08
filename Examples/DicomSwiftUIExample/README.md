@@ -467,7 +467,7 @@ All example views follow consistent patterns:
 
 ### DicomCore Documentation
 
-- **CLAUDE.md**: Comprehensive developer guide in repository root
+- **Repository README**: Architecture, package layout, and integration guidance in `../../README.md`
 - **API Reference**: See `Sources/DicomCore/` for core DICOM parsing
 - **DICOM Standard**: [https://www.dicomstandard.org](https://www.dicomstandard.org)
 
@@ -488,7 +488,7 @@ This example application is part of the SwiftDICOMDecoder library and shares the
 ## Support
 
 - **Issues**: [GitHub Issues](https://github.com/ThalesMMS/DICOM-Decoder/issues)
-- **Documentation**: See CLAUDE.md in repository root
+- **Documentation**: See `../../README.md` and `../../GETTING_STARTED.md`
 - **DICOM Questions**: Refer to [DICOM Standard](https://dicom.nema.org/medical/dicom/current/output/html/)
 
 ---

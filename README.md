@@ -6,18 +6,20 @@
   <img src="https://img.shields.io/badge/macOS-12.0+-blue.svg" />
   <img src="https://img.shields.io/badge/license-MIT-green.svg" />
   <br/>
-  <img src="https://github.com/ThalesMMS/DICOM-Decoder/actions/workflows/benchmarks.yml/badge.svg" alt="Benchmarks" />
+  <img src="https://github.com/ThalesMMS/DICOM-Decoder/actions/workflows/tests.yml/badge.svg" alt="Tests" />
 </p>
 
 ![UI Screenshot](screenshot/screenshot.png)
 
-Pure Swift DICOM decoder for iOS and macOS. Read DICOM files, extract medical metadata, and process pixel data without UIKit or Objective-C dependencies.
+Pure Swift DICOM decoder toolkit for iOS and macOS. Parse DICOM metadata, extract pixel buffers, apply medical windowing, embed SwiftUI viewer components, and script inspection/export workflows with the bundled CLI.
 
 Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and research tools.
 
 - Repository: [`ThalesMMS/DICOM-Decoder`](https://github.com/ThalesMMS/DICOM-Decoder)
 - Latest release: [`1.0.1`](https://github.com/ThalesMMS/DICOM-Decoder/releases/tag/1.0.1)
-- Documentation: [API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/) | [Getting Started](GETTING_STARTED.md) | [Glossary](DICOM_GLOSSARY.md) | [Troubleshooting](TROUBLESHOOTING.md)
+- Guides: [Getting Started](GETTING_STARTED.md) | [Usage Examples](USAGE_EXAMPLES.md) | [Glossary](DICOM_GLOSSARY.md) | [Troubleshooting](TROUBLESHOOTING.md)
+- API docs: Generate locally with `swift package generate-documentation --target DicomCore`
+- Related projects: [simple-dicom-mcp](https://github.com/ThalesMMS/simple-dicom-mcp) | [dicom-viewer-mcp-app](https://github.com/ThalesMMS/dicom-viewer-mcp-app) | [orthanc-tools](https://github.com/ThalesMMS/orthanc-tools)
 
 ---
 
@@ -162,9 +164,9 @@ let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
 )
 ```
 
-See [CLAUDE.md](CLAUDE.md#gpu-acceleration) for detailed usage examples and performance characteristics.
+For more examples, see the windowing snippets in this README and the runnable code under `MetalBenchmark/`.
 
-**📊 Comprehensive Benchmarks:** For complete benchmark methodology, regression detection, and historical performance tracking, see [BENCHMARKS.md](BENCHMARKS.md). Our automated benchmarking suite validates these performance claims on every commit and detects performance regressions >10%.
+**📊 Benchmark notes:** The benchmark harness used for these measurements lives in `MetalBenchmark/`, so the performance setup can be inspected and reproduced directly from this repository.
 
 ---
 
@@ -1251,9 +1253,14 @@ let privateTag = decoder.info(for: 0x00091001)  // Private manufacturer tag
 
 ### API Reference
 
-Complete API documentation generated with DocC is available online:
+This repository includes DocC documentation sources for `DicomCore` and `DicomSwiftUI`.
 
-**[Swift DICOM Decoder API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/)**
+Generate the API reference locally with:
+
+```bash
+swift package generate-documentation --target DicomCore
+swift package generate-documentation --target DicomSwiftUI
+```
 
 The API reference includes:
 - Detailed class and method documentation
