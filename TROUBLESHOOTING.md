@@ -510,4 +510,4 @@ python -c "import pydicom; print(pydicom.dcmread('file.dcm'))"
 
 ---
 
-Previous: [DICOM Glossary](DICOM_GLOSSARY.md) | Next: [API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/)
+Previous: [DICOM Glossary](DICOM_GLOSSARY.md) | Next: [README Documentation Section](README.md#documentation)

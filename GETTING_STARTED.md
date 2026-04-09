@@ -359,8 +359,8 @@ Explore additional materials:
 ### Helpful References
 
 - **[Troubleshooting](TROUBLESHOOTING.md)** - fixes for common issues
-- **[API Reference](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/)** - API documentation
-- **[Project Architecture](CLAUDE.md)** - code organization
+- **API Reference** - generate DocC locally with `swift package generate-documentation --target DicomCore`
+- **[Project Architecture](README.md#architecture)** - code organization
 
 ### External Resources
 
