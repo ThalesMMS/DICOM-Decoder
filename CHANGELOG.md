@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Clarified that `DICOM-Decoder` is the private prerelease/staging repository, while reviewed stable tags and install snippets still point to `DICOM-Decoder`.
+- Added release-prep guidance for this repo, including a first-stable-release gate checklist in `RELEASING.md`.
+
 ### Added
 
 - **Swift-idiomatic throwing initializers** for DICOM file loading:

@@ -15,11 +15,20 @@ Pure Swift DICOM decoder toolkit for iOS and macOS. Parse DICOM metadata, extrac
 
 Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and research tools.
 
-- Repository: [`ThalesMMS/DICOM-Decoder`](https://github.com/ThalesMMS/DICOM-Decoder)
-- Latest release: [`1.0.1`](https://github.com/ThalesMMS/DICOM-Decoder/releases/tag/1.0.1)
+- Development repository: [`ThalesMMS/DICOM-Decoder`](https://github.com/ThalesMMS/DICOM-Decoder)
+- Stable release line: [`ThalesMMS/DICOM-Decoder` releases](https://github.com/ThalesMMS/DICOM-Decoder/releases)
 - Guides: [Getting Started](GETTING_STARTED.md) | [Usage Examples](USAGE_EXAMPLES.md) | [Glossary](DICOM_GLOSSARY.md) | [Troubleshooting](TROUBLESHOOTING.md)
 - API docs: Generate locally with `swift package generate-documentation --target DicomCore`
 - Related projects: [simple-dicom-mcp](https://github.com/ThalesMMS/simple-dicom-mcp) | [dicom-viewer-mcp-app](https://github.com/ThalesMMS/dicom-viewer-mcp-app) | [orthanc-tools](https://github.com/ThalesMMS/orthanc-tools)
+
+## Release Status
+
+`DICOM-Decoder` is the private development and staging repository for upcoming decoder changes.
+
+- Treat this repository as **prerelease-only** until it starts cutting its own reviewed tags.
+- The current install snippets and stable SemVer releases still point to [`ThalesMMS/DICOM-Decoder`](https://github.com/ThalesMMS/DICOM-Decoder).
+- For internal validation from this repo, prefer a local Xcode package checkout or pin a specific commit instead of implying a stable tagged release.
+- Release-prep steps and first-stable-release gates for this dev repo live in [RELEASING.md](RELEASING.md).
 
 ---
 
@@ -28,6 +37,7 @@ Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and res
 - [Overview](#overview)
 - [Features](#features)
 - [Performance](#performance)
+- [Release Status](#release-status)
 - [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Usage Examples](#usage-examples)
@@ -296,6 +306,8 @@ See [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md#type-safe-value-types-v2-apis) for det
 ---
 
 ## Installation
+
+> Development repo note: this private `` repository is for prerelease validation and source-based testing. Published SemVer tags for external consumption still live in `ThalesMMS/DICOM-Decoder`.
 
 ### Via Xcode
 

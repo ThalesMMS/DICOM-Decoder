@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:DICOM-Decoder}",
+            "name": "Debug dicomtool",
+            "target": "dicomtool",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug dicomtool"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:DICOM-Decoder}",
+            "name": "Release dicomtool",
+            "target": "dicomtool",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release dicomtool"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:DICOM-Decoder}",
+            "name": "Debug DicomSwiftUIExample",
+            "target": "DicomSwiftUIExample",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug DicomSwiftUIExample"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:DICOM-Decoder}",
+            "name": "Release DicomSwiftUIExample",
+            "target": "DicomSwiftUIExample",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release DicomSwiftUIExample"
+        }
+    ]
+}
