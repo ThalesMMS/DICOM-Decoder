@@ -101,6 +101,23 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
         XCTAssertFalse(syntax.matches("1.2.840.10008.1.2.1"), "Should not match little endian UID")
     }
 
+    func testDecoderParsesExplicitVRBigEndianDatasetAfterTransferSyntax() throws {
+        let tempFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("explicit_big_endian_\(UUID().uuidString).dcm")
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        try makeExplicitVRBigEndianDICOM().write(to: tempFile)
+
+        let decoder = try DCMDecoder(contentsOf: tempFile)
+
+        XCTAssertFalse(decoder.currentLittleEndian(), "Dataset should switch to big-endian parsing")
+        XCTAssertEqual(decoder.width, 2, "Columns should be parsed from big-endian US value")
+        XCTAssertEqual(decoder.height, 2, "Rows should be parsed from big-endian US value")
+        XCTAssertEqual(decoder.info(for: .modality), "CT", "First big-endian dataset tag should keep its VR/length")
+        let pixels = try XCTUnwrap(decoder.getPixels16())
+        XCTAssertEqual(pixels, [1, 2, 3, 4], "Pixel data should be read using big-endian byte order")
+    }
+
     // MARK: - Compressed Transfer Syntax Tests
 
     func testJPEGBaselineProperties() {
@@ -514,5 +531,91 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
                 }
             }
         }
+    }
+
+    private func makeExplicitVRBigEndianDICOM() -> Data {
+        var data = Data(count: 128)
+        data.append(contentsOf: "DICM".utf8)
+
+        appendExplicitVRTag(
+            to: &data,
+            group: 0x0002,
+            element: 0x0010,
+            vr: "UI",
+            value: Data("1.2.840.10008.1.2.2".utf8),
+            littleEndian: true,
+            paddingByte: 0x00
+        )
+
+        appendExplicitVRTag(
+            to: &data,
+            group: 0x0008,
+            element: 0x0060,
+            vr: "CS",
+            value: Data("CT".utf8),
+            littleEndian: false
+        )
+        appendExplicitVRTag(to: &data, group: 0x0028, element: 0x0002, vr: "US", value: bigEndianUInt16(1), littleEndian: false)
+        appendExplicitVRTag(
+            to: &data,
+            group: 0x0028,
+            element: 0x0004,
+            vr: "CS",
+            value: Data("MONOCHROME2".utf8),
+            littleEndian: false
+        )
+        appendExplicitVRTag(to: &data, group: 0x0028, element: 0x0010, vr: "US", value: bigEndianUInt16(2), littleEndian: false)
+        appendExplicitVRTag(to: &data, group: 0x0028, element: 0x0011, vr: "US", value: bigEndianUInt16(2), littleEndian: false)
+        appendExplicitVRTag(to: &data, group: 0x0028, element: 0x0100, vr: "US", value: bigEndianUInt16(16), littleEndian: false)
+        appendExplicitVRTag(to: &data, group: 0x0028, element: 0x0101, vr: "US", value: bigEndianUInt16(16), littleEndian: false)
+        appendExplicitVRTag(to: &data, group: 0x0028, element: 0x0102, vr: "US", value: bigEndianUInt16(15), littleEndian: false)
+        appendExplicitVRTag(to: &data, group: 0x0028, element: 0x0103, vr: "US", value: bigEndianUInt16(0), littleEndian: false)
+
+        let pixels = Data([0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04])
+        appendExplicitVRTag(to: &data, group: 0x7FE0, element: 0x0010, vr: "OW", value: pixels, littleEndian: false)
+
+        return data
+    }
+
+    private func appendExplicitVRTag(
+        to data: inout Data,
+        group: UInt16,
+        element: UInt16,
+        vr: String,
+        value: Data,
+        littleEndian: Bool,
+        paddingByte: UInt8 = 0x20
+    ) {
+        appendUInt16(group, to: &data, littleEndian: littleEndian)
+        appendUInt16(element, to: &data, littleEndian: littleEndian)
+        data.append(contentsOf: vr.utf8)
+
+        let paddedLength = value.count + (value.count % 2)
+        let longVRs = ["OB", "OW", "SQ", "UN", "UT"]
+        if longVRs.contains(vr) {
+            data.append(contentsOf: [0x00, 0x00])
+            appendUInt32(UInt32(paddedLength), to: &data, littleEndian: littleEndian)
+        } else {
+            appendUInt16(UInt16(paddedLength), to: &data, littleEndian: littleEndian)
+        }
+
+        data.append(value)
+        if value.count % 2 != 0 {
+            data.append(paddingByte)
+        }
+    }
+
+    private func bigEndianUInt16(_ value: UInt16) -> Data {
+        withUnsafeBytes(of: value.bigEndian) { Data($0) }
+    }
+
+    private func appendUInt16(_ value: UInt16, to data: inout Data, littleEndian: Bool) {
+        var encoded = littleEndian ? value.littleEndian : value.bigEndian
+        withUnsafeBytes(of: &encoded) { data.append(contentsOf: $0) }
+    }
+
+    private func appendUInt32(_ value: UInt32, to data: inout Data, littleEndian: Bool) {
+        var encoded = littleEndian ? value.littleEndian : value.bigEndian
+        withUnsafeBytes(of: &encoded) { data.append(contentsOf: $0) }
     }
 }

@@ -346,7 +346,7 @@ final class DCMDictionaryTests: XCTestCase {
 
     // MARK: - Batch Processing Tests
 
-    func testBatchApplyWindowLevel() {
+    func testBatchApplyWindowLevel() throws {
         let pixels1: [UInt16] = Array(repeating: 1000, count: 100)
         let pixels2: [UInt16] = Array(repeating: 2000, count: 100)
         let pixels3: [UInt16] = Array(repeating: 3000, count: 100)
@@ -355,7 +355,7 @@ final class DCMDictionaryTests: XCTestCase {
         let centers = [40.0, 50.0, 60.0]
         let widths = [80.0, 100.0, 120.0]
 
-        let results = DCMWindowingProcessor.batchApplyWindowLevel(
+        let results = try DCMWindowingProcessor.batchApplyWindowLevel(
             imagePixels: imagePixels,
             centers: centers,
             widths: widths
@@ -373,13 +373,14 @@ final class DCMDictionaryTests: XCTestCase {
         let centers = [40.0, 50.0]
         let widths = [80.0]
 
-        let results = DCMWindowingProcessor.batchApplyWindowLevel(
+        XCTAssertThrowsError(try DCMWindowingProcessor.batchApplyWindowLevel(
             imagePixels: imagePixels,
             centers: centers,
             widths: widths
-        )
-
-        XCTAssertTrue(results.isEmpty, "Should return empty for mismatched arrays")
+        )) { error in
+            XCTAssertEqual(error as? WindowingBatchError,
+                           .mismatchedInputCounts(imagePixels: 1, centers: 2, widths: 1))
+        }
     }
 
     func testBatchCalculateOptimalWindowLevel() {

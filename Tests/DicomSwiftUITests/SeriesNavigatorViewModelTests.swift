@@ -17,9 +17,9 @@ final class SeriesNavigatorViewModelTests: XCTestCase {
     // MARK: - Helper Methods
 
     /// Creates an array of test URLs
-    private func createTestURLs(count: Int) -> [URL] {
+    private func createTestURLs(count: Int, seriesName: String = "series") -> [URL] {
         return (0..<count).map { index in
-            URL(fileURLWithPath: "/test/series/image\(index).dcm")
+            URL(fileURLWithPath: "/test/\(seriesName)/image\(index).dcm")
         }
     }
 
@@ -724,14 +724,14 @@ final class SeriesNavigatorViewModelTests: XCTestCase {
 
     func testCurrentURLAfterSeriesReplacement() {
         let viewModel = SeriesNavigatorViewModel()
-        let firstSeries = createTestURLs(count: 5)
+        let firstSeries = createTestURLs(count: 5, seriesName: "series1")
         viewModel.setSeriesURLs(firstSeries)
 
         let firstURL = viewModel.currentURL
         XCTAssertNotNil(firstURL, "Should have current URL")
 
         // Replace series
-        let secondSeries = createTestURLs(count: 3)
+        let secondSeries = createTestURLs(count: 3, seriesName: "series2")
         viewModel.setSeriesURLs(secondSeries)
 
         let newURL = viewModel.currentURL

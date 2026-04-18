@@ -53,10 +53,45 @@ public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
         let bundle = Bundle.main
         #endif
         
+        let splitResourceNames = [
+            "DCMDictionary-Core",
+            "DCMDictionary-Imaging",
+            "DCMDictionary-RTAndSpecial"
+        ]
+
+        var mergedDictionary: RawDictionary = [:]
+        var loadedSplitResources = true
+        for resourceName in splitResourceNames {
+            guard let url = bundle.url(forResource: resourceName, withExtension: "plist") else {
+                loadedSplitResources = false
+                break
+            }
+
+            do {
+                let data = try Data(contentsOf: url)
+                let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+                guard let partialDictionary = plist as? RawDictionary else {
+                    loadedSplitResources = false
+                    break
+                }
+                mergedDictionary.merge(partialDictionary) { _, new in new }
+            } catch {
+                loadedSplitResources = false
+                #if DEBUG
+                logger.warning("Error parsing \(resourceName).plist: \(error)")
+                #endif
+                break
+            }
+        }
+
+        if loadedSplitResources {
+            return mergedDictionary
+        }
+
         guard let url = bundle.url(forResource: "DCMDictionary", withExtension: "plist") else {
-            // If the plist cannot be located we log a warning once.
+            // If neither the split plists nor the legacy plist can be located we log a warning once.
             #if DEBUG
-            logger.warning("DCMDictionary.plist not found in bundle")
+            logger.warning("DCMDictionary resources not found in bundle")
             #endif
             return [:]
         }

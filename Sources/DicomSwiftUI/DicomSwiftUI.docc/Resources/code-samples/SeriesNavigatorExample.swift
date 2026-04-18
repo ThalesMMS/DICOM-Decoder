@@ -1,22 +1,6 @@
 import SwiftUI
 import DicomSwiftUI
 import DicomCore
-#if os(iOS) || os(tvOS) || os(visionOS)
-import UIKit
-#endif
-#if os(macOS)
-import AppKit
-#endif
-
-private var platformSystemBackground: Color {
-#if os(iOS) || os(tvOS) || os(visionOS)
-    return Color(UIColor.systemBackground)
-#elseif os(macOS)
-    return Color(NSColor.windowBackgroundColor)
-#else
-    return Color.secondary
-#endif
-}
 
 // MARK: - Basic Series Navigation
 
@@ -27,7 +11,9 @@ private var platformSystemBackground: Color {
 /// Creates a SwiftUI example view that displays a DICOM image and a series navigator which loads selected slices.
 ///
 /// The returned view initializes a navigator and image view model, sets the navigator with a 100-slice placeholder series on appear, loads the first slice, and updates the displayed image when the user navigates.
-/// - Returns: A view containing a `DicomImageView` and a `SeriesNavigatorView` that loads images from the selected series URLs when navigation occurs.
+/// Presents a simple series viewer composed of a DicomImageView and a SeriesNavigatorView.
+/// The view displays the current DICOM image and loads a selected slice into the image view when navigation occurs; it is initialized with 100 placeholder slice URLs.
+/// - Returns: A view containing a DicomImageView and a SeriesNavigatorView wired to load selected images.
 func basicSeriesNavigation() -> some View {
     struct BasicSeriesView: View {
         @StateObject private var navigatorVM = SeriesNavigatorViewModel()
@@ -49,18 +35,11 @@ func basicSeriesNavigation() -> some View {
                     }
                 )
             }
-            .onAppear {
-                navigatorVM.setSeriesURLs(seriesURLs)
-                if let firstURL = navigatorVM.currentURL {
-                    Task {
-                        await imageVM.loadImage(from: firstURL)
-                    }
-                }
-            }
+            .loadInitialSeries(seriesURLs, navigatorVM: navigatorVM, imageVM: imageVM)
         }
     }
 
-    let urls = (1...100).map { URL(fileURLWithPath: "/path/to/series/slice\($0).dcm") }
+    let urls = makePlaceholderURLs(count: 100, seriesPath: "/path/to/series")
     return BasicSeriesView(seriesURLs: urls)
 }
 
@@ -70,7 +49,10 @@ func basicSeriesNavigation() -> some View {
 /// Creates a compact SwiftUI example view that displays a DICOM image alongside a compact series navigator.
 /// 
 /// The view initializes a SeriesNavigatorViewModel and DicomImageViewModel, sets the navigator with a prebuilt set of 50 placeholder slice URLs on appear, and loads the first image if available. Tapping or navigating in the navigator loads the selected slice into the image view.
-/// - Returns: A view containing a DicomImageView (fixed height) and a compact SeriesNavigatorView wired to load selected slices.
+/// Creates a view demonstrating a compact series navigator paired with a DICOM image view.
+///
+/// The view displays a fixed-height DICOM image above a compact-style series navigator; selecting an item in the navigator loads that slice into the image view. The navigator is initialized with 50 placeholder URLs.
+/// - Returns: A view containing the DICOM image and a compact series navigator preloaded with placeholder series URLs.
 func compactSeriesNavigator() -> some View {
     struct CompactSeriesView: View {
         @StateObject private var navigatorVM = SeriesNavigatorViewModel()
@@ -95,18 +77,11 @@ func compactSeriesNavigator() -> some View {
                 .background(Color.secondary.opacity(0.1))
                 .cornerRadius(8)
             }
-            .onAppear {
-                navigatorVM.setSeriesURLs(seriesURLs)
-                if let firstURL = navigatorVM.currentURL {
-                    Task {
-                        await imageVM.loadImage(from: firstURL)
-                    }
-                }
-            }
+            .loadInitialSeries(seriesURLs, navigatorVM: navigatorVM, imageVM: imageVM)
         }
     }
 
-    let urls = (1...50).map { URL(fileURLWithPath: "/path/to/series/slice\($0).dcm") }
+    let urls = makePlaceholderURLs(count: 50, seriesPath: "/path/to/series")
     return CompactSeriesView(seriesURLs: urls)
 }
 
@@ -186,7 +161,10 @@ func loadSeriesFromDirectory() -> some View {
 /// Builds a sample SwiftUI view that displays a DICOM series with integrated series navigation and window/level controls.
 /// 
 /// The returned view shows an image viewer, a compact series navigator that loads the selected slice, and compact windowing controls that apply custom window/level settings to the current image. The view initializes the navigator with a preset series and loads the first slice when it appears.
-/// - Returns: A view configured for series navigation and interactive windowing controls.
+/// Create a view that displays a DICOM series with a compact navigator and windowing controls.
+/// 
+/// The view presents the current DICOM image, a compact series navigator for selecting slices, and compact windowing controls; selecting a slice loads it into the image display and adjusting the windowing applies custom center/width windowing to the displayed image.
+/// - Returns: A view that presents a DICOM series viewer with navigation and windowing controls.
 func seriesWithWindowing() -> some View {
     struct SeriesWindowingView: View {
         @StateObject private var navigatorVM = SeriesNavigatorViewModel()
@@ -232,18 +210,11 @@ func seriesWithWindowing() -> some View {
                 .padding(.horizontal)
                 .background(platformSystemBackground)
             }
-            .onAppear {
-                navigatorVM.setSeriesURLs(seriesURLs)
-                if let firstURL = navigatorVM.currentURL {
-                    Task {
-                        await imageVM.loadImage(from: firstURL)
-                    }
-                }
-            }
+            .loadInitialSeries(seriesURLs, navigatorVM: navigatorVM, imageVM: imageVM)
         }
     }
 
-    let urls = (1...150).map { URL(fileURLWithPath: "/path/to/ct_series/slice\($0).dcm") }
+    let urls = makePlaceholderURLs(count: 150, seriesPath: "/path/to/ct_series")
     return SeriesWindowingView(seriesURLs: urls)
 }
 
@@ -253,7 +224,10 @@ func seriesWithWindowing() -> some View {
 /// Displays a DICOM series viewer with keyboard arrow navigation enabled.
 /// 
 /// The view shows the current DICOM image, a series navigator configured to accept keyboard shortcuts, and a small caption. On appear it initializes the navigator with the provided series and loads the first image; selecting a slice via the navigator loads that image into the viewer.
-/// - Returns: A view containing a DICOM image display and a series navigator with keyboard shortcuts enabled.
+/// Displays a DICOM series viewer with keyboard arrow-key navigation.
+/// 
+/// The view contains a `DicomImageView`, a `SeriesNavigatorView` that loads the selected slice into its `DicomImageViewModel`, and a small caption prompting use of the arrow keys.
+/// - Returns: A composed SwiftUI view presenting the image display, series navigator (wired to load images on navigate), and a caption.
 func keyboardShortcutNavigation() -> some View {
     struct KeyboardNavigationView: View {
         @StateObject private var navigatorVM = SeriesNavigatorViewModel()
@@ -277,18 +251,11 @@ func keyboardShortcutNavigation() -> some View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .onAppear {
-                navigatorVM.setSeriesURLs(seriesURLs)
-                if let firstURL = navigatorVM.currentURL {
-                    Task {
-                        await imageVM.loadImage(from: firstURL)
-                    }
-                }
-            }
+            .loadInitialSeries(seriesURLs, navigatorVM: navigatorVM, imageVM: imageVM)
         }
     }
 
-    let urls = (1...100).map { URL(fileURLWithPath: "/path/to/series/slice\($0).dcm") }
+    let urls = makePlaceholderURLs(count: 100, seriesPath: "/path/to/series")
     return KeyboardNavigationView(seriesURLs: urls)
 }
 
@@ -297,7 +264,10 @@ func keyboardShortcutNavigation() -> some View {
 /// Presents an example view that tracks and displays recent navigation history while browsing a DICOM series.
 /// 
 /// The returned view shows the currently loaded DICOM image, a horizontal list of recently visited slice indices (up to 10 entries), and series navigation controls. Selecting a history entry or using the navigator updates the displayed image and the history.
-/// - Returns: A SwiftUI view combining a DICOM image display, series navigator, and a horizontal navigation history showing up to 10 recent indices.
+/// Provides a view demonstrating tracked series navigation with a history of visited slice indices.
+///
+/// The view displays a DICOM image, a horizontal "Navigation History" bar of buttons for previously visited slice indices, and a series navigator. Navigating the series appends the current index to the history (trimmed to at most 10 entries); tapping a history button jumps the navigator to that index and loads the corresponding image. The history is initially seeded with index 0. The view is initialized with 100 placeholder URLs. 
+/// - Returns: A view composed of a `DicomImageView`, a horizontal history bar of up to 10 index buttons, and a `SeriesNavigatorView` that loads images when navigation occurs.
 func trackNavigationState() -> some View {
     struct NavigationTrackerView: View {
         @StateObject private var navigatorVM = SeriesNavigatorViewModel()
@@ -342,19 +312,15 @@ func trackNavigationState() -> some View {
                     }
                 )
             }
-            .onAppear {
-                navigatorVM.setSeriesURLs(seriesURLs)
-                if let firstURL = navigatorVM.currentURL {
+            .loadInitialSeries(seriesURLs, navigatorVM: navigatorVM, imageVM: imageVM) { _ in
+                if navigationHistory.isEmpty {
                     navigationHistory.append(0)
-                    Task {
-                        await imageVM.loadImage(from: firstURL)
-                    }
                 }
             }
         }
     }
 
-    let urls = (1...100).map { URL(fileURLWithPath: "/path/to/series/slice\($0).dcm") }
+    let urls = makePlaceholderURLs(count: 100, seriesPath: "/path/to/series")
     return NavigationTrackerView(seriesURLs: urls)
 }
 
@@ -366,7 +332,6 @@ func trackNavigationState() -> some View {
 /// Creates a SwiftUI example view that demonstrates per-slice lazy loading and bounded in-memory caching for a DICOM series.
 /// 
 /// The returned view combines a DicomImageView, a SeriesNavigatorView, and a small status showing how many slices have been cached. It initializes a navigator with a set of example URLs, loads the first image on appear, and caches loaded `CGImage` objects by series index for reuse when navigating.
-/// - Returns: A view configured with a series navigator, an image display, and a per-slice `CGImage` cache with a cached-count indicator.
 func lazyLoadingNavigation() -> some View {
     struct LazyLoadingView: View {
         @StateObject private var navigatorVM = SeriesNavigatorViewModel()
@@ -417,7 +382,11 @@ func lazyLoadingNavigation() -> some View {
         /// If a cached image exists for `index`, this function short-circuits by loading from the cached decoder so the UI uses cached data instead of re-reading from disk. On cache miss, it decodes from file and stores both decoder and rendered image in cache.
         /// - Parameters:
         ///   - url: The source URL of the DICOM image to load.
-        ///   - index: The numeric index used as the cache key for this image.
+        /// Loads a DICOM image for the given URL into `imageVM`, using a cached decoder if available, and updates the in-memory image/decoder caches around `index`.
+        /// If a cached decoder exists for `index`, the cached decoder is used to render `imageVM` and the function returns immediately. On cache miss, the function decodes the file at `url`, updates `imageVM` with the decoded image, and stores both the rendered image and decoder in the in-memory caches keyed by `index`. After caching, entries outside the window of `index ± cacheRadius` are evicted to limit memory usage.
+        /// - Parameters:
+        ///   - url: File URL of the DICOM image to load.
+        ///   - index: Index of the image within the series; used as the cache key and to prune cached entries to a neighborhood around this index.
         private func loadImageWithCache(url: URL, index: Int) async {
             // Check cache first
             let cachedDecoder: DCMDecoder? = await MainActor.run {
@@ -455,7 +424,7 @@ func lazyLoadingNavigation() -> some View {
         }
     }
 
-    let urls = (1...50).map { URL(fileURLWithPath: "/path/to/series/slice\($0).dcm") }
+    let urls = makePlaceholderURLs(count: 50, seriesPath: "/path/to/series")
     return LazyLoadingView(seriesURLs: urls)
 }
 
@@ -464,7 +433,10 @@ func lazyLoadingNavigation() -> some View {
 /// A SwiftUI example view that displays a DICOM image and preloads adjacent slices for smoother navigation.
 /// 
 /// The view renders the current image, a series navigator control, and a small indicator of how many slices have been preloaded. When navigating, it loads the selected slice and asynchronously preloads nearby slices into an in-memory decoder cache, pruning decoders that are far from the current index.
-/// - Returns: A SwiftUI view containing the DICOM image display, a series navigator, and a preloaded-images count indicator.
+/// Creates a demo view that displays a DICOM image with a series navigator and background preloading of adjacent slices.
+/// 
+/// The returned view shows the current image, a caption with the number of preloaded decoders, and a navigator; selecting a slice loads it into the image view model and triggers asynchronous preloading of nearby slice decoders (two on each side) while pruning decoders outside a ±5 index window.
+/// - Returns: A view containing a `DicomImageView`, a `SeriesNavigatorView` wired to load selected slices, and logic to preload and cache adjacent `DCMDecoder` instances.
 func preloadAdjacentSlices() -> some View {
     struct PreloadingView: View {
         @StateObject private var navigatorVM = SeriesNavigatorViewModel()
@@ -520,7 +492,13 @@ func preloadAdjacentSlices() -> some View {
         /// Preloads decoder objects for slices near a given index and prunes distant cached decoders.
         /// 
         /// Loads decoder instances for up to two slices before and after the provided `index`, skipping indices that are out of range or already preloaded. Errors during individual preloads are logged but do not stop the overall operation. After preloading, removes cached decoders whose indices are outside the range `index - 5` through `index + 5`.
-        /// - Parameter index: The current slice index around which to preload decoders.
+        /// Preloads DICOM decoders for slices near a given index and prunes distant cached decoders.
+        /// 
+        /// Attempts to load decoders for indices two slices before through two slices after `index` (when in bounds),
+        /// storing successful decoders in `preloadedDecoders`. After preloading, removes any cached decoders whose
+        /// indices fall outside five slices before to five slices after `index`.
+        /// Failed decoder loads are logged to the console.
+        /// - Parameter index: Center index around which decoders will be preloaded and retained.
         private func preloadSlices(around index: Int) async {
             let preloadRange = 2 // Preload 2 slices before and after
 
@@ -555,7 +533,7 @@ func preloadAdjacentSlices() -> some View {
         }
     }
 
-    let urls = (1...100).map { URL(fileURLWithPath: "/path/to/series/slice\($0).dcm") }
+    let urls = makePlaceholderURLs(count: 100, seriesPath: "/path/to/series")
     return PreloadingView(seriesURLs: urls)
 }
 
@@ -567,7 +545,10 @@ func preloadAdjacentSlices() -> some View {
 /// Displays a multi-series DICOM viewer with a segmented series selector and paged tabs.
 /// 
 /// Each tab presents a DICOM image view paired with a series navigator; selecting a segment or page switches the active series and shows its images.
-/// - Returns: A SwiftUI view containing a segmented picker for choosing a series and a paged TabView where each page hosts the image display and navigator for that series.
+/// Presents a UI for switching among multiple DICOM series and viewing their images with a shared image view model.
+///
+/// A segmented picker selects the active series; a paged TabView shows one page per series containing a series navigator and a shared DICOM image viewer.
+/// - Returns: A view that displays a segmented series selector and a paged content area where each page shows the selected series' navigator and a shared DICOM image viewer.
 func multiSeriesNavigation() -> some View {
     struct MultiSeriesView: View {
         @StateObject private var imageVM = DicomImageViewModel()
@@ -621,20 +602,13 @@ func multiSeriesNavigation() -> some View {
                     }
                 )
             }
-            .onAppear {
-                navigatorVM.setSeriesURLs(seriesURLs)
-                if let firstURL = navigatorVM.currentURL {
-                    Task {
-                        await imageVM.loadImage(from: firstURL)
-                    }
-                }
-            }
+            .loadInitialSeries(seriesURLs, navigatorVM: navigatorVM, imageVM: imageVM)
         }
     }
 
-    let series1 = (1...50).map { URL(fileURLWithPath: "/path/to/series1/slice\($0).dcm") }
-    let series2 = (1...75).map { URL(fileURLWithPath: "/path/to/series2/slice\($0).dcm") }
-    let series3 = (1...100).map { URL(fileURLWithPath: "/path/to/series3/slice\($0).dcm") }
+    let series1 = makePlaceholderURLs(count: 50, seriesPath: "/path/to/series1")
+    let series2 = makePlaceholderURLs(count: 75, seriesPath: "/path/to/series2")
+    let series3 = makePlaceholderURLs(count: 100, seriesPath: "/path/to/series3")
 
     return MultiSeriesView(allSeries: [series1, series2, series3])
 }
@@ -646,7 +620,10 @@ func multiSeriesNavigation() -> some View {
 /// The view shows the current DICOM image, a play/pause button, an FPS slider, and a series navigator. When playing, it advances through the series at the selected frames-per-second rate and loops back to the first image after the last.
 /// Creates a SwiftUI view that demonstrates cine-style playback of a DICOM series with playback controls and a series navigator.
 /// The view loads the first image on appear, provides play/pause and FPS controls, and advances through images at the selected speed, looping to the first image after the last.
-/// - Returns: A view that displays DICOM images with play/pause controls, a speed slider (frames per second), and a series navigator; playback advances frames at the selected FPS and continues until paused.
+/// Creates a view demonstrating cine-loop playback of a DICOM series.
+/// 
+/// The returned view shows a DICOM image, playback controls (play/pause and FPS slider) and a series navigator. While playing, the navigator advances to the next image at the configured frames-per-second and wraps to the first image when the end is reached.
+/// - Returns: A view that displays the cine-loop UI and manages playback of the provided series.
 func cineLoopPlayback() -> some View {
     struct CineLoopView: View {
         @StateObject private var navigatorVM = SeriesNavigatorViewModel()
@@ -686,14 +663,7 @@ func cineLoopPlayback() -> some View {
                     }
                 )
             }
-            .onAppear {
-                navigatorVM.setSeriesURLs(seriesURLs)
-                if let firstURL = navigatorVM.currentURL {
-                    Task {
-                        await imageVM.loadImage(from: firstURL)
-                    }
-                }
-            }
+            .loadInitialSeries(seriesURLs, navigatorVM: navigatorVM, imageVM: imageVM)
             .onChange(of: isPlaying) { newValue in
                 if newValue {
                     startPlayback()
@@ -704,7 +674,9 @@ func cineLoopPlayback() -> some View {
         /// Starts asynchronous playback of the series, advancing to the next image repeatedly at a rate defined by `playbackSpeed`.
         /// Start the cine playback loop, advancing the navigator at the configured playback speed.
         /// 
-        /// Begins an asynchronous loop that advances to the next image at each interval and wraps to the first image when the end is reached. The loop continues until `isPlaying` becomes false. The delay between frames is derived from `playbackSpeed`.
+        /// Starts cine playback for the current series.
+        /// 
+        /// Advances the series navigator repeatedly at an interval determined by `playbackSpeed` while `isPlaying` remains true, wrapping to the first slice after the last. The playback runs on the main actor and stops if `isPlaying` becomes false or the task is cancelled.
         private func startPlayback() {
             guard isPlaying else { return }
 
@@ -725,7 +697,7 @@ func cineLoopPlayback() -> some View {
         }
     }
 
-    let urls = (1...50).map { URL(fileURLWithPath: "/path/to/series/slice\($0).dcm") }
+    let urls = makePlaceholderURLs(count: 50, seriesPath: "/path/to/series")
     return CineLoopView(seriesURLs: urls)
 }
 
@@ -737,7 +709,8 @@ func cineLoopPlayback() -> some View {
 /// Creates a full-featured example viewer for browsing and inspecting a DICOM series.
 /// 
 /// The returned view displays a DICOM image, a series navigator, compact window/level controls, an optional series information banner, a metadata sheet for the current image, and a toolbar menu with a stubbed export action. The viewer initializes its navigator with a provided list of slice URLs and loads the first image on appear.
-/// - Returns: A SwiftUI view configured as a complete DICOM series viewer example.
+/// Builds the complete series viewer UI that displays a DICOM image, series navigator, windowing controls, and metadata/export tooling.
+/// - Returns: A view that presents a DICOM image viewer with an integrated series navigator, compact windowing controls, a metadata sheet, and toolbar actions for series information and export. 
 func completeSeriesViewer() -> some View {
     struct CompleteSeriesViewer: View {
         @StateObject private var navigatorVM = SeriesNavigatorViewModel()
@@ -760,24 +733,10 @@ func completeSeriesViewer() -> some View {
 
                     // Series information banner
                     if showingSeriesInfo {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Series Information")
-                                    .font(.headline)
-                                Text("\(navigatorVM.totalCount) images")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Spacer()
-
-                            Button("Hide") {
-                                showingSeriesInfo = false
-                            }
-                            .font(.caption)
-                        }
-                        .padding()
-                        .background(Color.secondary.opacity(0.1))
+                        SeriesInfoBanner(
+                            navigatorVM: navigatorVM,
+                            isPresented: $showingSeriesInfo
+                        )
                     }
 
                     // Navigation controls
@@ -811,60 +770,23 @@ func completeSeriesViewer() -> some View {
                 .navigationTitle("Series Viewer")
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
-                        Menu {
-                            Button(action: { showingSeriesInfo.toggle() }) {
-                                Label("Series Info", systemImage: "info.circle")
-                            }
-
-                            Button(action: { showingMetadata = true }) {
-                                Label("Metadata", systemImage: "doc.text")
-                            }
-
-                            Divider()
-
-                            Button(action: exportSeries) {
-                                Label("Export Series", systemImage: "square.and.arrow.up")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
+                        SeriesToolbarMenu(
+                            showingSeriesInfo: $showingSeriesInfo,
+                            showingMetadata: $showingMetadata,
+                            exportAction: exportSeries
+                        )
                     }
                 }
                 .sheet(isPresented: $showingMetadata) {
-                    NavigationView {
-                        Group {
-                            if let metadataDecoder = metadataDecoder {
-                                MetadataView(decoder: metadataDecoder)
-                            } else if isLoadingMetadata {
-                                ProgressView("Loading metadata...")
-                            } else if let metadataError = metadataError {
-                                Text("Failed to load metadata: \(metadataError.localizedDescription)")
-                                    .foregroundColor(.red)
-                                    .padding()
-                            } else {
-                                Text("No metadata available")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .navigationTitle("Current Image Metadata")
-                        .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") {
-                                    showingMetadata = false
-                                }
-                            }
-                        }
-                    }
+                    MetadataSheetContent(
+                        decoder: metadataDecoder,
+                        isLoading: isLoadingMetadata,
+                        error: metadataError,
+                        isPresented: $showingMetadata
+                    )
                 }
             }
-            .onAppear {
-                navigatorVM.setSeriesURLs(seriesURLs)
-                if let firstURL = navigatorVM.currentURL {
-                    Task {
-                        await imageVM.loadImage(from: firstURL)
-                    }
-                }
-            }
+            .loadInitialSeries(seriesURLs, navigatorVM: navigatorVM, imageVM: imageVM)
             .onChange(of: showingMetadata) { isPresented in
                 if isPresented {
                     loadMetadataForCurrentImage()
@@ -921,14 +843,18 @@ func completeSeriesViewer() -> some View {
         /// 
         /// Initiates export of the currently selected DICOM series to an external destination.
         /// 
-        /// The operation should write all images from the active series (as represented by the navigator) to a user-chosen location or package them for export.
+        /// Initiates exporting of the currently loaded series.
+        /// Starts exporting the currently selected DICOM series.
+        /// - Note: Triggers the export process for the series represented by the navigator's current selection.
+        /// 
+        /// This is a placeholder stub that should perform exporting of all images in the current series. Currently it only logs the total image count (`navigatorVM.totalCount`) and has no export implementation.
         private func exportSeries() {
             print("Exporting series with \(navigatorVM.totalCount) images")
             // Implement export functionality
         }
     }
 
-    let urls = (1...150).map { URL(fileURLWithPath: "/path/to/ct_series/slice\($0).dcm") }
+    let urls = makePlaceholderURLs(count: 150, seriesPath: "/path/to/ct_series")
     return CompleteSeriesViewer(seriesURLs: urls)
 }
 

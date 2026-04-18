@@ -54,6 +54,9 @@ let package = Package(
             exclude: ["Fixtures"],
             resources: [
                 .process("Resources")
+            ],
+            swiftSettings: [
+                .define("DEBUG", .when(configuration: .debug))
             ]
         ),
         .testTarget(

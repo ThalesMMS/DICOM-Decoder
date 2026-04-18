@@ -735,7 +735,7 @@ final class DCMDecoderPerformanceTests: XCTestCase {
 
         // File Meta Information
         let metaInfoStartIndex = dicomData.count
-        appendTag(&dicomData, group: 0x0002, element: 0x0000, vr: "UL", value: Data())
+        appendTag(&dicomData, group: 0x0002, element: 0x0000, vr: "UL", value: Data(count: 4))
         appendTag(&dicomData, group: 0x0002, element: 0x0001, vr: "OB", value: Data([0x00, 0x01]))
         appendTag(&dicomData, group: 0x0002, element: 0x0002, vr: "UI",
                  value: "1.2.840.10008.5.1.4.1.1.7".data(using: .ascii)!)
@@ -846,12 +846,13 @@ final class DCMDecoderPerformanceTests: XCTestCase {
 
         let shortVRs = ["AE", "AS", "AT", "CS", "DA", "DS", "DT", "FL", "FD", "IS",
                        "LO", "LT", "PN", "SH", "SL", "SS", "ST", "TM", "UI", "UL", "US"]
+        let paddedLength = value.count + (value.count % 2)
         if shortVRs.contains(vr) {
-            let length = UInt16(value.count)
+            let length = UInt16(paddedLength)
             data.append(contentsOf: withUnsafeBytes(of: length.littleEndian) { Data($0) })
         } else {
             data.append(contentsOf: [0x00, 0x00])
-            let length = UInt32(value.count)
+            let length = UInt32(paddedLength)
             data.append(contentsOf: withUnsafeBytes(of: length.littleEndian) { Data($0) })
         }
 

@@ -29,44 +29,27 @@ private extension View {
 /// 
 /// The view attempts to initialize a `DCMDecoder` from the hard-coded file path and presents a `MetadataView` when successful. If decoder initialization fails, the view shows a `Text` describing the loading error.
 /// Creates a view that displays DICOM metadata loaded from a local file or an error message if loading fails.
-/// - Returns: A view that contains `MetadataView` initialized with the DICOM file at `/path/to/ct_scan.dcm` on success, or a `Text` view describing the load error on failure.
+/// Creates a view that loads and displays DICOM metadata for a bundled sample file.
+/// 
+/// The returned view shows a standardized loading/error UI while the metadata is loaded,
+/// and presents `MetadataView` when a decoder becomes available. The sample file path
+/// used is "/path/to/ct_scan.dcm".
+/// - Returns: A view that displays the metadata loading state and, on success, the decoded metadata.
 func simpleMetadataDisplay() -> some View {
     struct SimpleMetadataView: View {
         let filePath: String
-        @State private var decoder: DCMDecoder?
-        @State private var loadError: String?
+        @StateObject private var loader = AsyncDecoderLoader()
 
         var body: some View {
-            Group {
-                if let decoder = decoder {
-                    MetadataView(decoder: decoder)
-                } else if let loadError = loadError {
-                    Text("Failed to load: \(loadError)")
-                } else {
-                    ProgressView("Loading metadata...")
-                }
+            DecoderLoadingView(
+                loader: loader,
+                loadingText: "Loading metadata...",
+                errorPrefix: "Failed to load"
+            ) { decoder in
+                MetadataView(decoder: decoder)
             }
             .task(id: filePath) {
-                await loadDecoder()
-            }
-        }
-
-        private func loadDecoder() async {
-            await MainActor.run {
-                decoder = nil
-                loadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: filePath)
-                await MainActor.run {
-                    decoder = loadedDecoder
-                }
-            } catch {
-                await MainActor.run {
-                    decoder = nil
-                    loadError = error.localizedDescription
-                }
+                await loader.load(filePath: filePath)
             }
         }
     }
@@ -78,48 +61,28 @@ func simpleMetadataDisplay() -> some View {
 /// 
 /// Attempts to create a `DCMDecoder` from a bundled file and returns a view that displays `MetadataView` embedded in a `NavigationView` with the title "DICOM Metadata". If the decoder cannot be created, returns a `Text` view showing the error description.
 /// Creates a NavigationView that displays DICOM metadata with the title "DICOM Metadata".
-/// - Returns: A view that shows `MetadataView` wrapped in a `NavigationView` titled "DICOM Metadata" when the DICOM file loads successfully; a `Text` view containing the load error message if the decoder fails to initialize.
+/// Creates a NavigationView that loads and displays DICOM metadata for a specific file.
+/// The view shows a standardized loading indicator and error text while loading, and presents `MetadataView` when the decoder is available.
+/// - Returns: A view containing a navigation-wrapped metadata viewer with built-in loading and error handling.
 func metadataInNavigation() -> some View {
     struct MetadataNavigationView: View {
         let filePath: String
-        @State private var decoder: DCMDecoder?
-        @State private var loadError: String?
+        @StateObject private var loader = AsyncDecoderLoader()
 
         var body: some View {
             NavigationView {
-                Group {
-                    if let decoder = decoder {
-                        MetadataView(decoder: decoder)
-                    } else if let loadError = loadError {
-                        Text("Error: \(loadError)")
-                    } else {
-                        ProgressView("Loading metadata...")
-                    }
+                DecoderLoadingView(
+                    loader: loader,
+                    loadingText: "Loading metadata...",
+                    errorPrefix: "Error"
+                ) { decoder in
+                    MetadataView(decoder: decoder)
                 }
                 .navigationTitle("DICOM Metadata")
                 .inlineNavigationBarTitle()
             }
             .task(id: filePath) {
-                await loadDecoder()
-            }
-        }
-
-        private func loadDecoder() async {
-            await MainActor.run {
-                decoder = nil
-                loadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: filePath)
-                await MainActor.run {
-                    decoder = loadedDecoder
-                }
-            } catch {
-                await MainActor.run {
-                    decoder = nil
-                    loadError = error.localizedDescription
-                }
+                await loader.load(filePath: filePath)
             }
         }
     }
@@ -133,48 +96,29 @@ func metadataInNavigation() -> some View {
 /// 
 /// Attempts to initialize a `DCMDecoder` from a bundled file and presents `MetadataView` with the `.form` style inside a `NavigationView`. If the decoder cannot be created, a `Text` view with an error message is returned.
 /// Creates a NavigationView presenting DICOM metadata using a form-style layout.
-/// - Returns: A view that displays the DICOM file's metadata in a form-styled `MetadataView` inside a `NavigationView`; if the DICOM file cannot be loaded, returns a `Text` view indicating the load error.
+/// Creates a view that presents DICOM metadata using a form-style layout.
+///
+/// The returned view is a `NavigationView` that asynchronously loads metadata for a sample DICOM file and displays it using `MetadataView` with `.form` presentation. Loading and error states are handled by `DecoderLoadingView`, and the navigation title is set to "DICOM Information".
+/// - Returns: A view that loads and displays form-styled metadata for the sample file at "/path/to/mr_scan.dcm".
 func formStyleMetadata() -> some View {
     struct FormMetadataView: View {
         let filePath: String
-        @State private var decoder: DCMDecoder?
-        @State private var loadError: String?
+        @StateObject private var loader = AsyncDecoderLoader()
 
         var body: some View {
             NavigationView {
-                Group {
-                    if let decoder = decoder {
-                        MetadataView(decoder: decoder, style: .form)
-                    } else if let loadError = loadError {
-                        Text("Error loading metadata: \(loadError)")
-                    } else {
-                        ProgressView("Loading metadata...")
-                    }
+                DecoderLoadingView(
+                    loader: loader,
+                    loadingText: "Loading metadata...",
+                    errorPrefix: "Error loading metadata"
+                ) { decoder in
+                    MetadataView(decoder: decoder, style: .form)
                 }
                 .navigationTitle("DICOM Information")
                 .inlineNavigationBarTitle()
             }
             .task(id: filePath) {
-                await loadDecoder()
-            }
-        }
-
-        private func loadDecoder() async {
-            await MainActor.run {
-                decoder = nil
-                loadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: filePath)
-                await MainActor.run {
-                    decoder = loadedDecoder
-                }
-            } catch {
-                await MainActor.run {
-                    decoder = nil
-                    loadError = error.localizedDescription
-                }
+                await loader.load(filePath: filePath)
             }
         }
     }
@@ -184,47 +128,27 @@ func formStyleMetadata() -> some View {
 
 /// Create a SwiftUI view that displays DICOM metadata using a list-style presentation.
 /// Creates a navigation-wrapped view that displays DICOM metadata using a list-style presentation.
-/// - Returns: A view that shows the DICOM metadata in a list-style `MetadataView` when the DICOM file at `/path/to/image.dcm` can be decoded; otherwise a `Text` view indicating an error loading metadata.
+/// Creates a view that loads DICOM metadata and displays it using a list-style MetadataView.
+/// The view presents standardized loading and error states via `DecoderLoadingView` and sets the navigation title to "Metadata".
+/// - Returns: A view that loads metadata from a hard-coded file path and presents it inside a `NavigationView` with list-style metadata presentation.
 func listStyleMetadata() -> some View {
     struct ListMetadataView: View {
         let filePath: String
-        @State private var decoder: DCMDecoder?
-        @State private var loadError: String?
+        @StateObject private var loader = AsyncDecoderLoader()
 
         var body: some View {
             NavigationView {
-                Group {
-                    if let decoder = decoder {
-                        MetadataView(decoder: decoder, style: .list)
-                    } else if let loadError = loadError {
-                        Text("Error loading metadata: \(loadError)")
-                    } else {
-                        ProgressView("Loading metadata...")
-                    }
+                DecoderLoadingView(
+                    loader: loader,
+                    loadingText: "Loading metadata...",
+                    errorPrefix: "Error loading metadata"
+                ) { decoder in
+                    MetadataView(decoder: decoder, style: .list)
                 }
                 .navigationTitle("Metadata")
             }
             .task(id: filePath) {
-                await loadDecoder()
-            }
-        }
-
-        private func loadDecoder() async {
-            await MainActor.run {
-                decoder = nil
-                loadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: filePath)
-                await MainActor.run {
-                    decoder = loadedDecoder
-                }
-            } catch {
-                await MainActor.run {
-                    decoder = nil
-                    loadError = error.localizedDescription
-                }
+                await loader.load(filePath: filePath)
             }
         }
     }
@@ -238,12 +162,17 @@ func listStyleMetadata() -> some View {
 /// 
 /// The sheet contains a navigation-wrapped MetadataView for the same DICOM file and includes a Done button to dismiss it. The view is initialized with a built-in example DICOM file URL.
 /// Display a DICOM image and present its metadata in a modal sheet.
-/// - Returns: A view that shows a DICOM image and, when the "Show Metadata" button is tapped, presents a modal sheet containing the image's metadata wrapped in a navigation view with a Done button to dismiss.
+/// Shows a DICOM image with a "Show Metadata" button that presents file metadata in a sheet.
+/// 
+/// When the sheet is presented, the view loads the DICOM metadata asynchronously and displays it
+/// using a standardized loading/error wrapper and a `MetadataView`. The sheet includes a "Done"
+/// toolbar button to dismiss it.
+/// - Returns: A view that displays the DICOM image and, when the button is tapped, presents a sheet
+///            that loads and shows the image's metadata.
 func metadataModalSheet() -> some View {
     struct MetadataSheetView: View {
         @State private var showingMetadata = false
-        @State private var metadataDecoder: DCMDecoder?
-        @State private var metadataLoadError: String?
+        @StateObject private var metadataLoader = AsyncDecoderLoader()
         let dicomURL: URL
 
         var body: some View {
@@ -259,14 +188,12 @@ func metadataModalSheet() -> some View {
             }
             .sheet(isPresented: $showingMetadata) {
                 NavigationView {
-                    Group {
-                        if let metadataDecoder = metadataDecoder {
-                            MetadataView(decoder: metadataDecoder)
-                        } else if let metadataLoadError = metadataLoadError {
-                            Text("Failed to load metadata: \(metadataLoadError)")
-                        } else {
-                            ProgressView("Loading metadata...")
-                        }
+                    DecoderLoadingView(
+                        loader: metadataLoader,
+                        loadingText: "Loading metadata...",
+                        errorPrefix: "Failed to load metadata"
+                    ) { decoder in
+                        MetadataView(decoder: decoder)
                     }
                     .navigationTitle("Metadata")
                     .inlineNavigationBarTitle()
@@ -280,30 +207,7 @@ func metadataModalSheet() -> some View {
                 }
                 .task(id: showingMetadata) {
                     guard showingMetadata else { return }
-                    await loadMetadataForSheet()
-                }
-            }
-        }
-
-        private func loadMetadataForSheet() async {
-            await MainActor.run {
-                metadataDecoder = nil
-                metadataLoadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: dicomURL.path)
-                let isStillPresented = await MainActor.run { showingMetadata }
-                guard isStillPresented else { return }
-                await MainActor.run {
-                    metadataDecoder = loadedDecoder
-                }
-            } catch {
-                let isStillPresented = await MainActor.run { showingMetadata }
-                guard isStillPresented else { return }
-                await MainActor.run {
-                    metadataDecoder = nil
-                    metadataLoadError = error.localizedDescription
+                    await metadataLoader.load(url: dicomURL)
                 }
             }
         }
@@ -318,12 +222,13 @@ func metadataModalSheet() -> some View {
 /// Creates a view that shows a DICOM image with an "Info" button which presents the file's metadata in a popover.
 /// 
 /// The popover displays a form-styled `MetadataView` wrapped in a `NavigationView` titled "Info" and sized to 400×600.
-/// - Returns: A view containing the DICOM image and an Info button that presents the metadata popover when tapped.
+/// Shows a DICOM image with an "Info" button that presents a popover containing the file's metadata.
+/// The metadata is loaded when the popover is presented.
+/// - Returns: A view containing a `DicomImageView` and an "Info" button that opens a popover with a metadata form.
 func metadataPopover() -> some View {
     struct MetadataPopoverView: View {
         @State private var showingMetadata = false
-        @State private var metadataDecoder: DCMDecoder?
-        @State private var metadataLoadError: String?
+        @StateObject private var metadataLoader = AsyncDecoderLoader()
         let dicomURL: URL
 
         var body: some View {
@@ -336,50 +241,23 @@ func metadataPopover() -> some View {
                 .buttonStyle(.bordered)
                 .padding()
                 .popover(isPresented: $showingMetadata) {
-                    Group {
-                        if let metadataDecoder = metadataDecoder {
-                            NavigationView {
-                                MetadataView(decoder: metadataDecoder, style: .form)
-                                    .navigationTitle("Info")
-                                    .inlineNavigationBarTitle()
-                            }
-                            .frame(width: 400, height: 600)
-                        } else if let metadataLoadError = metadataLoadError {
-                            Text("Error: \(metadataLoadError)")
-                                .frame(width: 400, height: 600)
-                        } else {
-                            ProgressView("Loading metadata...")
-                                .frame(width: 400, height: 600)
+                    DecoderLoadingView(
+                        loader: metadataLoader,
+                        loadingText: "Loading metadata...",
+                        errorPrefix: "Error"
+                    ) { decoder in
+                        NavigationView {
+                            MetadataView(decoder: decoder, style: .form)
+                                .navigationTitle("Info")
+                                .inlineNavigationBarTitle()
                         }
                     }
+                    .frame(width: 400, height: 600)
                 }
             }
             .task(id: showingMetadata) {
                 guard showingMetadata else { return }
-                await loadMetadataForPopover()
-            }
-        }
-
-        private func loadMetadataForPopover() async {
-            await MainActor.run {
-                metadataDecoder = nil
-                metadataLoadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: dicomURL.path)
-                let isStillPresented = await MainActor.run { showingMetadata }
-                guard isStillPresented else { return }
-                await MainActor.run {
-                    metadataDecoder = loadedDecoder
-                }
-            } catch {
-                let isStillPresented = await MainActor.run { showingMetadata }
-                guard isStillPresented else { return }
-                await MainActor.run {
-                    metadataDecoder = nil
-                    metadataLoadError = error.localizedDescription
-                }
+                await metadataLoader.load(url: dicomURL)
             }
         }
     }
@@ -396,13 +274,15 @@ func metadataPopover() -> some View {
 /// 
 /// The view has two tabs: an Image tab that shows a DICOM image preview and a Metadata tab that displays the file's metadata.
 /// The Metadata tab is shown only if metadata can be loaded from the file URL used to initialize the view model.
-/// - Returns: A SwiftUI view containing the Image and conditional Metadata tabs.
+/// Presents a tabbed viewer that shows a DICOM image and its extracted metadata.
+/// 
+/// The view contains two tabs — an Image tab that displays the rendered DICOM image and a Metadata tab that shows parsed DICOM metadata. When the view appears (or when the underlying DICOM URL changes), it loads the image and metadata asynchronously.
+/// - Returns: A SwiftUI view composed of the image and metadata tabs.
 func integratedMetadataViewer() -> some View {
     struct IntegratedViewer: View {
         @StateObject private var imageVM = DicomImageViewModel()
+        @StateObject private var metadataLoader = AsyncDecoderLoader()
         @State private var selectedTab = 0
-        @State private var metadataDecoder: DCMDecoder?
-        @State private var metadataLoadError: String?
         let dicomURL: URL
 
         var body: some View {
@@ -417,14 +297,12 @@ func integratedMetadataViewer() -> some View {
                     .tag(0)
 
                 // Metadata tab
-                Group {
-                    if let metadataDecoder = metadataDecoder {
-                        MetadataView(decoder: metadataDecoder)
-                    } else if let metadataLoadError = metadataLoadError {
-                        Text("Error: \(metadataLoadError)")
-                    } else {
-                        ProgressView("Loading metadata...")
-                    }
+                DecoderLoadingView(
+                    loader: metadataLoader,
+                    loadingText: "Loading metadata...",
+                    errorPrefix: "Error"
+                ) { decoder in
+                    MetadataView(decoder: decoder)
                 }
                 .tabItem {
                     Label("Metadata", systemImage: "info.circle")
@@ -433,26 +311,7 @@ func integratedMetadataViewer() -> some View {
             }
             .task(id: dicomURL) {
                 await imageVM.loadImage(from: dicomURL)
-                await loadMetadata()
-            }
-        }
-
-        private func loadMetadata() async {
-            await MainActor.run {
-                metadataDecoder = nil
-                metadataLoadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: dicomURL.path)
-                await MainActor.run {
-                    metadataDecoder = loadedDecoder
-                }
-            } catch {
-                await MainActor.run {
-                    metadataDecoder = nil
-                    metadataLoadError = error.localizedDescription
-                }
+                await metadataLoader.load(url: dicomURL)
             }
         }
     }
@@ -464,12 +323,14 @@ func integratedMetadataViewer() -> some View {
 ///
 /// - On macOS, presents an HSplitView with the image on the left and form-styled metadata on the right.
 /// On iOS and other platforms, uses a side-by-side HStack when the available width is greater than 600 points and a stacked VStack (image above metadata) for narrower widths.
-/// - Returns: A SwiftUI view that shows a DICOM image alongside its metadata in a platform- and size-adaptive split layout.
+/// Displays a responsive split/stack layout showing a DICOM image alongside its metadata.
+/// 
+/// On macOS the view uses a horizontal split with the image on the left and a fixed-width metadata pane on the right. On compact platforms the layout adapts: for widths greater than 600 points it shows a 60/40 horizontal layout, otherwise it stacks the image above the metadata with each occupying half the height. While visible the view loads the image and metadata for the configured DICOM URL and presents the metadata using a form-style pane in side-by-side layouts and a list-style pane in stacked layouts.
+/// - Returns: A view containing the adaptive image + metadata UI that loads and displays the DICOM image and its metadata.
 func splitViewMetadata() -> some View {
     struct SplitViewMetadata: View {
         @StateObject private var imageVM = DicomImageViewModel()
-        @State private var metadataDecoder: DCMDecoder?
-        @State private var metadataLoadError: String?
+        @StateObject private var metadataLoader = AsyncDecoderLoader()
         let dicomURL: URL
 
         var body: some View {
@@ -508,39 +369,20 @@ func splitViewMetadata() -> some View {
             #endif
             .task(id: dicomURL) {
                 await imageVM.loadImage(from: dicomURL)
-                await loadMetadata()
+                await metadataLoader.load(url: dicomURL)
             }
         }
 
+        /// Creates a metadata pane that displays a loader/error state and, when available, the metadata rendered in the given presentation style.
+        /// - Parameter style: The `MetadataView.PresentationStyle` used to present the metadata (for example, `.list` or `.form`).
         @ViewBuilder
         private func metadataPane(style: MetadataView.PresentationStyle) -> some View {
-            if let metadataDecoder = metadataDecoder {
-                MetadataView(decoder: metadataDecoder, style: style)
-            } else if let metadataLoadError = metadataLoadError {
-                Text("Error: \(metadataLoadError)")
-                    .multilineTextAlignment(.center)
-                    .padding()
-            } else {
-                ProgressView("Loading metadata...")
-            }
-        }
-
-        private func loadMetadata() async {
-            await MainActor.run {
-                metadataDecoder = nil
-                metadataLoadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: dicomURL.path)
-                await MainActor.run {
-                    metadataDecoder = loadedDecoder
-                }
-            } catch {
-                await MainActor.run {
-                    metadataDecoder = nil
-                    metadataLoadError = error.localizedDescription
-                }
+            DecoderLoadingView(
+                loader: metadataLoader,
+                loadingText: "Loading metadata...",
+                errorPrefix: "Error"
+            ) { decoder in
+                MetadataView(decoder: decoder, style: style)
             }
         }
     }
@@ -554,7 +396,9 @@ func splitViewMetadata() -> some View {
 /// Displays selected DICOM metadata fields grouped into Patient, Study, and Image sections, loading a decoder from a bundled DCM file.
 /// 
 /// The view shows Patient Name and ID, Study Description and Modality, and Image Dimensions and Bit Depth. If the decoder fails to initialize from the file path, a `Text` view containing the error message is returned.
-/// - Returns: A SwiftUI view presenting the extracted metadata in a navigation-wrapped list, or an error `Text` if the DCM file cannot be loaded.
+/// Displays selected DICOM metadata organized into Patient, Study, and Image sections.
+/// The returned view loads metadata asynchronously from a fixed file path and presents patient name and ID, study description and modality, and image dimensions and bit depth in a navigable list.
+/// - Returns: A view configured to load the DICOM file at "/path/to/image.dcm" and display the extracted metadata.
 func customMetadataFields() -> some View {
     struct CustomMetadataView: View {
         let decoder: DCMDecoder
@@ -562,51 +406,18 @@ func customMetadataFields() -> some View {
         var body: some View {
             List {
                 Section(header: Text("Patient")) {
-                    HStack {
-                        Text("Name")
-                        Spacer()
-                        Text(decoder.info(for: .patientName) ?? "N/A")
-                            .foregroundColor(.secondary)
-                    }
-
-                    HStack {
-                        Text("ID")
-                        Spacer()
-                        Text(decoder.info(for: .patientID) ?? "N/A")
-                            .foregroundColor(.secondary)
-                    }
+                    MetadataRow(label: "Name", value: decoder.info(for: .patientName))
+                    MetadataRow(label: "ID", value: decoder.info(for: .patientID))
                 }
 
                 Section(header: Text("Study")) {
-                    HStack {
-                        Text("Description")
-                        Spacer()
-                        Text(decoder.info(for: .studyDescription) ?? "N/A")
-                            .foregroundColor(.secondary)
-                    }
-
-                    HStack {
-                        Text("Modality")
-                        Spacer()
-                        Text(decoder.info(for: .modality) ?? "N/A")
-                            .foregroundColor(.secondary)
-                    }
+                    MetadataRow(label: "Description", value: decoder.info(for: .studyDescription))
+                    MetadataRow(label: "Modality", value: decoder.info(for: .modality))
                 }
 
                 Section(header: Text("Image")) {
-                    HStack {
-                        Text("Dimensions")
-                        Spacer()
-                        Text("\(decoder.width) × \(decoder.height)")
-                            .foregroundColor(.secondary)
-                    }
-
-                    HStack {
-                        Text("Bit Depth")
-                        Spacer()
-                        Text("\(decoder.bitDepth) bits")
-                            .foregroundColor(.secondary)
-                    }
+                    MetadataRow(label: "Dimensions", value: "\(decoder.width) × \(decoder.height)")
+                    MetadataRow(label: "Bit Depth", value: "\(decoder.bitDepth) bits")
                 }
             }
             .navigationTitle("DICOM Info")
@@ -615,43 +426,21 @@ func customMetadataFields() -> some View {
 
     struct AsyncCustomMetadataView: View {
         let filePath: String
-        @State private var decoder: DCMDecoder?
-        @State private var loadError: String?
+        @StateObject private var loader = AsyncDecoderLoader()
 
         var body: some View {
             NavigationView {
-                Group {
-                    if let decoder = decoder {
-                        CustomMetadataView(decoder: decoder)
-                    } else if let loadError = loadError {
-                        Text("Error: \(loadError)")
-                    } else {
-                        ProgressView("Loading metadata...")
-                    }
+                DecoderLoadingView(
+                    loader: loader,
+                    loadingText: "Loading metadata...",
+                    errorPrefix: "Error"
+                ) { decoder in
+                    CustomMetadataView(decoder: decoder)
                 }
                 .navigationTitle("DICOM Info")
             }
             .task(id: filePath) {
-                await loadDecoder()
-            }
-        }
-
-        private func loadDecoder() async {
-            await MainActor.run {
-                decoder = nil
-                loadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: filePath)
-                await MainActor.run {
-                    decoder = loadedDecoder
-                }
-            } catch {
-                await MainActor.run {
-                    decoder = nil
-                    loadError = error.localizedDescription
-                }
+                await loader.load(filePath: filePath)
             }
         }
     }
@@ -663,7 +452,10 @@ func customMetadataFields() -> some View {
 
 /// Presents a SwiftUI example that displays DICOM metadata with a searchable interface.
 /// Presents a DICOM metadata viewer that offers a searchable interface when the platform supports it.
-/// - Returns: A view displaying metadata loaded from the bundled DICOM file at "/path/to/image.dcm"; if the decoder cannot be created, returns a text view describing the load error.
+/// Creates a navigation-wrapped metadata viewer with a search interface and asynchronous loading.
+/// 
+/// On iOS 15 / macOS 12 and later this presents a `MetadataView` with the platform `searchable` modifier; on earlier OSes it shows a manual `TextField` search fallback above `MetadataView`. Metadata is loaded asynchronously via `AsyncDecoderLoader` for the file path "/path/to/image.dcm", and loading/error states are handled by `DecoderLoadingView`.
+/// - Returns: A view that loads DICOM metadata and presents it with a search UI, including standardized loading and error handling.
 func searchableMetadata() -> some View {
     struct SearchableMetadataView: View {
         @State private var searchText = ""
@@ -691,40 +483,18 @@ func searchableMetadata() -> some View {
 
     struct AsyncSearchableMetadataView: View {
         let filePath: String
-        @State private var decoder: DCMDecoder?
-        @State private var loadError: String?
+        @StateObject private var loader = AsyncDecoderLoader()
 
         var body: some View {
-            Group {
-                if let decoder = decoder {
-                    SearchableMetadataView(decoder: decoder)
-                } else if let loadError = loadError {
-                    Text("Error loading metadata: \(loadError)")
-                } else {
-                    ProgressView("Loading metadata...")
-                }
+            DecoderLoadingView(
+                loader: loader,
+                loadingText: "Loading metadata...",
+                errorPrefix: "Error loading metadata"
+            ) { decoder in
+                SearchableMetadataView(decoder: decoder)
             }
             .task(id: filePath) {
-                await loadDecoder()
-            }
-        }
-
-        private func loadDecoder() async {
-            await MainActor.run {
-                decoder = nil
-                loadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: filePath)
-                await MainActor.run {
-                    decoder = loadedDecoder
-                }
-            } catch {
-                await MainActor.run {
-                    decoder = nil
-                    loadError = error.localizedDescription
-                }
+                await loader.load(filePath: filePath)
             }
         }
     }
@@ -737,24 +507,22 @@ func searchableMetadata() -> some View {
 /// Displays DICOM metadata and provides an export action that shares a generated text summary.
 ///
 /// - A view showing the MetadataView for a DCMDecoder with a toolbar export button that presents a share sheet containing a plain-text export of patient, study, and image properties.
-/// - Returns: A view presenting the metadata and an export button that opens a share sheet with the exported metadata text.
+/// Presents the export/share sheet by setting its presentation state to true.
+/// - Returns: `"No metadata loaded."` if no decoder is available; otherwise a formatted plain-text string containing Patient Information, Study Information, and Image Properties.
 func exportableMetadata() -> some View {
     struct ExportableMetadataView: View {
         @State private var showingExportSheet = false
-        @State private var decoder: DCMDecoder?
-        @State private var loadError: String?
+        @StateObject private var loader = AsyncDecoderLoader()
         let filePath: String
 
         var body: some View {
             NavigationView {
-                Group {
-                    if let decoder = decoder {
-                        MetadataView(decoder: decoder)
-                    } else if let loadError = loadError {
-                        Text("Error loading metadata: \(loadError)")
-                    } else {
-                        ProgressView("Loading metadata...")
-                    }
+                DecoderLoadingView(
+                    loader: loader,
+                    loadingText: "Loading metadata...",
+                    errorPrefix: "Error loading metadata"
+                ) { decoder in
+                    MetadataView(decoder: decoder)
                 }
                 .navigationTitle("Metadata")
                 .toolbar {
@@ -762,7 +530,7 @@ func exportableMetadata() -> some View {
                         Button(action: exportMetadata) {
                             Image(systemName: "square.and.arrow.up")
                         }
-                        .disabled(decoder == nil)
+                        .disabled(loader.decoder == nil)
                     }
                 }
                 .sheet(isPresented: $showingExportSheet) {
@@ -770,26 +538,7 @@ func exportableMetadata() -> some View {
                 }
             }
             .task(id: filePath) {
-                await loadDecoder()
-            }
-        }
-
-        private func loadDecoder() async {
-            await MainActor.run {
-                decoder = nil
-                loadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: filePath)
-                await MainActor.run {
-                    decoder = loadedDecoder
-                }
-            } catch {
-                await MainActor.run {
-                    decoder = nil
-                    loadError = error.localizedDescription
-                }
+                await loader.load(filePath: filePath)
             }
         }
 
@@ -802,9 +551,11 @@ func exportableMetadata() -> some View {
 
         /// Builds a plain-text DICOM metadata summary suitable for sharing.
         /// Builds a plain-text summary of the decoder's patient, study, and image metadata suitable for export.
-        /// - Returns: A formatted string containing Patient Information, Study Information, and Image Properties; missing fields are represented as "N/A".
+        /// Produces a plain-text export of the currently loaded DICOM metadata.
+        /// If no metadata is loaded, returns a user-facing placeholder message.
+        /// - Returns: A formatted plain-text string containing patient information, study information, and image properties, or `"No metadata loaded."` when no decoder is available.
         private func generateMetadataText() -> String {
-            guard let decoder = decoder else {
+            guard let decoder = loader.decoder else {
                 return "No metadata loaded."
             }
 
@@ -812,15 +563,15 @@ func exportableMetadata() -> some View {
             text += "====================\n\n"
 
             text += "Patient Information:\n"
-            text += "  Name: \(decoder.info(for: .patientName) ?? "N/A")\n"
-            text += "  ID: \(decoder.info(for: .patientID) ?? "N/A")\n"
-            text += "  Sex: \(decoder.info(for: .patientSex) ?? "N/A")\n"
-            text += "  Age: \(decoder.info(for: .patientAge) ?? "N/A")\n\n"
+            text += "  Name: \(decoder.info(for: .patientName))\n"
+            text += "  ID: \(decoder.info(for: .patientID))\n"
+            text += "  Sex: \(decoder.info(for: .patientSex))\n"
+            text += "  Age: \(decoder.info(for: .patientAge))\n\n"
 
             text += "Study Information:\n"
-            text += "  Description: \(decoder.info(for: .studyDescription) ?? "N/A")\n"
-            text += "  Date: \(decoder.info(for: .studyDate) ?? "N/A")\n"
-            text += "  Modality: \(decoder.info(for: .modality) ?? "N/A")\n\n"
+            text += "  Description: \(decoder.info(for: .studyDescription))\n"
+            text += "  Date: \(decoder.info(for: .studyDate))\n"
+            text += "  Modality: \(decoder.info(for: .modality))\n\n"
 
             text += "Image Properties:\n"
             text += "  Dimensions: \(decoder.width) × \(decoder.height)\n"
@@ -829,46 +580,6 @@ func exportableMetadata() -> some View {
             return text
         }
     }
-
-    // Simple share sheet wrapper
-    #if os(iOS) || os(tvOS) || os(visionOS)
-    struct ShareSheet: UIViewControllerRepresentable {
-        let items: [Any]
-
-        init(items: [Any]) {
-            self.items = items
-        }
-
-        /// Create a UIActivityViewController configured with the view's activity items.
-        /// - Parameters:
-        ///   - context: Context provided by `UIViewControllerRepresentable` containing environment and coordinator.
-        /// Creates and returns a UIActivityViewController configured with the provided activity items.
-        /// - Returns: A `UIActivityViewController` initialized with `items` and no application activities.
-        func makeUIViewController(context: Context) -> UIActivityViewController {
-            UIActivityViewController(activityItems: items, applicationActivities: nil)
-        }
-
-        /// Updates the presented `UIActivityViewController` to reflect any changed SwiftUI state.
-        /// - Parameters:
-        ///   - uiViewController: The activity view controller instance managed by this representable.
-        ///   - context: Contextual information about the representable's update cycle.
-        /// No-op update method for the activity view controller; intentionally does not modify `uiViewController`.
-        func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-    }
-    #else
-    struct ShareSheet: View {
-        let items: [Any]
-
-        init(items: [Any]) {
-            self.items = items
-        }
-
-        var body: some View {
-            Text("Sharing is unavailable on this platform.")
-                .padding()
-        }
-    }
-    #endif
 
     return ExportableMetadataView(filePath: "/path/to/ct_scan.dcm")
 }
@@ -961,7 +672,10 @@ func metadataWithSeriesNavigation() -> some View {
 /// Presents a side-by-side comparison of metadata from two DICOM files.
 /// 
 /// The returned view displays Patient Name, Study Date, and image Dimensions for two DICOM images and highlights any differing values in red; if loading either file fails, the view shows an error message instead.
-/// - Returns: A SwiftUI `View` that either shows the comparison list (with differences highlighted) or a textual error describing the loading failure.
+/// Presents a UI that loads and compares metadata from two DICOM files.
+/// 
+/// The returned view concurrently loads both files, shows a loading indicator while fetching, displays an error message on failure, and presents a list comparing Patient Name, Study Date, and image Dimensions when both decoders are available. Differences between the two files are highlighted in red; matching values use a secondary color.
+///
 func compareMetadata() -> some View {
     struct CompareMetadataView: View {
         let url1: URL
@@ -983,60 +697,33 @@ func compareMetadata() -> some View {
                     } else if let decoder1 = decoder1, let decoder2 = decoder2 {
                         List {
                             Section(header: Text("Patient Name")) {
-                                HStack {
-                                    Text("Image 1")
-                                    Spacer()
-                                    Text(decoder1.info(for: .patientName) ?? "N/A")
-                                        .foregroundColor(.secondary)
-                                }
-
-                                HStack {
-                                    Text("Image 2")
-                                    Spacer()
-                                    Text(decoder2.info(for: .patientName) ?? "N/A")
-                                        .foregroundColor(
-                                            decoder1.info(for: .patientName) == decoder2.info(for: .patientName)
-                                            ? .secondary : .red
-                                        )
-                                }
+                                MetadataRow(label: "Image 1", value: displayValue(decoder1.info(for: .patientName)))
+                                MetadataRow(
+                                    label: "Image 2",
+                                    value: displayValue(decoder2.info(for: .patientName)),
+                                    valueColor: decoder1.info(for: .patientName) == decoder2.info(for: .patientName)
+                                    ? .secondary : .red
+                                )
                             }
 
                             Section(header: Text("Study Date")) {
-                                HStack {
-                                    Text("Image 1")
-                                    Spacer()
-                                    Text(decoder1.info(for: .studyDate) ?? "N/A")
-                                        .foregroundColor(.secondary)
-                                }
-
-                                HStack {
-                                    Text("Image 2")
-                                    Spacer()
-                                    Text(decoder2.info(for: .studyDate) ?? "N/A")
-                                        .foregroundColor(
-                                            decoder1.info(for: .studyDate) == decoder2.info(for: .studyDate)
-                                            ? .secondary : .red
-                                        )
-                                }
+                                MetadataRow(label: "Image 1", value: displayValue(decoder1.info(for: .studyDate)))
+                                MetadataRow(
+                                    label: "Image 2",
+                                    value: displayValue(decoder2.info(for: .studyDate)),
+                                    valueColor: decoder1.info(for: .studyDate) == decoder2.info(for: .studyDate)
+                                    ? .secondary : .red
+                                )
                             }
 
                             Section(header: Text("Dimensions")) {
-                                HStack {
-                                    Text("Image 1")
-                                    Spacer()
-                                    Text("\(decoder1.width) × \(decoder1.height)")
-                                        .foregroundColor(.secondary)
-                                }
-
-                                HStack {
-                                    Text("Image 2")
-                                    Spacer()
-                                    Text("\(decoder2.width) × \(decoder2.height)")
-                                        .foregroundColor(
-                                            decoder1.width == decoder2.width && decoder1.height == decoder2.height
-                                            ? .secondary : .red
-                                        )
-                                }
+                                MetadataRow(label: "Image 1", value: "\(decoder1.width) × \(decoder1.height)")
+                                MetadataRow(
+                                    label: "Image 2",
+                                    value: "\(decoder2.width) × \(decoder2.height)",
+                                    valueColor: decoder1.width == decoder2.width && decoder1.height == decoder2.height
+                                    ? .secondary : .red
+                                )
                             }
                         }
                     } else {
@@ -1075,6 +762,10 @@ func compareMetadata() -> some View {
                 }
             }
         }
+
+        private func displayValue(_ value: String) -> String {
+            value.isEmpty ? "N/A" : value
+        }
     }
 
     return CompareMetadataView(
@@ -1089,14 +780,15 @@ func compareMetadata() -> some View {
 /// Presents a complete metadata exploration UI combining an image preview, a presentation-style picker, and metadata display with export and utility actions.
 /// 
 /// The view displays a DICOM image preview, lets the user choose between list and form presentation for metadata, shows key information and full metadata sections extracted from the DICOM file, and provides toolbar actions to export, copy, or print the metadata.
-/// - Returns: A view that displays and lets the user interact with DICOM image and metadata (image preview, style selector, key fields, full details, and export/copy/print controls).
+/// - Returns: A view containing the "Key Information" and "All Details" sections; missing values are displayed as `"N/A"`.
+/// Placeholder implementation: currently logs the copy action and does not perform clipboard integration.
+/// Placeholder implementation: currently logs the print action and does not invoke platform print UI.
 func completeMetadataApp() -> some View {
     struct CompleteMetadataApp: View {
         @StateObject private var imageVM = DicomImageViewModel()
+        @StateObject private var metadataLoader = AsyncDecoderLoader()
         @State private var presentationStyle: MetadataView.PresentationStyle = .list
         @State private var showingExport = false
-        @State private var metadataDecoder: DCMDecoder?
-        @State private var metadataLoadError: String?
         let dicomURL: URL
 
         var body: some View {
@@ -1116,7 +808,7 @@ func completeMetadataApp() -> some View {
                     .padding()
 
                     // Metadata display
-                    if let metadataDecoder = metadataDecoder {
+                    if let metadataDecoder = metadataLoader.decoder {
                         if presentationStyle == .form {
                             Form {
                                 metadataSections(for: metadataDecoder)
@@ -1126,7 +818,7 @@ func completeMetadataApp() -> some View {
                                 metadataSections(for: metadataDecoder)
                             }
                         }
-                    } else if let metadataLoadError = metadataLoadError {
+                    } else if let metadataLoadError = metadataLoader.loadError {
                         Text("Error loading metadata: \(metadataLoadError)")
                             .padding()
                     } else {
@@ -1139,7 +831,7 @@ func completeMetadataApp() -> some View {
                         Button(action: { showingExport = true }) {
                             Image(systemName: "square.and.arrow.up")
                         }
-                        .disabled(metadataDecoder == nil)
+                        .disabled(metadataLoader.decoder == nil)
 
                         Menu {
                             Button(action: copyToClipboard) {
@@ -1157,7 +849,10 @@ func completeMetadataApp() -> some View {
             }
             .task(id: dicomURL) {
                 await imageVM.loadImage(from: dicomURL)
-                await loadMetadata()
+                await metadataLoader.load(url: dicomURL)
+            }
+            .sheet(isPresented: $showingExport) {
+                ShareSheet(items: [generateMetadataText()])
             }
         }
 
@@ -1166,53 +861,19 @@ func completeMetadataApp() -> some View {
         /// The first section shows key information (Patient, Study, Modality) extracted from the provided decoder; missing values are shown as "N/A". The second section attempts to load a full decoder from `dicomURL` and, if successful, embeds a `MetadataView` using the current presentation style.
         /// Builds two grouped sections: a "Key Information" section showing selected patient, study, and modality fields from the provided decoder, and an "All Details" section that attempts to load and display the full metadata using the file at `dicomURL`.
         /// - Parameter decoder: The `DCMDecoder` used to populate the "Key Information" rows.
-        /// - Returns: A view containing the "Key Information" and "All Details" sections; missing fields are shown as "N/A".
+        /// Builds two metadata sections for the given decoder: a "Key Information" section with selected fields and an "All Details" section containing the full metadata view.
+        /// - Parameter decoder: The `DCMDecoder` whose metadata will be displayed.
+        /// - Returns: A view containing the "Key Information" and "All Details" sections for the provided decoder.
         @ViewBuilder
         private func metadataSections(for decoder: DCMDecoder) -> some View {
             Section(header: Text("Key Information")) {
-                HStack {
-                    Text("Patient")
-                    Spacer()
-                    Text(decoder.info(for: .patientName) ?? "N/A")
-                        .foregroundColor(.secondary)
-                }
-
-                HStack {
-                    Text("Study")
-                    Spacer()
-                    Text(decoder.info(for: .studyDescription) ?? "N/A")
-                        .foregroundColor(.secondary)
-                }
-
-                HStack {
-                    Text("Modality")
-                    Spacer()
-                    Text(decoder.info(for: .modality) ?? "N/A")
-                        .foregroundColor(.secondary)
-                }
+                MetadataRow(label: "Patient", value: decoder.info(for: .patientName))
+                MetadataRow(label: "Study", value: decoder.info(for: .studyDescription))
+                MetadataRow(label: "Modality", value: decoder.info(for: .modality))
             }
 
             Section(header: Text("All Details")) {
                 MetadataView(decoder: decoder, style: presentationStyle)
-            }
-        }
-
-        private func loadMetadata() async {
-            await MainActor.run {
-                metadataDecoder = nil
-                metadataLoadError = nil
-            }
-
-            do {
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: dicomURL.path)
-                await MainActor.run {
-                    metadataDecoder = loadedDecoder
-                }
-            } catch {
-                await MainActor.run {
-                    metadataDecoder = nil
-                    metadataLoadError = error.localizedDescription
-                }
             }
         }
 
@@ -1233,6 +894,21 @@ func completeMetadataApp() -> some View {
             print("Printing metadata")
             // Implement print functionality
         }
+
+        private func generateMetadataText() -> String {
+            guard let decoder = metadataLoader.decoder else {
+                return "No metadata loaded."
+            }
+
+            var text = "DICOM Metadata Export\n"
+            text += "====================\n\n"
+            text += "Patient: \(decoder.info(for: .patientName))\n"
+            text += "Study: \(decoder.info(for: .studyDescription))\n"
+            text += "Modality: \(decoder.info(for: .modality))\n"
+            text += "Dimensions: \(decoder.width) × \(decoder.height)\n"
+            text += "Bit Depth: \(decoder.bitDepth)\n"
+            return text
+        }
     }
 
     return CompleteMetadataApp(dicomURL: URL(fileURLWithPath: "/path/to/ct_scan.dcm"))
@@ -1243,24 +919,23 @@ func completeMetadataApp() -> some View {
 /// Presents a SwiftUI example view that loads DICOM metadata asynchronously and displays it when ready.
 /// Loads DICOM metadata from `dicomURL` and updates the view state accordingly.
 /// 
-/// On success, sets `decoder` to the loaded `DCMDecoder` and sets `isLoading` to `false`. On failure, sets `error` to the thrown error and sets `isLoading` to `false`.
+/// Requests the view's `AsyncDecoderLoader` to load DICOM metadata from `dicomURL`.
+/// - Note: On completion the loader's observable properties (`decoder`, `isLoading`, `error`) are updated to reflect the load result.
 func asyncMetadataLoading() -> some View {
     struct AsyncMetadataView: View {
-        @State private var decoder: DCMDecoder?
-        @State private var isLoading = true
-        @State private var error: Error?
+        @StateObject private var loader = AsyncDecoderLoader()
         let dicomURL: URL
 
         var body: some View {
             NavigationView {
                 Group {
-                    if isLoading {
+                    if loader.isLoading && loader.decoder == nil {
                         VStack(spacing: 16) {
                             ProgressView()
                             Text("Loading metadata...")
                                 .foregroundColor(.secondary)
                         }
-                    } else if let error = error {
+                    } else if let error = loader.error {
                         VStack(spacing: 16) {
                             Image(systemName: "exclamationmark.triangle")
                                 .font(.largeTitle)
@@ -1275,8 +950,10 @@ func asyncMetadataLoading() -> some View {
                                 .multilineTextAlignment(.center)
                         }
                         .padding()
-                    } else if let decoder = decoder {
+                    } else if let decoder = loader.decoder {
                         MetadataView(decoder: decoder)
+                    } else {
+                        ProgressView("Loading metadata...")
                     }
                 }
                 .navigationTitle("DICOM Metadata")
@@ -1290,17 +967,9 @@ func asyncMetadataLoading() -> some View {
         ///
         /// Asynchronously loads DICOM metadata from `dicomURL` and updates the view state.
         /// 
-        /// On success, assigns the created `DCMDecoder` to `decoder` and clears the loading flag. On failure, stores the thrown error in `error` and clears the loading flag.
+        /// Initiates loading of DICOM metadata for the view's `dicomURL` into the shared decoder loader.
         private func loadMetadata() async {
-            do {
-                // Simulate async loading
-                let loadedDecoder = try await DCMDecoder(contentsOfFile: dicomURL.path)
-                decoder = loadedDecoder
-                isLoading = false
-            } catch let loadError {
-                error = loadError
-                isLoading = false
-            }
+            await loader.load(url: dicomURL)
         }
     }
 

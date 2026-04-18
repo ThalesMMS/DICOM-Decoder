@@ -43,7 +43,10 @@ struct ContentView: View {
 
     var body: some View {
         NavigationView {
-            StudyBrowserView(viewModel: studyBrowserViewModel)
+            StudyBrowserView(
+                viewModel: studyBrowserViewModel,
+                onImportRequested: { showingImportPicker = true }
+            )
                 .sheet(isPresented: $showingImportPicker) {
                     documentPickerView
                 }

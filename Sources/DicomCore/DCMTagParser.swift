@@ -102,7 +102,15 @@ internal final class DCMTagParser {
             // bytes (b2 and b3).  If those bytes are zero we
             // interpret the following 4 bytes as the length.
             if b2 == 0 || b3 == 0 {
-                retValue = binaryReader.readInt(location: &location)
+                let l0 = binaryReader.readByte(location: &location)
+                let l1 = binaryReader.readByte(location: &location)
+                let l2 = binaryReader.readByte(location: &location)
+                let l3 = binaryReader.readByte(location: &location)
+                if littleEndian {
+                    retValue = Int(l3) << 24 | Int(l2) << 16 | Int(l1) << 8 | Int(l0)
+                } else {
+                    retValue = Int(l0) << 24 | Int(l1) << 16 | Int(l2) << 8 | Int(l3)
+                }
             } else {
                 // This is actually an implicit VR; the four bytes
                 // read constitute the length.
@@ -165,12 +173,19 @@ internal final class DCMTagParser {
         // big endian transfer syntax we flip endianness.  This
         // mirrors the hack in the original implementation.
         var actualGroup = group
+        let element: Int
         if group == 0x0800 && bigEndianTransferSyntax {
             littleEndian = false
             actualGroup = 0x0008
+            guard location + 2 <= data.count else {
+                return 0
+            }
+            element = Int(UInt16(data[location]) << 8 | UInt16(data[location + 1]))
+            location += 2
+        } else {
+            element = Int(binaryReader.readShort(location: &location))
         }
 
-        let element = Int(binaryReader.readShort(location: &location))
         let tag = actualGroup << 16 | element
 
         elementLength = getLength(location: &location, littleEndian: littleEndian)

@@ -288,11 +288,16 @@ After decoding Huffman symbol (gives bit length N):
 
 1. **Read N bits** from bitstream
 2. **Interpret as signed value** using JPEG's magnitude encoding:
+3. For the lossless-only category `SSSS == 16`, read no extra bits and use the most-negative 16-bit difference value `-32768`.
 
 ```swift
 func decodeDifference(ssss: Int, bitstream: inout BitInputStream) throws -> Int {
     if ssss == 0 {
         return 0  // No difference
+    }
+
+    if ssss == 16 {
+        return -32768  // Lossless sentinel difference, no extra bits
     }
 
     // Read ssss bits

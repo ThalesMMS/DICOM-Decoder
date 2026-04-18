@@ -99,7 +99,7 @@ public struct DicomSeriesVolume: Sendable {
     public let seriesDescription: String
 }
 
-private struct SliceMeta {
+struct SliceMeta {
     let url: URL
     let position: SIMD3<Double>?
     let instanceNumber: Int?
@@ -264,8 +264,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
 
     // MARK: - Properties
 
-    private let decoderFactory: (String) throws -> DicomDecoderProtocol
-    private var decoderCache: [URL: DicomDecoderProtocol] = [:]
+    let decoderFactory: (String) throws -> DicomDecoderProtocol
 
     // MARK: - Initialization
 
@@ -284,16 +283,48 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
     /// - Parameter decoderFactory: Factory closure that creates decoders without a path argument.
     @available(*, deprecated, message: "Use init(decoderFactory: (String) throws -> DicomDecoderProtocol) instead.")
     public convenience init(decoderFactory: @escaping () -> DicomDecoderProtocol) {
-        self.init(decoderFactory: { _ in decoderFactory() })
+        self.init(decoderFactory: { path in
+            let decoder = decoderFactory()
+            decoder.setDicomFilename(path)
+            return decoder
+        })
     }
 
-    /// Loads a DICOM series from a directory, ordering slices by Image Position (Patient).
+    /// Loads a DICOM series from a directory and assembles all slices into a single 16-bit volume.
     /// - Parameters:
-    ///   - directory: Directory containing DICOM slices.
-    ///   - progress: Optional callback invoked with (fractionComplete, slicesCopied).
-    /// - Returns: `DicomSeriesVolume` with voxel buffer and geometry metadata.
+    ///   - directory: URL of the directory containing the DICOM files to load.
+    ///   - progress: Optional callback invoked after each decoded slice with the fraction complete, the 1-based slice index, the decoded slice voxel `Data`, and a lightweight `DicomSeriesVolume` descriptor for the series.
+    /// - Returns: A `DicomSeriesVolume` containing the assembled contiguous 16-bit voxel buffer and associated geometry, spacing, orientation, origin, rescale parameters, pixel format, and series description.
+    /// - Throws:
+    ///   - `DicomSeriesLoaderError.noDicomFiles` if no valid DICOM files are found or no valid slices could be loaded.
+    ///   - `DicomSeriesLoaderError.unsupportedSamplesPerPixel(_)` if a decoded file reports `samplesPerPixel` other than 1.
+    ///   - `DicomSeriesLoaderError.unsupportedBitDepth(_)` if a decoded file reports a bit depth other than 16.
+    ///   - `DicomSeriesLoaderError.inconsistentDimensions` if slice widths/heights differ across the series.
+    ///   - `DicomSeriesLoaderError.inconsistentOrientation` if slice row/column orientation vectors differ across the series.
+    ///   - `DicomSeriesLoaderError.inconsistentPixelRepresentation` if `pixelRepresentation` differs across slices.
+    ///   - `DicomSeriesLoaderError.failedToDecode(_)` if decoding any slice's pixel data fails during assembly.
+    ///   - `CancellationError` if the calling task was cancelled during loading.
     public func loadSeries(in directory: URL,
                            progress: ProgressHandler? = nil) throws -> DicomSeriesVolume {
+        let decoderCacheLock = DicomLock()
+        var decoderCache: [URL: DicomDecoderProtocol] = [:]
+
+        func cachedDecoder(for url: URL) -> DicomDecoderProtocol? {
+            decoderCacheLock.withLock {
+                decoderCache[url]
+            }
+        }
+
+        func cacheDecoder(_ decoder: DicomDecoderProtocol, for url: URL) {
+            decoderCacheLock.withLock {
+                decoderCache[url] = decoder
+            }
+        }
+
+        if Task.isCancelled {
+            throw CancellationError()
+        }
+
         let fileURLs = try listDicomFiles(in: directory)
         guard !fileURLs.isEmpty else {
             throw DicomSeriesLoaderError.noDicomFiles
@@ -316,6 +347,10 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         var slices: [SliceMeta] = []
 
         for url in fileURLs {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+
             // Try to load DICOM file using factory
             let decoder: DicomDecoderProtocol
             do {
@@ -334,7 +369,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
             }
 
             // Cache the validated decoder for reuse in second pass
-            decoderCache[url] = decoder
+            cacheDecoder(decoder, for: url)
 
             // Capture baseline geometry from the first valid slice.
             if firstDecoder == nil {
@@ -375,7 +410,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
             } else {
                 projection = nil
             }
-            let instance = decoder.intValue(for: DicomTag.instanceNumber.rawValue)
+            let instance = decoder.intValue(for: .instanceNumber)
 
             slices.append(SliceMeta(url: url,
                                     position: decoder.imagePosition,
@@ -447,6 +482,9 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
 
         // Acquire a single pooled buffer for reuse across all slices
         var sliceBuffer = BufferPool.shared.acquire(type: [Int16].self, count: sliceVoxelCount)
+        defer {
+            BufferPool.shared.release(sliceBuffer)
+        }
 
         // Ensure buffer is large enough (pool uses bucketing, may return larger buffer)
         if sliceBuffer.count < sliceVoxelCount {
@@ -458,13 +496,20 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         voxelData.withUnsafeMutableBytes { rawBuffer in
             let dest = rawBuffer.bindMemory(to: Int16.self)
             for (index, slice) in slices.enumerated() {
+                if Task.isCancelled {
+                    loadError = CancellationError()
+                    break
+                }
+
                 // Decode directly into reused buffer
                 let pixelCount = try? self.decodeSliceIntoBuffer(
                     at: slice.url,
                     buffer: &sliceBuffer,
                     expectedWidth: width,
                     expectedHeight: height,
-                    isSigned: pixelRepresentation == 1
+                    isSigned: pixelRepresentation == 1,
+                    cachedDecoder: cachedDecoder(for:),
+                    cacheDecoder: cacheDecoder(_:for:)
                 )
 
                 guard let pixelCount, pixelCount == sliceVoxelCount else {
@@ -483,9 +528,6 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
             }
         }
 
-        // Release pooled buffer after all slices are processed
-        BufferPool.shared.release(sliceBuffer)
-
         if let error = loadError {
             throw error
         }
@@ -503,592 +545,6 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                        isSignedPixel: pixelRepresentation == 1,
                                        seriesDescription: seriesDescription)
 
-        // Clear decoder cache to free memory
-        decoderCache.removeAll()
-
         return volume
-    }
-}
-
-// MARK: - Helpers
-
-private extension DicomSeriesLoader {
-    func listDicomFiles(in directory: URL) throws -> [URL] {
-        let fm = FileManager.default
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .nameKey]
-        guard let enumerator = fm.enumerator(at: directory,
-                                             includingPropertiesForKeys: keys,
-                                             options: [.skipsHiddenFiles]) else {
-            return []
-        }
-
-        var urls: [URL] = []
-        for case let fileURL as URL in enumerator {
-            let resourceValues = try fileURL.resourceValues(forKeys: Set(keys))
-            if resourceValues.isDirectory == true { continue }
-            if resourceValues.isRegularFile == true {
-                if fileURL.pathExtension.lowercased() == "dcm" || fileURL.pathExtension.isEmpty {
-                    urls.append(fileURL)
-                }
-            }
-        }
-        return urls
-    }
-
-    func decodeSlice(at url: URL,
-                     expectedWidth: Int,
-                     expectedHeight: Int,
-                     isSigned: Bool) throws -> [Int16] {
-        // Try to use cached decoder first, fallback to creating new one
-        let decoder: DicomDecoderProtocol
-        if let cachedDecoder = decoderCache[url] {
-            decoder = cachedDecoder
-        } else {
-            // Load DICOM file using factory
-            decoder = try decoderFactory(url.path)
-        }
-
-        guard decoder.width == expectedWidth,
-              decoder.height == expectedHeight,
-              decoder.bitDepth == 16,
-              decoder.samplesPerPixel == 1 else {
-            throw DicomSeriesLoaderError.failedToDecode(url)
-        }
-
-        guard let pixels = decoder.getPixels16() else {
-            throw DicomSeriesLoaderError.failedToDecode(url)
-        }
-
-        if isSigned {
-            return pixels.map { value in
-                let signed = Int32(value) + Int32(Int16.min)
-                return Int16(truncatingIfNeeded: signed)
-            }
-        } else {
-            return pixels.map { Int16(bitPattern: $0) }
-        }
-    }
-
-    /// Decodes a DICOM slice directly into a provided buffer for memory efficiency.
-    ///
-    /// This method writes decoded pixel data directly into the provided buffer,
-    /// avoiding intermediate allocations. Used by loadSeries() to reuse a single
-    /// buffer across multiple slices.
-    ///
-    /// - Parameters:
-    ///   - url: File URL of the DICOM slice
-    ///   - buffer: Mutable buffer to write decoded pixels into (must have sufficient capacity)
-    ///   - expectedWidth: Expected image width for validation
-    ///   - expectedHeight: Expected image height for validation
-    ///   - isSigned: Whether pixel representation is signed
-    /// - Returns: Number of pixels written to buffer
-    /// - Throws: DicomSeriesLoaderError if decoding fails or validation fails
-    func decodeSliceIntoBuffer(
-        at url: URL,
-        buffer: inout [Int16],
-        expectedWidth: Int,
-        expectedHeight: Int,
-        isSigned: Bool
-    ) throws -> Int {
-        // Try to use cached decoder first, fallback to creating new one
-        let decoder: DicomDecoderProtocol
-        if let cachedDecoder = decoderCache[url] {
-            decoder = cachedDecoder
-        } else {
-            // Load DICOM file using factory
-            decoder = try decoderFactory(url.path)
-        }
-
-        guard decoder.width == expectedWidth,
-              decoder.height == expectedHeight,
-              decoder.bitDepth == 16,
-              decoder.samplesPerPixel == 1 else {
-            throw DicomSeriesLoaderError.failedToDecode(url)
-        }
-
-        guard let pixels = decoder.getPixels16() else {
-            throw DicomSeriesLoaderError.failedToDecode(url)
-        }
-
-        let pixelCount = pixels.count
-
-        // Ensure buffer has sufficient capacity
-        guard buffer.count >= pixelCount else {
-            throw DicomSeriesLoaderError.failedToDecode(url)
-        }
-
-        // Convert pixel values directly into provided buffer
-        if isSigned {
-            for i in 0..<pixelCount {
-                let signed = Int32(pixels[i]) + Int32(Int16.min)
-                buffer[i] = Int16(truncatingIfNeeded: signed)
-            }
-        } else {
-            for i in 0..<pixelCount {
-                buffer[i] = Int16(bitPattern: pixels[i])
-            }
-        }
-
-        return pixelCount
-    }
-
-    func computeZSpacing(from slices: [SliceMeta],
-                         normal: SIMD3<Double>) -> Double? {
-        guard slices.count > 1 else { return nil }
-        var distances: [Double] = []
-        distances.reserveCapacity(slices.count - 1)
-
-        for idx in 1..<slices.count {
-            if let p0 = slices[idx - 1].position, let p1 = slices[idx].position {
-                let d0 = simd_dot(p0, normal)
-                let d1 = simd_dot(p1, normal)
-                let delta = abs(d1 - d0)
-                if delta > 0 {
-                    distances.append(delta)
-                }
-            }
-        }
-
-        guard !distances.isEmpty else { return nil }
-        let sum = distances.reduce(0, +)
-        return sum / Double(distances.count)
-    }
-
-    func isApproximatelyEqual(_ lhs: SIMD3<Double>, _ rhs: SIMD3<Double>, tolerance: Double = 1e-4) -> Bool {
-        abs(lhs.x - rhs.x) < tolerance &&
-        abs(lhs.y - rhs.y) < tolerance &&
-        abs(lhs.z - rhs.z) < tolerance
-    }
-}
-
-// MARK: - Legacy Decoder Compatibility
-
-private extension DicomDecoderProtocol {
-    @available(*, deprecated, message: "Use throwing initializers instead of setDicomFilename(_:).")
-    func setDicomFilename(_ filename: String) {
-        (self as? DCMDecoder)?.setDicomFilename(filename)
-    }
-
-    @available(*, deprecated, message: "Use throwing initializers/error handling instead of dicomFileReadSuccess.")
-    var dicomFileReadSuccess: Bool {
-        if let decoder = self as? DCMDecoder {
-            return decoder.dicomFileReadSuccess
-        }
-        return isValid()
-    }
-}
-
-// MARK: - Async/Await Extensions
-
-/// Progress update structure for async series loading.
-///
-/// Provides real-time progress information during asynchronous series loading operations.
-/// Used by ``DicomSeriesLoader/loadSeriesWithProgress(in:)`` to report loading progress
-/// through an `AsyncStream`.
-///
-/// ## Usage Example
-/// ```swift
-/// for try await progress in loader.loadSeriesWithProgress(in: directory) {
-///     print("Loaded \(progress.slicesCopied) slices (\(Int(progress.fractionComplete * 100))%)")
-///     if progress.fractionComplete >= 1.0 {
-///         print("Final volume: \(progress.volumeInfo.width)×\(progress.volumeInfo.height)×\(progress.volumeInfo.depth)")
-///     }
-/// }
-/// ```
-public struct SeriesLoadProgress: Sendable {
-    /// Fraction of loading complete (0.0 to 1.0)
-    public let fractionComplete: Double
-
-    /// Number of slices successfully copied to the volume buffer
-    public let slicesCopied: Int
-
-    /// Optional pixel data for the current slice being processed
-    public let currentSliceData: Data?
-
-    /// Volume descriptor with metadata (includes final data when loading is complete)
-    public let volumeInfo: DicomSeriesVolume
-}
-
-@available(macOS 10.15, iOS 13.0, *)
-extension DicomSeriesLoader {
-
-    /// Asynchronously loads a DICOM series from a directory.
-    ///
-    /// This async method provides the same functionality as the synchronous
-    /// ``loadSeries(in:progress:)`` but can be called from async contexts without
-    /// blocking the calling thread.
-    ///
-    /// The file loading and volume assembly is performed on a background thread
-    /// using `Task.detached` to avoid blocking the calling thread. Progress callbacks
-    /// are still supported for monitoring loading progress.
-    ///
-    /// ## Example
-    /// ```swift
-    /// Task {
-    ///     do {
-    ///         let volume = try await loader.loadSeries(in: directoryURL) { fraction, slices, _, _ in
-    ///             print("Loading: \(Int(fraction * 100))% (\(slices) slices)")
-    ///         }
-    ///         print("Loaded volume: \(volume.width)×\(volume.height)×\(volume.depth)")
-    ///     } catch {
-    ///         print("Failed to load series: \(error)")
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// - Parameters:
-    ///   - directory: Directory containing DICOM slices
-    ///   - progress: Optional callback invoked with (fractionComplete, slicesCopied, sliceData, volume)
-    /// - Returns: ``DicomSeriesVolume`` with voxel buffer and geometry metadata
-    /// - Throws: ``DicomSeriesLoaderError`` on validation or decoding failures
-    public func loadSeries(
-        in directory: URL,
-        progress: ProgressHandler? = nil
-    ) async throws -> DicomSeriesVolume {
-        try await Task.detached(priority: .userInitiated) {
-            try self.loadSeries(in: directory, progress: progress)
-        }.value
-    }
-
-    /// Asynchronously loads a DICOM series from a directory with progress reporting via AsyncStream.
-    ///
-    /// This async method provides the same functionality as the synchronous
-    /// ``loadSeries(in:progress:)`` but can be called from async contexts and
-    /// provides progress updates through an `AsyncThrowingStream`.
-    ///
-    /// The file loading and volume assembly is performed on a background thread
-    /// using `Task.detached` to avoid blocking the calling thread. Progress updates
-    /// are yielded through the returned stream, allowing callers to monitor
-    /// loading progress in real-time using a `for try await` loop.
-    ///
-    /// ## Example
-    /// ```swift
-    /// Task {
-    ///     for try await progress in loader.loadSeriesWithProgress(in: directoryURL) {
-    ///         print("Progress: \(Int(progress.fractionComplete * 100))%")
-    ///         if progress.fractionComplete >= 1.0 {
-    ///             let volume = progress.volumeInfo
-    ///             print("Volume: \(volume.width)×\(volume.height)×\(volume.depth)")
-    ///         }
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// - Parameter directory: Directory containing DICOM slices
-    /// - Returns: `AsyncThrowingStream` that yields ``SeriesLoadProgress`` updates
-    /// Creates a stream of progress updates while loading a DICOM series from the specified directory.
-    ///
-    /// The stream yields `SeriesLoadProgress` values as slices are decoded and copied, and yields a final
-    /// progress item containing the completed `DicomSeriesVolume`. If loading fails, the stream finishes with the encountered error.
-    /// - Parameter directory: Filesystem directory containing the DICOM series to load.
-    /// - Returns: An `AsyncThrowingStream` that emits `SeriesLoadProgress` updates and may finish throwing an error if loading fails.
-    public func loadSeriesWithProgress(
-        in directory: URL
-    ) -> AsyncThrowingStream<SeriesLoadProgress, Error> {
-        AsyncThrowingStream { continuation in
-            Task.detached(priority: .userInitiated) {
-                do {
-                    // Load series using synchronous method with progress callback
-                    let volume = try self.loadSeries(in: directory) { fraction, slicesCopied, sliceData, volumeInfo in
-                        // Yield progress update through the stream
-                        let progress = SeriesLoadProgress(
-                            fractionComplete: fraction,
-                            slicesCopied: slicesCopied,
-                            currentSliceData: sliceData,
-                            volumeInfo: volumeInfo
-                        )
-                        continuation.yield(progress)
-                    }
-
-                    // Yield final progress update with complete volume
-                    let finalProgress = SeriesLoadProgress(
-                        fractionComplete: 1.0,
-                        slicesCopied: volume.depth,
-                        currentSliceData: nil,
-                        volumeInfo: volume
-                    )
-                    continuation.yield(finalProgress)
-
-                    // Complete the stream successfully
-                    continuation.finish()
-                } catch {
-                    // Complete the stream with error
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
-    }
-
-    /// Loads multiple DICOM series directories concurrently with progress tracking.
-    ///
-    /// This method processes multiple series directories in parallel using Swift's TaskGroup,
-    /// enabling efficient concurrent loading for batch operations. Each series is loaded
-    /// using ``loadSeries(in:progress:)-6zq7v`` and assembled into a complete volume.
-    ///
-    /// Progress is aggregated across all series and reported through the callback handler.
-    /// The progress fraction represents the overall completion (number of series completed
-    /// divided by total series count), and the completed count indicates how many series
-    /// have been fully loaded.
-    ///
-    /// ## Performance Characteristics
-    ///
-    /// - **Concurrency**: Respects `maxConcurrency` limit to avoid overwhelming the system
-    /// - **Memory**: Each series loads independently, memory scales with concurrent count
-    /// - **Thread-Safe**: Uses TaskGroup for structured concurrency, safe for actor contexts
-    /// - **Progress**: Aggregated progress across all series operations
-    ///
-    /// ## Example
-    /// ```swift
-    /// let loader = DicomSeriesLoader()
-    /// let seriesDirectories = [seriesDir1, seriesDir2, seriesDir3]
-    ///
-    /// let volumes = try await loader.batchLoadSeries(
-    ///     seriesDirectories: seriesDirectories,
-    ///     maxConcurrency: 2
-    /// ) { fraction, completed in
-    ///     print("Progress: \(Int(fraction * 100))% - \(completed) series completed")
-    /// }
-    ///
-    /// for (index, volume) in volumes.enumerated() {
-    ///     print("Series \(index): \(volume.width)×\(volume.height)×\(volume.depth)")
-    /// }
-    /// ```
-    ///
-    /// - Parameters:
-    ///   - seriesDirectories: Array of directory URLs containing DICOM series
-    ///   - maxConcurrency: Maximum number of concurrent series loading operations (default: 2)
-    ///   - progressHandler: Optional callback invoked with (fractionComplete, seriesCompleted)
-    /// - Returns: Array of ``DicomSeriesVolume`` in the same order as input directories
-    /// Concurrently loads DICOM series from the given directories and returns their volumes in the same order as the input.
-    /// - Parameters:
-    ///   - seriesDirectories: Array of directory URLs, each containing a DICOM series to load.
-    ///   - maxConcurrency: Maximum number of series to load in parallel (default is 2).
-    ///   - progressHandler: Optional callback that receives `(fractionComplete, completedCount)` as each series finishes.
-    /// - Returns: An array of `DicomSeriesVolume` objects ordered to match `seriesDirectories`.
-    /// - Throws: Rethrows any error encountered while loading a series. May throw `DicomSeriesLoaderError.noDicomFiles` if a loaded result is unexpectedly missing.
-    public func batchLoadSeries(
-        seriesDirectories: [URL],
-        maxConcurrency: Int = 2,
-        progressHandler: (@Sendable (Double, Int) -> Void)? = nil
-    ) async throws -> [DicomSeriesVolume] {
-        // Early return for empty input
-        guard !seriesDirectories.isEmpty else { return [] }
-
-        // Ensure at least one task is scheduled before awaiting group.next().
-        let effectiveMaxConcurrency = max(1, maxConcurrency)
-
-        // Thread-safe counter for progress tracking
-        final class Counter: @unchecked Sendable {
-            private let lock = DicomLock()
-            private var value = 0
-
-            /// Atomically increments the internal counter and returns the updated value.
-            /// - Returns: The counter value after incrementing.
-            func increment() -> Int {
-                lock.withLock {
-                    value += 1
-                    return value
-                }
-            }
-        }
-
-        let completedCount = Counter()
-        let localDecoderFactory = decoderFactory
-
-        // Store results indexed by original position
-        var resultsByIndex: [Int: DicomSeriesVolume] = [:]
-
-        // Use task group to load series concurrently
-        try await withThrowingTaskGroup(of: (Int, DicomSeriesVolume).self) { group in
-            // Enumerate directories to track ordering
-            for (index, directory) in seriesDirectories.enumerated() {
-                // Respect concurrency limit
-                if index >= effectiveMaxConcurrency {
-                    // Wait for one task to complete before adding more
-                    let (completedIndex, volume) = try await group.next()!
-                    resultsByIndex[completedIndex] = volume
-
-                    // Update progress
-                    let completed = completedCount.increment()
-                    let fraction = Double(completed) / Double(seriesDirectories.count)
-                    progressHandler?(fraction, completed)
-                }
-
-                // Add task to load this series
-                // Create a separate loader instance for each series to avoid concurrent
-                // access to the decoderCache which is not thread-safe
-                group.addTask {
-                    let loader = DicomSeriesLoader(decoderFactory: localDecoderFactory)
-                    let volume = try await loader.loadSeries(in: directory, progress: nil)
-                    return (index, volume)
-                }
-            }
-
-            // Collect remaining results
-            for try await (index, volume) in group {
-                resultsByIndex[index] = volume
-
-                // Update progress
-                let completed = completedCount.increment()
-                let fraction = Double(completed) / Double(seriesDirectories.count)
-                progressHandler?(fraction, completed)
-            }
-        }
-
-        // Reconstruct results in original order
-        var results: [DicomSeriesVolume] = []
-        results.reserveCapacity(seriesDirectories.count)
-
-        for index in 0..<seriesDirectories.count {
-            guard let volume = resultsByIndex[index] else {
-                // This should never happen, but provide error handling
-                throw DicomSeriesLoaderError.noDicomFiles
-            }
-            results.append(volume)
-        }
-
-        return results
-    }
-
-    /// Loads multiple DICOM files concurrently using structured concurrency.
-    ///
-    /// This method processes multiple DICOM files in parallel using Swift's TaskGroup,
-    /// enabling efficient concurrent loading for batch operations. Each file is loaded
-    /// into a separate decoder instance, respecting the specified concurrency limit.
-    ///
-    /// The method returns an array of ``DicomFileResult`` instances in the same order
-    /// as the input URLs, where each result contains either a successfully loaded decoder
-    /// or the error that occurred. This allows callers to handle partial successes and
-    /// identify which specific files failed.
-    ///
-    /// ## Performance Characteristics
-    ///
-    /// - **Concurrency**: Respects `maxConcurrency` limit to avoid overwhelming the system
-    /// - **Memory**: Each decoder is independent, memory scales linearly with concurrent count
-    /// - **Thread-Safe**: Uses TaskGroup for structured concurrency, safe for actor contexts
-    ///
-    /// ## Example
-    /// ```swift
-    /// let loader = DicomSeriesLoader()
-    /// let urls = try FileManager.default.contentsOfDirectory(at: directoryURL,
-    ///                                                          includingPropertiesForKeys: nil)
-    /// let results = await loader.batchLoadFiles(urls: urls, maxConcurrency: 4)
-    /// let successes = results.compactMap { result -> DCMDecoder? in
-    ///     if case .success(let decoder) = result.result { return decoder }
-    ///     return nil
-    /// }
-    /// print("Successfully loaded \(successes.count) of \(results.count) files")
-    /// ```
-    ///
-    /// - Parameters:
-    ///   - urls: Array of DICOM file URLs to load
-    ///   - maxConcurrency: Maximum number of concurrent loading operations (default: 4)
-    /// - Returns: Array of ``DicomFileResult`` in the same order as input URLs
-    /// Load multiple DICOM files concurrently and produce per-file results in the same order as the input URLs.
-    /// - Parameters:
-    ///   - urls: The file URLs to load.
-    ///   - maxConcurrency: Maximum number of concurrent file-loading tasks; values less than 1 behave as 1.
-    /// - Returns: An array of `DicomFileResult` ordered to match `urls`, where each element contains either a decoder for a successful load or an error describing the failure.
-    public func batchLoadFiles(
-        urls: [URL],
-        maxConcurrency: Int = 4
-    ) async -> [DicomFileResult] {
-        // Early return for empty input
-        guard !urls.isEmpty else { return [] }
-
-        // Ensure at least one task is enqueued before waiting on group.next().
-        let concurrency = max(1, maxConcurrency)
-
-        // Create results array with same ordering as input
-        var results: [DicomFileResult] = []
-        results.reserveCapacity(urls.count)
-        let localDecoderFactory = decoderFactory
-
-        // Use dictionary to maintain ordering
-        var resultsByIndex: [Int: DicomFileResult] = [:]
-
-        await withTaskGroup(of: (Int, DicomFileResult).self) { group in
-            // Enumerate URLs to track ordering
-            for (index, url) in urls.enumerated() {
-                // Respect concurrency limit
-                if index >= concurrency {
-                    // Wait for one task to complete before adding more
-                    if let (completedIndex, result) = await group.next() {
-                        resultsByIndex[completedIndex] = result
-                    }
-                }
-
-                // Add task to load this file
-                group.addTask {
-                    let result = await Self.loadSingleFileStatic(
-                        url: url,
-                        factory: {
-                            if let decoder = try? localDecoderFactory(url.path) {
-                                return decoder
-                            }
-                            return DCMDecoder()
-                        }
-                    )
-                    return (index, result)
-                }
-            }
-
-            // Collect remaining results
-            for await (index, result) in group {
-                resultsByIndex[index] = result
-            }
-        }
-
-        // Reconstruct results in original order
-        for index in 0..<urls.count {
-            if let result = resultsByIndex[index] {
-                results.append(result)
-            } else {
-                // This should never happen, but provide fallback
-                results.append(DicomFileResult(
-                    url: urls[index],
-                    error: DICOMError.unknown(underlyingError: "Unknown error during batch loading")
-                ))
-            }
-        }
-
-        return results
-    }
-}
-
-// MARK: - Private Batch Loading Helpers
-
-@available(macOS 10.15, iOS 13.0, *)
-private extension DicomSeriesLoader {
-    /// Loads a single DICOM file, returning a result with either the decoder or an error.
-    /// - Parameters:
-    ///   - url: The file URL to load.
-    ///   - factory: Sendable factory used to instantiate decoders.
-    /// Loads a single DICOM file and produces a `DicomFileResult` describing the outcome.
-    /// - Parameters:
-    ///   - url: File URL of the DICOM file to load.
-    ///   - factory: Decoder factory used to create a fresh decoder instance.
-    /// - Returns: A `DicomFileResult` containing a decoder when loading succeeds, or an error when loading fails.
-    static func loadSingleFileStatic(
-        url: URL,
-        factory: @escaping @Sendable () -> DicomDecoderProtocol
-    ) async -> DicomFileResult {
-        let decoder = factory()
-
-        // Try to load the file using the decoder
-        decoder.setDicomFilename(url.path)
-
-        // Check if loading succeeded
-        if decoder.dicomFileReadSuccess {
-            return DicomFileResult(url: url, decoder: decoder)
-        } else {
-            let error: DICOMError
-            if !FileManager.default.fileExists(atPath: url.path) {
-                error = .fileNotFound(path: url.path)
-            } else {
-                error = .invalidDICOMFormat(reason: "Failed to load DICOM file at \(url.path)")
-            }
-            return DicomFileResult(url: url, error: error)
-        }
     }
 }

@@ -35,8 +35,16 @@ struct StudyBrowserView: View {
     // MARK: - State
 
     @ObservedObject var viewModel: StudyBrowserViewModel
-    @State private var showingImportSheet = false
+    private let onImportRequested: () -> Void
     @State private var showingFilterSheet = false
+
+    init(
+        viewModel: StudyBrowserViewModel,
+        onImportRequested: @escaping () -> Void
+    ) {
+        self.viewModel = viewModel
+        self.onImportRequested = onImportRequested
+    }
 
     // MARK: - Body
 
@@ -118,7 +126,7 @@ struct StudyBrowserView: View {
                 .multilineTextAlignment(.center)
 
             Button("Import Files") {
-                showingImportSheet = true
+                requestImport()
             }
             .buttonStyle(.borderedProminent)
         }
@@ -200,13 +208,17 @@ struct StudyBrowserView: View {
             }
 
             // Import button
-            Button(action: { showingImportSheet = true }) {
+            Button(action: { requestImport() }) {
                 Label("Import", systemImage: "square.and.arrow.down")
             }
         }
     }
 
     // MARK: - Filter Sheet View
+
+    private func requestImport() {
+        onImportRequested()
+    }
 
     /// Filter and sort options sheet
     private var filterSheetView: some View {
@@ -368,13 +380,19 @@ struct StudyBrowserView_Previews: PreviewProvider {
         Group {
             // With studies
             NavigationView {
-                StudyBrowserView(viewModel: StudyBrowserViewModel.preview)
+                StudyBrowserView(
+                    viewModel: StudyBrowserViewModel.preview,
+                    onImportRequested: {}
+                )
             }
             .previewDisplayName("With Studies")
 
             // Empty state
             NavigationView {
-                StudyBrowserView(viewModel: StudyBrowserViewModel())
+                StudyBrowserView(
+                    viewModel: StudyBrowserViewModel(),
+                    onImportRequested: {}
+                )
             }
             .previewDisplayName("Empty State")
         }

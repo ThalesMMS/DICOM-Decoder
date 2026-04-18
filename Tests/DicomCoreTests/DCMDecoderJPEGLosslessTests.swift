@@ -32,7 +32,7 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
 
         // (0002,0000) File Meta Information Group Length - UL
         let metaInfoStartIndex = dicomData.count
-        appendTag(&dicomData, group: 0x0002, element: 0x0000, vr: "UL", value: Data())
+        appendTag(&dicomData, group: 0x0002, element: 0x0000, vr: "UL", value: Data(count: 4))
 
         // (0002,0001) File Meta Information Version - OB
         appendTag(&dicomData, group: 0x0002, element: 0x0001, vr: "OB", value: Data([0x00, 0x01]))
@@ -197,14 +197,15 @@ final class DCMDecoderJPEGLosslessTests: XCTestCase {
 
         // Handle VR-specific length encoding
         let shortVRs = ["AE", "AS", "AT", "CS", "DA", "DS", "DT", "FL", "FD", "IS", "LO", "LT", "PN", "SH", "SL", "SS", "ST", "TM", "UI", "UL", "US"]
+        let paddedLength = value.count + (value.count % 2)
         if shortVRs.contains(vr) {
             // 2-byte length
-            let length = UInt16(value.count)
+            let length = UInt16(paddedLength)
             data.append(contentsOf: withUnsafeBytes(of: length.littleEndian) { Data($0) })
         } else {
             // 4-byte length with 2-byte padding
             data.append(contentsOf: [0x00, 0x00])
-            let length = UInt32(value.count)
+            let length = UInt32(paddedLength)
             data.append(contentsOf: withUnsafeBytes(of: length.littleEndian) { Data($0) })
         }
 

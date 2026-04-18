@@ -21,17 +21,6 @@ Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and res
 - API docs: Generate locally with `swift package generate-documentation --target DicomCore`
 - Related projects: [simple-dicom-mcp](https://github.com/ThalesMMS/simple-dicom-mcp) | [dicom-viewer-mcp-app](https://github.com/ThalesMMS/dicom-viewer-mcp-app) | [orthanc-tools](https://github.com/ThalesMMS/orthanc-tools)
 
-## Release Status
-
-`DICOM-Decoder` is the private development and staging repository for upcoming decoder changes.
-
-- Treat this repository as **prerelease-only** until it starts cutting its own reviewed tags.
-- The current install snippets and stable SemVer releases still point to [`ThalesMMS/DICOM-Decoder`](https://github.com/ThalesMMS/DICOM-Decoder).
-- For internal validation from this repo, prefer a local Xcode package checkout or pin a specific commit instead of implying a stable tagged release.
-- Release-prep steps and first-stable-release gates for this dev repo live in [RELEASING.md](RELEASING.md).
-
----
-
 ## Table of Contents
 
 - [Overview](#overview)

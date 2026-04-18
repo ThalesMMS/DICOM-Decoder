@@ -55,22 +55,7 @@ extension DCMDecoder {
                 throw DICOMError.fileNotFound(path: path)
             }
 
-            // Load the DICOM file using existing setDicomFilename method
-            self.setDicomFilename(path)
-
-            // Check if loading succeeded
-            guard self.dicomFileReadSuccess else {
-                // Provide detailed error reason if available
-                let reason: String
-                if !self.dicomFound {
-                    reason = "Missing DICM signature or invalid DICOM header"
-                } else if self.width <= 0 || self.height <= 0 {
-                    reason = "Invalid image dimensions (width: \(self.width), height: \(self.height))"
-                } else {
-                    reason = "File could not be parsed as valid DICOM"
-                }
-                throw DICOMError.invalidDICOMFormat(reason: reason)
-            }
+            try self.loadDicomFile(at: path)
         }.value
     }
 
@@ -111,22 +96,7 @@ extension DCMDecoder {
                 throw DICOMError.fileNotFound(path: path)
             }
 
-            // Load the DICOM file using existing setDicomFilename method
-            self.setDicomFilename(path)
-
-            // Check if loading succeeded
-            guard self.dicomFileReadSuccess else {
-                // Provide detailed error reason if available
-                let reason: String
-                if !self.dicomFound {
-                    reason = "Missing DICM signature or invalid DICOM header"
-                } else if self.width <= 0 || self.height <= 0 {
-                    reason = "Invalid image dimensions (width: \(self.width), height: \(self.height))"
-                } else {
-                    reason = "File could not be parsed as valid DICOM"
-                }
-                throw DICOMError.invalidDICOMFormat(reason: reason)
-            }
+            try self.loadDicomFile(at: path)
         }.value
     }
 
