@@ -34,6 +34,8 @@ struct ContentView: View {
     @StateObject private var studyBrowserViewModel = StudyBrowserViewModel()
     @State private var showingImportPicker = false
     @State private var showingComponentExamples = false
+    @State private var showErrorAlert = false
+    @State private var errorMessage: String?
 
     // MARK: - Services
 
@@ -71,6 +73,13 @@ struct ContentView: View {
                     NavigationView {
                         ComponentExamplesView()
                     }
+                }
+                .alert(isPresented: $showErrorAlert) {
+                    Alert(
+                        title: Text("Import Failed"),
+                        message: Text(errorMessage ?? "Unable to import the selected DICOM file."),
+                        dismissButton: .default(Text("OK"))
+                    )
                 }
 
             // Default detail view for macOS
@@ -173,24 +182,24 @@ struct ContentView: View {
                     let canAccess = url.startAccessingSecurityScopedResource()
                     defer { if canAccess { url.stopAccessingSecurityScopedResource() } }
 
-                    // Copy to app's documents directory
                     let fileManager = FileManager.default
-                    let documentsURL = try fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-                    let destinationURL = documentsURL.appendingPathComponent(url.lastPathComponent)
+                    let decoder = try await DCMDecoder(contentsOfFile: url.path)
+                    let destinationURL = try makeImportedDICOMDestinationURL(
+                        originalURL: url,
+                        decoder: decoder,
+                        fileManager: fileManager
+                    )
 
-                    // Remove existing file if present
-                    if fileManager.fileExists(atPath: destinationURL.path) {
-                        try fileManager.removeItem(at: destinationURL)
+                    if url.standardizedFileURL != destinationURL.standardizedFileURL {
+                        if fileManager.fileExists(atPath: destinationURL.path) {
+                            try fileManager.removeItem(at: destinationURL)
+                        }
+
+                        try fileManager.copyItem(at: url, to: destinationURL)
                     }
-
-                    // Copy file
-                    try fileManager.copyItem(at: url, to: destinationURL)
                     let filePath = destinationURL.path
 
                     logger.info("📋 Copied file to: \(filePath)")
-
-                    // Extract DICOM metadata
-                    let decoder = try await DCMDecoder(contentsOfFile: filePath)
 
                     // Create series info
                     let seriesInfo = SeriesInfo(
@@ -229,13 +238,52 @@ struct ContentView: View {
                     logger.info("✅ Imported study: \(study.displayPatientName)")
                 } catch let error as DICOMError {
                     logger.error("❌ Failed to import \(url.lastPathComponent): \(error)")
-                    // TODO: Show error alert to user
+                    await MainActor.run {
+                        showImportError("Failed to import \(url.lastPathComponent): \(error.localizedDescription)")
+                    }
                 } catch {
                     logger.error("❌ Failed to import \(url.lastPathComponent): \(error)")
-                    // TODO: Show error alert to user
+                    await MainActor.run {
+                        showImportError("Failed to import \(url.lastPathComponent): \(error.localizedDescription)")
+                    }
                 }
             }
         }
+    }
+
+    private func makeImportedDICOMDestinationURL(
+        originalURL: URL,
+        decoder: DCMDecoder,
+        fileManager: FileManager
+    ) throws -> URL {
+        let studiesURL = try DicomSwiftUIExampleStorage.studiesURL(fileManager: fileManager)
+        let studyUID = storageComponent(decoder.info(for: .studyInstanceUID), fallback: UUID().uuidString)
+        let seriesUID = storageComponent(decoder.info(for: .seriesInstanceUID), fallback: UUID().uuidString)
+        let sopUID = storageComponent(decoder.info(for: .sopInstanceUID), fallback: UUID().uuidString)
+        let seriesURL = studiesURL
+            .appendingPathComponent(studyUID, isDirectory: true)
+            .appendingPathComponent(seriesUID, isDirectory: true)
+
+        try fileManager.createDirectory(at: seriesURL, withIntermediateDirectories: true)
+
+        let storedFilename = "\(sopUID).dcm"
+        if originalURL.lastPathComponent == storedFilename {
+            return seriesURL.appendingPathComponent(originalURL.lastPathComponent)
+        }
+        return seriesURL.appendingPathComponent(storedFilename)
+    }
+
+    private func storageComponent(_ value: String, fallback: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let component = trimmed.isEmpty ? fallback : trimmed
+        return component
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+    }
+
+    private func showImportError(_ message: String) {
+        errorMessage = message
+        showErrorAlert = true
     }
 }
 

@@ -3,6 +3,31 @@ import XCTest
 
 final class StudyDataServiceTests: XCTestCase {
 
+    private final class MockBatchFileLoader: DicomBatchFileLoading {
+        private(set) var loadedURLs: [URL] = []
+        var resultsByLastPathComponent: [String: DicomFileResult] = [:]
+
+        func batchLoadFiles(urls: [URL], maxConcurrency: Int) async -> [DicomFileResult] {
+            loadedURLs = urls
+            return urls.map { url in
+                guard let result = resultsByLastPathComponent[url.lastPathComponent] else {
+                    return DicomFileResult(
+                        url: url,
+                        error: DICOMError.invalidDICOMFormat(reason: "No mock result")
+                    )
+                }
+
+                if let decoder = result.decoder {
+                    return DicomFileResult(url: url, decoder: decoder)
+                }
+                return DicomFileResult(
+                    url: url,
+                    error: result.error ?? DICOMError.invalidDICOMFormat(reason: "No mock result")
+                )
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     /// Creates a decoder factory for testing
@@ -180,6 +205,82 @@ final class StudyDataServiceTests: XCTestCase {
             XCTAssertEqual(meta.patientID, "BATCH001", "Should use mock patient ID")
             XCTAssertEqual(meta.modality, "MR", "Should use mock modality")
         }
+    }
+
+    func testScanDICOMFilesUsesContentValidationInsteadOfExtension() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scan_dicom_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let extensionlessURL = directoryURL.appendingPathComponent("slice_without_extension")
+        let alternateExtensionURL = directoryURL.appendingPathComponent("slice.payload")
+        let invalidDcmURL = directoryURL.appendingPathComponent("not_dicom.dcm")
+
+        for url in [extensionlessURL, alternateExtensionURL, invalidDcmURL] {
+            try Data([0x01, 0x02, 0x03]).write(to: url)
+        }
+
+        let validFilenames = Set([extensionlessURL.lastPathComponent, alternateExtensionURL.lastPathComponent])
+        let service = StudyDataService(decoderFactory: { path in
+            guard validFilenames.contains(URL(fileURLWithPath: path).lastPathComponent) else {
+                throw DICOMError.invalidDICOMFormat(reason: "Test decoder rejected file")
+            }
+
+            let mockDecoder = MockDicomDecoder()
+            mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3")
+            mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4")
+            return mockDecoder
+        })
+
+        let discoveredPaths = try await service.scanDICOMFiles(in: directoryURL.path)
+
+        XCTAssertEqual(Set(discoveredPaths.map { URL(fileURLWithPath: $0).lastPathComponent }), validFilenames)
+    }
+
+    func testScanDICOMFilesWithMetadataUsesInjectedBatchLoader() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scan_metadata_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let validURL = directoryURL.appendingPathComponent("valid_dicom")
+        let invalidURL = directoryURL.appendingPathComponent("invalid_dicom")
+        try Data([0x01]).write(to: validURL)
+        try Data([0x02]).write(to: invalidURL)
+
+        let decoder = MockDicomDecoder()
+        decoder.setTag(DicomTag.patientName.rawValue, value: "Batch Loader Patient")
+        decoder.setTag(DicomTag.patientID.rawValue, value: "BATCH-LOADER")
+        decoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3")
+        decoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4")
+        decoder.setTag(DicomTag.instanceNumber.rawValue, value: "7")
+
+        let loader = MockBatchFileLoader()
+        loader.resultsByLastPathComponent = [
+            validURL.lastPathComponent: DicomFileResult(url: validURL, decoder: decoder),
+            invalidURL.lastPathComponent: DicomFileResult(
+                url: invalidURL,
+                error: DICOMError.invalidDICOMFormat(reason: "Rejected by mock loader")
+            )
+        ]
+
+        let service = StudyDataService(
+            decoderFactory: { _ in
+                XCTFail("scanDICOMFilesWithMetadata should reuse batch loader decoders")
+                throw DICOMError.invalidDICOMFormat(reason: "Unexpected decoderFactory call")
+            },
+            seriesLoaderFactory: { loader }
+        )
+
+        let metadata = try await service.scanDICOMFilesWithMetadata(in: directoryURL.path)
+
+        XCTAssertEqual(Set(loader.loadedURLs.map(\.lastPathComponent)), Set([validURL.lastPathComponent, invalidURL.lastPathComponent]))
+        XCTAssertEqual(metadata.count, 1)
+        XCTAssertEqual(metadata.first.map { URL(fileURLWithPath: $0.filePath).lastPathComponent }, validURL.lastPathComponent)
+        XCTAssertEqual(metadata.first?.patientName, "Batch Loader Patient")
+        XCTAssertEqual(metadata.first?.instanceNumber, 7)
+        XCTAssertEqual(metadata.first?.fileSize, 1)
     }
 
     func testServiceWithDifferentModalitiesFromMockDecoder() async {
@@ -458,6 +559,32 @@ final class StudyDataServiceTests: XCTestCase {
         XCTAssertFalse(result.isValid, "Non-existent file should be invalid")
         XCTAssertTrue(result.issues.contains("File does not exist"), "Should report file not found")
         XCTAssertEqual(result.fileSize, 0, "File size should be 0 for non-existent file")
+    }
+
+    func testValidateDICOMFileUsesLightweightHeaderReadForLargeFiles() async throws {
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.setTag(DicomTag.studyInstanceUID.rawValue, value: "1.2.3.4.5")
+        mockDecoder.setTag(DicomTag.seriesInstanceUID.rawValue, value: "1.2.3.4.5.6")
+        mockDecoder.dicomFound = true
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+        let tempPath = NSTemporaryDirectory() + "test_large_validation_\(UUID().uuidString).dcm"
+        let tempURL = URL(fileURLWithPath: tempPath)
+        let largeFileSize = 16 * 1024 * 1024
+        var testData = Data(repeating: 0, count: largeFileSize)
+        testData.replaceSubrange(128..<132, with: Data([0x44, 0x49, 0x43, 0x4D]))
+
+        try testData.write(to: tempURL)
+        defer { try? FileManager.default.removeItem(atPath: tempPath) }
+
+        let start = Date()
+        let result = await service.validateDICOMFile(tempPath)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertTrue(result.isValid, "Large file should validate with mock decoder")
+        XCTAssertTrue(result.issues.isEmpty, "Valid DICM signature should not produce header issues")
+        XCTAssertEqual(result.fileSize, UInt64(largeFileSize), "Validation should preserve reported file size")
+        XCTAssertLessThan(elapsed, 0.1, "Header validation should not scale with full file size")
     }
 
     // MARK: - Batch Validation Tests

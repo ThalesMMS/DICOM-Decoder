@@ -116,6 +116,7 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
     private let logger: LoggerProtocol
     private let fileManager: FileManager
     private let decoderFactory: (String) throws -> DicomDecoderProtocol
+    private let seriesLoaderFactory: () -> any DicomBatchFileLoading
 
     // MARK: - Initialization
 
@@ -136,10 +137,14 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
     /// ```
     public init(
         fileManager: FileManager = .default,
-        decoderFactory: @escaping (String) throws -> DicomDecoderProtocol
+        decoderFactory: @escaping (String) throws -> DicomDecoderProtocol,
+        seriesLoaderFactory: (() -> any DicomBatchFileLoading)? = nil
     ) {
         self.fileManager = fileManager
         self.decoderFactory = decoderFactory
+        self.seriesLoaderFactory = seriesLoaderFactory ?? {
+            DicomSeriesLoader(decoderFactory: decoderFactory)
+        }
         self.logger = DicomLogger.make(subsystem: "com.dicomviewer", category: "StudyData")
         logger.info("🔬 StudyDataService initialized")
     }
@@ -178,67 +183,8 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
                     return
                 }
 
-                // Extract DICOM tag values
-                let patientName = decoder.info(for: DicomTag.patientName.rawValue)
-                let patientID = decoder.info(for: DicomTag.patientID.rawValue)
-                let patientSex = decoder.info(for: DicomTag.patientSex.rawValue)
-                let patientAge = decoder.info(for: DicomTag.patientAge.rawValue)
-                let studyInstanceUID = decoder.info(for: DicomTag.studyInstanceUID.rawValue)
-                let studyDate = decoder.info(for: DicomTag.studyDate.rawValue)
-                let studyDescription = decoder.info(for: DicomTag.studyDescription.rawValue)
-                let seriesInstanceUID = decoder.info(for: DicomTag.seriesInstanceUID.rawValue)
-                let modality = decoder.info(for: DicomTag.modality.rawValue)
-                let instanceNumberStr = decoder.info(for: DicomTag.instanceNumber.rawValue)
-                let bodyPartExamined = decoder.info(for: DicomTag.bodyPartExamined.rawValue)
-                let institutionName = decoder.info(for: DicomTag.institutionName.rawValue)
-                
-                // Debug logging for metadata extraction
-                if studyDate.isEmpty {
-                    self.logger.debug("⚠️ Study Date empty for file: \(filePath)")
-                }
-                if institutionName.isEmpty {
-                    self.logger.debug("⚠️ Institution Name empty for file: \(filePath)")
-                }
-                if patientAge.isEmpty {
-                    self.logger.debug("⚠️ Patient Age empty for file: \(filePath)")
-                }
-                
-                // Build metadata with proper fallbacks for empty values
-                let metadata = StudyMetadata(
-                    filePath: filePath,
-                    
-                    // Patient Information
-                    patientName: patientName.isEmpty ? "Unknown Patient" : patientName,
-                    patientID: patientID.isEmpty ? "Unknown ID" : patientID,
-                    patientSex: patientSex,
-                    patientAge: patientAge.isEmpty ? "Unknown" : patientAge,
-                    
-                    // Study Information
-                    studyInstanceUID: studyInstanceUID,
-                    studyDate: studyDate.isEmpty ? "Unknown Date" : studyDate,
-                    studyDescription: studyDescription,
-                    
-                    // Series Information
-                    seriesInstanceUID: seriesInstanceUID,
-                    modality: modality.isEmpty ? "OT" : modality,
-                    
-                    // Instance Information
-                    instanceNumber: Int(instanceNumberStr) ?? 0,
-                    
-                    // Additional Information
-                    bodyPartExamined: bodyPartExamined,
-                    institutionName: institutionName.isEmpty ? "Unknown Location" : institutionName
-                )
-                
-                // Validate essential fields
-                guard !metadata.studyInstanceUID.isEmpty,
-                      !metadata.seriesInstanceUID.isEmpty else {
-                    self.logger.warning("⚠️ Invalid DICOM file: missing required UIDs - \(filePath)")
-                    continuation.resume(returning: nil)
-                    return
-                }
-                
-                continuation.resume(returning: metadata)
+                let fileSize = self.fileSize(at: filePath)
+                continuation.resume(returning: self.makeStudyMetadata(from: decoder, filePath: filePath, fileSize: fileSize))
             }
         }
     }
@@ -279,6 +225,97 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
         
         logger.info("📊 Extracted metadata from \(results.count)/\(filePaths.count) files")
         return results
+    }
+
+    /// Recursively scans a directory for files that successfully decode as DICOM.
+    ///
+    /// This method validates file contents with the configured decoder factory rather
+    /// than relying on filename extensions, so extensionless DICOM files are included
+    /// and non-DICOM files with `.dcm` suffixes are ignored.
+    public func scanDICOMFiles(in directoryPath: String) async throws -> [String] {
+        let metadata = try await scanDICOMFilesWithMetadata(in: directoryPath)
+        return metadata.map(\.filePath)
+    }
+
+    /// Recursively scans a directory and extracts metadata for files that decode as DICOM.
+    ///
+    /// This combines content validation and metadata extraction in one decode pass,
+    /// avoiding a scan-then-reopen cycle for callers that need study metadata.
+    public func scanDICOMFilesWithMetadata(in directoryPath: String) async throws -> [StudyMetadata] {
+        let fileManager = self.fileManager
+
+        let scanResult = try await Task.detached(priority: .utility) {
+            var isDirectory: ObjCBool = false
+
+            guard fileManager.fileExists(atPath: directoryPath, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                throw DICOMError.fileNotFound(path: directoryPath)
+            }
+
+            guard let enumerator = fileManager.enumerator(
+                at: URL(fileURLWithPath: directoryPath),
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                throw DICOMError.fileReadError(path: directoryPath, underlyingError: "Unable to enumerate directory")
+            }
+
+            var candidateURLs: [URL] = []
+            var fileSizesByPath: [String: Int64] = [:]
+            var skippedEntries: [(path: String, reason: String)] = []
+
+            while let fileURL = enumerator.nextObject() as? URL {
+                do {
+                    let resourceValues = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+                    guard resourceValues.isRegularFile == true else { continue }
+                    candidateURLs.append(fileURL)
+                    fileSizesByPath[fileURL.path] = Int64(resourceValues.fileSize ?? 0)
+                } catch {
+                    skippedEntries.append((fileURL.path, error.localizedDescription))
+                }
+            }
+
+            return (candidateURLs, fileSizesByPath, skippedEntries)
+        }.value
+
+        let (candidateURLs, fileSizesByPath, skippedEntries) = scanResult
+
+        for skippedEntry in skippedEntries {
+            logger.debug("Skipping unreadable scan entry \(skippedEntry.path): \(skippedEntry.reason)")
+        }
+
+        let loader = seriesLoaderFactory()
+        let results = await loader.batchLoadFiles(urls: candidateURLs, maxConcurrency: 4)
+
+        var metadata: [StudyMetadata] = []
+        for result in results {
+            guard let decoder = result.decoder else {
+                if let error = result.error {
+                    switch error {
+                    case .fileNotFound:
+                        logger.debug("Skipping missing file during scan: \(result.url.path)")
+                    case .invalidDICOMFormat:
+                        logger.debug("Skipping non-DICOM file during scan: \(result.url.path) - \(error.localizedDescription)")
+                    default:
+                        logger.warning("Skipping DICOM file during scan: \(result.url.path) - \(error.localizedDescription)")
+                    }
+                }
+                continue
+            }
+
+            guard let fileMetadata = makeStudyMetadata(
+                from: decoder,
+                filePath: result.url.path,
+                fileSize: fileSizesByPath[result.url.path] ?? 0
+            ) else {
+                continue
+            }
+            metadata.append(fileMetadata)
+        }
+
+        return metadata.sorted { lhs, rhs in
+            lhs.filePath < rhs.filePath
+        }
     }
     
     /// Validates DICOM file integrity and format.
@@ -340,16 +377,23 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
                 }
 
                 // 4. Check DICOM header
-                do {
-                    let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
-                    if data.count > 132 {
-                        let dicmBytes = data.subdata(in: 128..<132)
+                if fileSize >= 132 {
+                    do {
+                        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: filePath))
+                        defer { try? handle.close() }
+                        try handle.seek(toOffset: 128)
+                        let dicmBytes: Data
+                        if #available(iOS 13.4, macOS 10.15.4, *) {
+                            dicmBytes = try handle.read(upToCount: 4) ?? Data()
+                        } else {
+                            dicmBytes = handle.readData(ofLength: 4)
+                        }
                         if dicmBytes != Data([0x44, 0x49, 0x43, 0x4D]) { // "DICM"
                             issues.append("Missing DICOM header signature")
                         }
+                    } catch {
+                        issues.append("Could not read file data: \(error.localizedDescription)")
                     }
-                } catch {
-                    issues.append("Could not read file data: \(error.localizedDescription)")
                 }
 
                 // 5. Try to load with decoder using factory
@@ -482,6 +526,68 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
         
         return grouped
     }
+
+    private func makeStudyMetadata(from decoder: DicomDecoderProtocol, filePath: String, fileSize: Int64) -> StudyMetadata? {
+        let patientName = decoder.info(for: DicomTag.patientName.rawValue)
+        let patientID = decoder.info(for: DicomTag.patientID.rawValue)
+        let patientSex = decoder.info(for: DicomTag.patientSex.rawValue)
+        let patientAge = decoder.info(for: DicomTag.patientAge.rawValue)
+        let studyInstanceUID = decoder.info(for: DicomTag.studyInstanceUID.rawValue)
+        let studyDate = decoder.info(for: DicomTag.studyDate.rawValue)
+        let studyDescription = decoder.info(for: DicomTag.studyDescription.rawValue)
+        let seriesInstanceUID = decoder.info(for: DicomTag.seriesInstanceUID.rawValue)
+        let modality = decoder.info(for: DicomTag.modality.rawValue)
+        let instanceNumberStr = decoder.info(for: DicomTag.instanceNumber.rawValue)
+        let bodyPartExamined = decoder.info(for: DicomTag.bodyPartExamined.rawValue)
+        let institutionName = decoder.info(for: DicomTag.institutionName.rawValue)
+
+        if studyDate.isEmpty {
+            logger.debug("⚠️ Study Date empty for file: \(filePath)")
+        }
+        if institutionName.isEmpty {
+            logger.debug("⚠️ Institution Name empty for file: \(filePath)")
+        }
+        if patientAge.isEmpty {
+            logger.debug("⚠️ Patient Age empty for file: \(filePath)")
+        }
+
+        let metadata = StudyMetadata(
+            filePath: filePath,
+            patientName: patientName.isEmpty ? "Unknown Patient" : patientName,
+            patientID: patientID.isEmpty ? "Unknown ID" : patientID,
+            patientSex: patientSex,
+            patientAge: patientAge.isEmpty ? "Unknown" : patientAge,
+            studyInstanceUID: studyInstanceUID,
+            studyDate: studyDate.isEmpty ? "Unknown Date" : studyDate,
+            studyDescription: studyDescription,
+            seriesInstanceUID: seriesInstanceUID,
+            modality: modality.isEmpty ? "OT" : modality,
+            instanceNumber: Int(instanceNumberStr) ?? 0,
+            bodyPartExamined: bodyPartExamined,
+            institutionName: institutionName.isEmpty ? "Unknown Location" : institutionName,
+            fileSize: fileSize
+        )
+
+        guard !metadata.studyInstanceUID.isEmpty,
+              !metadata.seriesInstanceUID.isEmpty else {
+            logger.warning("⚠️ Invalid DICOM file: missing required UIDs - \(filePath)")
+            return nil
+        }
+
+        return metadata
+    }
+
+    private func fileSize(at path: String) -> Int64 {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: path) else { return 0 }
+
+        if let fileSize = attributes[.size] as? Int64 {
+            return fileSize
+        }
+        if let fileSize = attributes[.size] as? UInt64 {
+            return Int64(fileSize)
+        }
+        return 0
+    }
     
     /// Extracts thumbnail data from a DICOM file (first frame).
     ///
@@ -558,53 +664,88 @@ public struct StudyMetadata: Sendable {
     // MARK: - File Information
 
     /// Absolute file path to the DICOM file
-    let filePath: String
+    public let filePath: String
 
     // MARK: - Patient Information
 
     /// Patient name (fallback: "Unknown Patient")
-    let patientName: String
+    public let patientName: String
 
     /// Patient ID (fallback: "Unknown ID")
-    let patientID: String
+    public let patientID: String
 
     /// Patient sex ("M", "F", "O", or empty string)
-    let patientSex: String
+    public let patientSex: String
 
     /// Patient age as string (fallback: "Unknown")
-    let patientAge: String
+    public let patientAge: String
 
     // MARK: - Study Information
 
     /// Study Instance UID - unique identifier for the study
-    let studyInstanceUID: String
+    public let studyInstanceUID: String
 
     /// Study date in DICOM format (fallback: "Unknown Date")
-    let studyDate: String
+    public let studyDate: String
 
     /// Human-readable study description
-    let studyDescription: String
+    public let studyDescription: String
 
     // MARK: - Series Information
 
     /// Series Instance UID - unique identifier for the series
-    let seriesInstanceUID: String
+    public let seriesInstanceUID: String
 
     /// Modality code (e.g., "CT", "MR", "XR") (fallback: "OT")
-    let modality: String
+    public let modality: String
 
     // MARK: - Instance Information
 
     /// Instance number within the series (fallback: 0)
-    let instanceNumber: Int
+    public let instanceNumber: Int
 
     // MARK: - Additional Information
 
     /// Anatomical body part examined
-    let bodyPartExamined: String
+    public let bodyPartExamined: String
 
     /// Institution where study was performed (fallback: "Unknown Location")
-    let institutionName: String
+    public let institutionName: String
+
+    /// Source file size in bytes
+    public let fileSize: Int64
+
+    public init(
+        filePath: String,
+        patientName: String,
+        patientID: String,
+        patientSex: String,
+        patientAge: String,
+        studyInstanceUID: String,
+        studyDate: String,
+        studyDescription: String,
+        seriesInstanceUID: String,
+        modality: String,
+        instanceNumber: Int,
+        bodyPartExamined: String,
+        institutionName: String,
+        fileSize: Int64 = 0
+    ) {
+        self.filePath = filePath
+        self.patientName = patientName
+        self.patientID = patientID
+        self.patientSex = patientSex
+        self.patientAge = patientAge
+        self.studyInstanceUID = studyInstanceUID
+        self.studyDate = studyDate
+        self.studyDescription = studyDescription
+        self.seriesInstanceUID = seriesInstanceUID
+        self.modality = modality
+        self.instanceNumber = instanceNumber
+        self.bodyPartExamined = bodyPartExamined
+        self.institutionName = institutionName
+        self.fileSize = fileSize
+    }
 }
 
 /// Result of DICOM file validation.

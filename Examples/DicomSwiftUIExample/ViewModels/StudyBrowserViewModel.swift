@@ -260,6 +260,13 @@ public final class StudyBrowserViewModel: ObservableObject {
     private let studyDataService: StudyDataService
     private var cancellables = Set<AnyCancellable>()
 
+    private static let dicomDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
     // MARK: - Computed Properties
 
     /// Filtered and sorted studies based on current options
@@ -358,26 +365,35 @@ public final class StudyBrowserViewModel: ObservableObject {
     /// await viewModel.loadStudies(from: "/path/to/studies")
     /// ```
     ///
-    /// - Note: Full implementation pending FileImportService integration
     public func loadStudies(from directoryPath: String) async {
         logger.info("📂 Loading studies from: \(directoryPath)")
         state = .loading
         error = nil
 
-        // TODO: Implement full study loading with FileImportService
-        // This is a simplified placeholder implementation
-        // Full implementation will:
-        // 1. Use FileImportService to scan directory for DICOM files
-        // 2. Extract metadata using StudyDataService
-        // 3. Group files by Study Instance UID
-        // 4. Create ImportedStudy objects with proper series information
-        // 5. Calculate file sizes and storage paths
+        do {
+            let metadata = try await studyDataService.scanDICOMFilesWithMetadata(in: directoryPath)
+            let groupedStudies = studyDataService.groupStudiesByUID(metadata)
 
-        // Placeholder: Load sample studies for now
-        // In production, this will scan the directory and extract metadata
-        studies = []
-        state = .loaded
-        logger.info("✅ Loaded \(studies.count) studies (placeholder implementation)")
+            studies = groupedStudies.values
+                .compactMap(makeImportedStudy(from:))
+                .sortedByStudyDate()
+            state = .loaded
+            logger.info("✅ Loaded \(studies.count) studies")
+        } catch let dicomError as DICOMError {
+            studies = []
+            error = dicomError
+            state = .failed(dicomError)
+            logger.error("❌ Failed to load studies: \(dicomError.localizedDescription)")
+        } catch {
+            let dicomError = DICOMError.fileReadError(
+                path: directoryPath,
+                underlyingError: error.localizedDescription
+            )
+            studies = []
+            self.error = dicomError
+            state = .failed(dicomError)
+            logger.error("❌ Failed to load studies: \(dicomError.localizedDescription)")
+        }
     }
 
     /// Load studies from multiple directory paths.
@@ -451,6 +467,23 @@ public final class StudyBrowserViewModel: ObservableObject {
         studies.append(study)
         state = .loaded
         logger.info("📚 Added study: \(study.displayPatientName) (total: \(studies.count))")
+    }
+
+    /// Report a startup or storage initialization failure through the normal loading state.
+    ///
+    /// - Parameter error: The DICOM error to surface to observers.
+    public func handleStartupError(_ error: DICOMError) {
+        self.error = error
+        state = .failed(error)
+        logger.error("❌ Startup failed: \(error.localizedDescription)")
+    }
+
+    /// Clear the current error after it has been presented.
+    public func clearError() {
+        error = nil
+        if case .failed = state {
+            state = studies.isEmpty ? .idle : .loaded
+        }
     }
 
     /// Remove a study from the list.
@@ -537,6 +570,132 @@ public final class StudyBrowserViewModel: ObservableObject {
             }
         }
         .store(in: &cancellables)
+    }
+
+    private func makeImportedStudy(from metadata: [StudyMetadata]) -> ImportedStudy? {
+        guard let first = metadata.first else { return nil }
+
+        let filePaths = metadata.map(\.filePath)
+        let series = makeSeriesInfo(from: metadata)
+        let totalFileSize = metadata.reduce(Int64(0)) { total, metadata in
+            total + metadata.fileSize
+        }
+
+        let patientModel = PatientModel(
+            patientName: first.patientName,
+            patientID: first.patientID,
+            patientSex: parsePatientSex(first.patientSex),
+            patientAge: normalizedOptional(first.patientAge),
+            studyInstanceUID: first.studyInstanceUID,
+            studyDate: parseDICOMDate(first.studyDate),
+            studyDescription: normalizedOptional(first.studyDescription),
+            modality: parseModality(first.modality),
+            bodyPartExamined: normalizedOptional(first.bodyPartExamined),
+            institutionName: normalizedOptional(first.institutionName),
+            numberOfImages: metadata.count,
+            fileSize: totalFileSize
+        )
+
+        return ImportedStudy.from(
+            patientModel: patientModel,
+            storagePath: commonDirectory(for: filePaths),
+            series: series
+        )
+    }
+
+    private func makeSeriesInfo(from metadata: [StudyMetadata]) -> [SeriesInfo] {
+        let groupedSeries = Dictionary(grouping: metadata, by: \.seriesInstanceUID)
+            .map { seriesInstanceUID, seriesMetadata in
+                (seriesInstanceUID: seriesInstanceUID, seriesMetadata: seriesMetadata)
+            }
+            .sorted { lhs, rhs in
+                let lhsInstance = lhs.seriesMetadata.map(\.instanceNumber).min() ?? 0
+                let rhsInstance = rhs.seriesMetadata.map(\.instanceNumber).min() ?? 0
+                if lhsInstance != rhsInstance {
+                    return lhsInstance < rhsInstance
+                }
+                return lhs.seriesInstanceUID < rhs.seriesInstanceUID
+            }
+
+        return groupedSeries
+            .enumerated()
+            .map { index, groupedSeries in
+                let seriesMetadata = groupedSeries.seriesMetadata
+                let sortedMetadata = seriesMetadata.sorted { lhs, rhs in
+                    if lhs.instanceNumber != rhs.instanceNumber {
+                        return lhs.instanceNumber < rhs.instanceNumber
+                    }
+                    return lhs.filePath < rhs.filePath
+                }
+                let first = sortedMetadata[0]
+
+                return SeriesInfo(
+                    seriesInstanceUID: first.seriesInstanceUID,
+                    seriesNumber: index + 1,
+                    modality: parseModality(first.modality),
+                    numberOfImages: sortedMetadata.count,
+                    imagePaths: sortedMetadata.map(\.filePath),
+                    thumbnailPath: nil
+                )
+            }
+    }
+
+    private func parseModality(_ modalityString: String) -> DICOMModality {
+        switch modalityString.uppercased() {
+        case "CT": return .ct
+        case "MR": return .mr
+        case "DX": return .dx
+        case "CR": return .cr
+        case "US": return .us
+        case "MG": return .mg
+        case "RF": return .rf
+        case "XC": return .xc
+        case "SC": return .sc
+        case "PT": return .pt
+        case "NM": return .nm
+        default: return .unknown
+        }
+    }
+
+    private func parsePatientSex(_ sexString: String) -> PatientSex {
+        switch sexString.uppercased() {
+        case "M": return .male
+        case "F": return .female
+        case "O": return .other
+        default: return .unknown
+        }
+    }
+
+    private func parseDICOMDate(_ dateString: String) -> Date? {
+        guard dateString.count == 8 else { return nil }
+
+        return Self.dicomDateFormatter.date(from: dateString)
+    }
+
+    private func normalizedOptional(_ value: String) -> String? {
+        if value.isEmpty || value == "Unknown" || value == "Unknown Date" || value == "Unknown Location" {
+            return nil
+        }
+        return value
+    }
+
+    private func commonDirectory(for filePaths: [String]) -> String {
+        let directories = filePaths.map {
+            URL(fileURLWithPath: $0).deletingLastPathComponent().pathComponents
+        }
+
+        guard var common = directories.first else {
+            return ""
+        }
+
+        for components in directories.dropFirst() {
+            common = Array(zip(common, components).prefix { pair in
+                pair.0 == pair.1
+            }.map { $0.0 })
+        }
+
+        guard !common.isEmpty else { return "/" }
+        return NSString.path(withComponents: common)
     }
 }
 

@@ -198,3 +198,18 @@ public protocol DicomSeriesLoaderProtocol: AnyObject {
     @available(macOS 10.15, iOS 13.0, *)
     func loadSeriesWithProgress(in directory: URL) -> AsyncThrowingStream<SeriesLoadProgress, Error>
 }
+
+/// Protocol for concurrent per-file DICOM probing.
+///
+/// This keeps study scanning injectable without requiring ``StudyDataService`` to
+/// construct a concrete ``DicomSeriesLoader`` internally.
+public protocol DicomBatchFileLoading: AnyObject {
+    /// Load multiple DICOM files concurrently and return one result per input URL.
+    /// - Parameters:
+    ///   - urls: File URLs to probe.
+    ///   - maxConcurrency: Maximum number of concurrent file loads.
+    /// - Returns: Results ordered to match the input URLs.
+    func batchLoadFiles(urls: [URL], maxConcurrency: Int) async -> [DicomFileResult]
+}
+
+extension DicomSeriesLoader: DicomBatchFileLoading {}

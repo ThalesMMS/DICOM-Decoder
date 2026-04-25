@@ -1,5 +1,5 @@
 //
-//  main.swift
+//  DicomTool.swift
 //  dicomtool
 //
 //  CLI tool for DICOM file inspection, validation, and conversion
@@ -36,7 +36,8 @@ import DicomCore
 /// # Batch process directory
 /// dicomtool batch --pattern "*.dcm" --output-dir ./exports
 /// ```
-struct DicomTool: ParsableCommand {
+@main
+struct DicomTool: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "dicomtool",
         abstract: "DICOM file inspection, validation, and conversion tool",
@@ -58,9 +59,4 @@ struct DicomTool: ParsableCommand {
         ],
         defaultSubcommand: nil
     )
-
 }
-
-// MARK: - Entry Point
-
-DicomTool.main()

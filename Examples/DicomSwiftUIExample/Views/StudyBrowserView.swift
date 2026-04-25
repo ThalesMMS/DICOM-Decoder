@@ -26,6 +26,20 @@
 import SwiftUI
 import DicomCore
 
+enum DicomSwiftUIExampleStorage {
+    static func studiesURL(fileManager: FileManager = .default) throws -> URL {
+        let appSupportURL = try fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let studiesURL = appSupportURL.appendingPathComponent("Studies", isDirectory: true)
+        try fileManager.createDirectory(at: studiesURL, withIntermediateDirectories: true)
+        return studiesURL
+    }
+}
+
 /// Main study browser view for displaying imported DICOM studies.
 ///
 /// Presents a searchable, filterable list of studies with patient information
@@ -66,8 +80,27 @@ struct StudyBrowserView: View {
             filterSheetView
         }
         .task {
-            // Load studies on appear (placeholder for now)
-            // TODO: Integrate with FileImportService to load from persistent storage
+            do {
+                let studiesURL = try DicomSwiftUIExampleStorage.studiesURL()
+                await viewModel.loadStudies(from: studiesURL.path)
+            } catch let dicomError as DICOMError {
+                viewModel.handleStartupError(dicomError)
+            } catch {
+                let dicomError = DICOMError.fileReadError(
+                    path: "Application Support/Studies",
+                    underlyingError: error.localizedDescription
+                )
+                viewModel.handleStartupError(dicomError)
+            }
+        }
+        .alert(isPresented: startupErrorAlertBinding) {
+            Alert(
+                title: Text("Unable to Load Studies"),
+                message: Text(viewModel.error?.localizedDescription ?? "Storage could not be initialized."),
+                dismissButton: .default(Text("OK")) {
+                    viewModel.clearError()
+                }
+            )
         }
     }
 
@@ -284,6 +317,22 @@ struct StudyBrowserView: View {
     /// Creates accessibility label for study row
     private func studyAccessibilityLabel(for study: ImportedStudy) -> String {
         "\(study.displayPatientName), \(study.displayStudyDate), \(study.studySummary)"
+    }
+
+    private var startupErrorAlertBinding: Binding<Bool> {
+        Binding(
+            get: {
+                if case .failed = viewModel.state {
+                    return viewModel.error != nil
+                }
+                return false
+            },
+            set: { isPresented in
+                if !isPresented {
+                    viewModel.clearError()
+                }
+            }
+        )
     }
 }
 

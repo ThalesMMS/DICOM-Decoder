@@ -43,6 +43,20 @@ public protocol StudyDataServiceProtocol {
     /// - Returns: Array of extracted metadata (may be fewer than input if some fail)
     func extractBatchMetadata(from filePaths: [String]) async -> [StudyMetadata]
 
+    /// Recursively scan a directory for files that can be decoded as DICOM.
+    /// Discovery runs asynchronously and validates file contents instead of relying
+    /// on filename extensions.
+    /// - Parameter directoryPath: Path to the directory to scan
+    /// - Returns: Validated DICOM file paths sorted by path
+    func scanDICOMFiles(in directoryPath: String) async throws -> [String]
+
+    /// Recursively scan a directory and return metadata for decodable DICOM files.
+    /// Implementations may combine validation and metadata extraction to avoid
+    /// reopening files after discovery.
+    /// - Parameter directoryPath: Path to the directory to scan
+    /// - Returns: Metadata for validated DICOM files sorted by file path
+    func scanDICOMFilesWithMetadata(in directoryPath: String) async throws -> [StudyMetadata]
+
     // MARK: - Validation
 
     /// Validate DICOM file integrity and format.
@@ -89,4 +103,11 @@ public protocol StudyDataServiceProtocol {
     ///   - maxSize: Maximum dimensions for thumbnail (default: 120x120)
     /// - Returns: Image data or nil if extraction fails
     func extractThumbnail(from filePath: String, maxSize: CGSize) async -> Data?
+}
+
+public extension StudyDataServiceProtocol {
+    func scanDICOMFilesWithMetadata(in directoryPath: String) async throws -> [StudyMetadata] {
+        let filePaths = try await scanDICOMFiles(in: directoryPath)
+        return await extractBatchMetadata(from: filePaths)
+    }
 }

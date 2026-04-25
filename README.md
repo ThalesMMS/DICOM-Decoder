@@ -296,8 +296,6 @@ See [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md#type-safe-value-types-v2-apis) for det
 
 ## Installation
 
-> Development repo note: this private `` repository is for prerelease validation and source-based testing. Published SemVer tags for external consumption still live in `ThalesMMS/DICOM-Decoder`.
-
 ### Via Xcode
 
 1. File -> Add Packages...
