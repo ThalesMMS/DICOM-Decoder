@@ -293,24 +293,37 @@ public final class BenchmarkReporter {
            let metalResult = suiteResult.results[.windowingMetal] {
             markdown.append("## Metal vs vDSP Comparison\n")
 
-            let speedup = vdspResult.speedup(comparedTo: metalResult)
-            let percentFaster = vdspResult.percentageDifference(comparedTo: metalResult)
+            let speedup = metalResult.speedup(comparedTo: vdspResult)
+            let percentFaster = metalResult.percentageDifference(comparedTo: vdspResult)
+            let performanceLabel = percentFaster >= 0 ? "Performance Improvement" : "Performance Degradation"
+            let performanceDirection = percentFaster >= 0 ? "faster" : "slower"
+            let speedupFormatted = formatSpeedup(speedup)
+            let percentPrefix = percentFaster >= 0.05 ? "+" : ""
 
-            markdown.append("- **Speedup**: \(String(format: "%.2fx", speedup))")
-            markdown.append("- **Performance Improvement**: \(String(format: "%.1f%%", percentFaster)) faster")
+            markdown.append("- **Speedup**: \(speedupFormatted)")
+            markdown.append("- **\(performanceLabel)**: \(percentPrefix)\(String(format: "%.1f%%", abs(percentFaster))) \(performanceDirection)")
             markdown.append("")
 
             if speedup >= 2.0 {
                 markdown.append("> ✅ **Metal acceleration successful** - Achieved ≥2x speedup")
             } else if speedup >= 1.5 {
                 markdown.append("> ⚠️ **Metal acceleration moderate** - Achieved \(String(format: "%.1fx", speedup)) speedup (target: ≥2x)")
+            } else if speedup >= 1.0 {
+                markdown.append("> ⚠️ **Metal faster but below target** - \(speedupFormatted) speedup (target: ≥2x)")
             } else {
-                markdown.append("> ❌ **Metal acceleration below target** - Only \(String(format: "%.1fx", speedup)) speedup (target: ≥2x)")
+                markdown.append("> ❌ **Metal acceleration below target** - Only \(speedupFormatted) speed (target: ≥2x); Metal is slower in mean latency and throughput")
             }
             markdown.append("")
         }
 
         return markdown.joined(separator: "\n")
+    }
+
+    private func formatSpeedup(_ speedup: Double) -> String {
+        if speedup != 1.0 && abs(speedup - 1.0) < 0.005 {
+            return String(format: "%.3fx", speedup)
+        }
+        return String(format: "%.2fx", speedup)
     }
 
     /// Write markdown report to file

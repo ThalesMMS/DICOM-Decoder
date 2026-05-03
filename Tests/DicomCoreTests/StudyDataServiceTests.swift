@@ -1,5 +1,6 @@
 import XCTest
 @testable import DicomCore
+import DicomTestSupport
 
 final class StudyDataServiceTests: XCTestCase {
 
@@ -137,6 +138,14 @@ final class StudyDataServiceTests: XCTestCase {
 
         // Thumbnail extraction should use mock decoder
         XCTAssertNotNil(thumbnail, "Should extract thumbnail using mock decoder")
+        guard let thumbnailData = thumbnail else {
+            return
+        }
+        XCTAssertEqual(
+            Array(thumbnailData.prefix(8)),
+            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] as [UInt8],
+            "Extracted thumbnail should be PNG image data"
+        )
     }
 
     func testServiceHandlesMissingUIDsFromMockDecoder() async {
@@ -895,6 +904,27 @@ final class StudyDataServiceTests: XCTestCase {
 
         // Invalid file should return nil thumbnail regardless of size
         XCTAssertNil(thumbnail, "Thumbnail extraction from invalid file should return nil")
+    }
+
+    func testExtractThumbnailRejectsNonPositiveSize() async {
+        let mockDecoder = MockDicomDecoder()
+        mockDecoder.width = 512
+        mockDecoder.height = 512
+        mockDecoder.setDownsampledPixels16([UInt16](repeating: 1000, count: 4), width: 2, height: 2)
+
+        let service = StudyDataService(decoderFactory: makeMockDecoderFactory(mock: mockDecoder))
+
+        let zeroSizeThumbnail = await service.extractThumbnail(
+            from: "/test/mock.dcm",
+            maxSize: CGSize(width: 0, height: 0)
+        )
+        let negativeSizeThumbnail = await service.extractThumbnail(
+            from: "/test/mock.dcm",
+            maxSize: CGSize(width: -120, height: -80)
+        )
+
+        XCTAssertNil(zeroSizeThumbnail, "Thumbnail extraction should reject zero max size")
+        XCTAssertNil(negativeSizeThumbnail, "Thumbnail extraction should reject negative max size")
     }
 
     // MARK: - Edge Cases and Error Handling Tests

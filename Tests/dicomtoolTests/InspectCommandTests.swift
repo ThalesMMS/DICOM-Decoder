@@ -9,6 +9,7 @@ import XCTest
 import ArgumentParser
 @testable import dicomtool
 import DicomCore
+import DicomTestSupport
 
 final class InspectCommandTests: XCTestCase {
 

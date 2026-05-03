@@ -163,19 +163,20 @@ public struct BenchmarkResult {
     /// Compare this result with another and calculate speedup
     ///
     /// - Parameter other: Other benchmark result to compare with
-    /// - Returns: Speedup ratio (this / other), positive values mean this is faster
+    /// - Returns: Speedup ratio. Values above 1 mean this result is faster.
     public func speedup(comparedTo other: BenchmarkResult) -> Double {
-        guard other.meanTime > 0 else { return 0 }
+        guard meanTime > 0, other.meanTime > 0 else { return 0 }
         return other.meanTime / self.meanTime
     }
 
     /// Calculate relative performance difference as percentage
     ///
     /// - Parameter other: Other benchmark result to compare with
-    /// - Returns: Percentage difference (positive = this is faster)
+    /// - Returns: Percentage difference based on speedup (positive = this is faster)
     public func percentageDifference(comparedTo other: BenchmarkResult) -> Double {
-        guard other.meanTime > 0 else { return 0 }
-        return ((other.meanTime - self.meanTime) / other.meanTime) * 100.0
+        let speedup = speedup(comparedTo: other)
+        guard speedup > 0 else { return .nan }
+        return (speedup - 1.0) * 100.0
     }
 }
 

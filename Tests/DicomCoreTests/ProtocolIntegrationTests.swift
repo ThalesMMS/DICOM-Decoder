@@ -1,5 +1,6 @@
 import XCTest
 @testable import DicomCore
+import DicomTestSupport
 
 /// Integration tests verifying protocol-based dependency injection works correctly
 /// across multiple services and components. These tests ensure that services can
@@ -338,6 +339,14 @@ final class ProtocolIntegrationTests: XCTestCase {
         let thumbnail = await service.extractThumbnail(from: "/test/pixels.dcm")
 
         XCTAssertNotNil(thumbnail, "Should extract thumbnail through protocol")
+        guard let thumbnailData = thumbnail else {
+            return
+        }
+        XCTAssertEqual(
+            Array(thumbnailData.prefix(8)),
+            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] as [UInt8],
+            "Extracted thumbnail should be PNG image data"
+        )
     }
 
     // MARK: - Edge Case Integration Tests

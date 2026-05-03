@@ -1,5 +1,6 @@
 import XCTest
 @testable import DicomCore
+import DicomTestSupport
 
 /// Tests for streaming/range-based pixel data access in DCMDecoder.
 /// These tests verify correctness of range-based pixel reading without

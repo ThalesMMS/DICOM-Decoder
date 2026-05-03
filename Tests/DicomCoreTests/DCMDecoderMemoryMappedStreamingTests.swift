@@ -9,6 +9,7 @@
 import Foundation
 import XCTest
 @testable import DicomCore
+import DicomTestSupport
 
 final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
 

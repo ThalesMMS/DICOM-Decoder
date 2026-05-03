@@ -1,6 +1,7 @@
 import Foundation
 import simd
 @testable import DicomCore
+import DicomTestSupport
 
 enum MockDecoderBuilder {
     static var axialOrientation: (row: SIMD3<Double>, column: SIMD3<Double>) {
@@ -33,6 +34,7 @@ enum MockDecoderBuilder {
         position: SIMD3<Double> = .zero,
         orientation: (row: SIMD3<Double>, column: SIMD3<Double>) = axialOrientation,
         seriesDescription: String = "Test Series",
+        modality: String = "CT",
         loadSucceeded: Bool = true
     ) -> MockDicomDecoder {
         let mock = MockDicomDecoder()
@@ -79,6 +81,7 @@ enum MockDecoderBuilder {
         mock.setTag(DicomTag.rescaleIntercept.rawValue, value: "0")
         mock.setTag(DicomTag.rescaleSlope.rawValue, value: "1")
         mock.setTag(DicomTag.seriesDescription.rawValue, value: seriesDescription)
+        mock.setTag(DicomTag.modality.rawValue, value: modality)
 
         guard loadSucceeded else {
             return mock
@@ -117,6 +120,7 @@ enum MockDecoderBuilder {
         position: SIMD3<Double> = .zero,
         orientation: (row: SIMD3<Double>, column: SIMD3<Double>) = axialOrientation,
         seriesDescription: String = "Test Series",
+        modality: String = "CT",
         positionProvider: ((String) -> SIMD3<Double>)? = nil,
         sizeProvider: ((String) -> (width: Int, height: Int))? = nil
     ) -> (String) throws -> DicomDecoderProtocol {
@@ -131,7 +135,8 @@ enum MockDecoderBuilder {
                 pixelSpacing: pixelSpacing,
                 position: positionProvider?(path) ?? position,
                 orientation: orientation,
-                seriesDescription: seriesDescription
+                seriesDescription: seriesDescription,
+                modality: modality
             )
         }
     }
@@ -151,6 +156,7 @@ enum MockDecoderBuilder {
         position: SIMD3<Double> = .zero,
         orientation: (row: SIMD3<Double>, column: SIMD3<Double>) = axialOrientation,
         seriesDescription: String = "Test Series",
+        modality: String = "CT",
         loadSucceeded: Bool = true,
         positionProvider: (() -> SIMD3<Double>)? = nil
     ) -> () -> DicomDecoderProtocol {
@@ -165,6 +171,7 @@ enum MockDecoderBuilder {
                 position: positionProvider?() ?? position,
                 orientation: orientation,
                 seriesDescription: seriesDescription,
+                modality: modality,
                 loadSucceeded: loadSucceeded
             )
         }
@@ -195,7 +202,8 @@ enum MockDecoderBuilder {
         pixelSpacing: SIMD3<Double> = SIMD3<Double>(1, 1, 1),
         position: SIMD3<Double> = .zero,
         orientation: (row: SIMD3<Double>, column: SIMD3<Double>) = axialOrientation,
-        seriesDescription: String = "Test Series"
+        seriesDescription: String = "Test Series",
+        modality: String = "CT"
     ) -> () -> DicomDecoderProtocol {
         let queue = DispatchQueue(label: "MockDecoderBuilder.sequence")
         var index = 0
@@ -218,6 +226,7 @@ enum MockDecoderBuilder {
                 position: position,
                 orientation: orientation,
                 seriesDescription: seriesDescription,
+                modality: modality,
                 loadSucceeded: loadSucceeded
             )
         }

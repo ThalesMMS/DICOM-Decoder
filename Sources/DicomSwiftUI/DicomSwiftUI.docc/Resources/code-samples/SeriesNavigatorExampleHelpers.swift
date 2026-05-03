@@ -18,12 +18,15 @@ var platformSystemBackground: Color {
 #endif
 }
 
-/// Creates file URLs for placeholder DICOM slices located under the given series path.
+/// Creates file URLs for sample DICOM slices located under the given series path.
+///
+/// The returned URLs are runnable only when `seriesPath` points to a real directory
+/// containing DICOM files named `slice1.dcm`, `slice2.dcm`, and so on.
 /// - Parameters:
-///   - count: The number of placeholder slice URLs to generate.
+///   - count: The number of sample slice URLs to generate.
 ///   - seriesPath: The directory path for the series; a trailing slash, if present, will be removed before composing file URLs.
 /// - Returns: An array of file URLs named `slice1.dcm` … `sliceN.dcm` placed under the normalized `seriesPath`. Returns an empty array if `count` is less than or equal to zero.
-func makePlaceholderURLs(count: Int, seriesPath: String) -> [URL] {
+func makeSampleSliceURLs(count: Int, seriesPath: String) -> [URL] {
     guard count > 0 else { return [] }
 
     let normalizedPath = seriesPath.hasSuffix("/")
@@ -116,7 +119,6 @@ struct SeriesInfoBanner: View {
 struct SeriesToolbarMenu: View {
     @Binding var showingSeriesInfo: Bool
     @Binding var showingMetadata: Bool
-    let exportAction: () -> Void
 
     var body: some View {
         Menu {
@@ -126,12 +128,6 @@ struct SeriesToolbarMenu: View {
 
             Button(action: { showingMetadata = true }) {
                 Label("Metadata", systemImage: "doc.text")
-            }
-
-            Divider()
-
-            Button(action: exportAction) {
-                Label("Export Series", systemImage: "square.and.arrow.up")
             }
         } label: {
             Image(systemName: "ellipsis.circle")

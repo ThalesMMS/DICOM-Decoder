@@ -58,14 +58,15 @@ public enum DicomImageLoadingState: Equatable {
     case failed(DICOMError)
 
     /// Determines whether two `DicomImageLoadingState` values are equal.
-    /// 
-    /// Equality is true when both values are the same case. If both are `.failed`, their associated `DICOMError` values are compared for equality.
+    ///
+    /// Equality is true when both values are the same case. If both are `.failed`, their
+    /// associated `DICOMError` values are compared for equality.
+    ///
     /// - Parameters:
     ///   - lhs: The left-hand `DicomImageLoadingState`.
     ///   - rhs: The right-hand `DicomImageLoadingState`.
-    /// Compare two `DicomImageLoadingState` values for equality.
-    /// When both states are `.failed`, the associated `DICOMError` values are compared for equality.
-    /// - Returns: `true` if both states are the same case (and for `.failed`, their associated errors are equal), `false` otherwise.
+    /// - Returns: `true` if both states are the same case (and for `.failed`, their
+    ///   associated errors are equal), `false` otherwise.
 
     public static func == (lhs: DicomImageLoadingState, rhs: DicomImageLoadingState) -> Bool {
         switch (lhs, rhs) {
@@ -321,7 +322,7 @@ public final class DicomImageViewModel: ObservableObject {
             }
 
             // Resolve actual window settings used
-            let settings = try resolveWindowSettings(
+            let settings = try DicomWindowSettingsResolver.resolve(
                 mode: windowingMode,
                 decoder: loadedDecoder
             )
@@ -454,7 +455,7 @@ public final class DicomImageViewModel: ObservableObject {
             }
 
             // Resolve actual window settings used
-            let settings = try resolveWindowSettings(
+            let settings = try DicomWindowSettingsResolver.resolve(
                 mode: windowingMode,
                 decoder: inputDecoder
             )
@@ -559,7 +560,7 @@ public final class DicomImageViewModel: ObservableObject {
             }
 
             // Resolve actual window settings used
-            let settings = try resolveWindowSettings(
+            let settings = try DicomWindowSettingsResolver.resolve(
                 mode: windowingMode,
                 decoder: renderDecoder
             )
@@ -624,62 +625,6 @@ public final class DicomImageViewModel: ObservableObject {
     }
 
     // MARK: - Private Helpers
-
-    /// Resolves window settings based on the windowing mode.
-    ///
-    /// Determines the actual window center and width values that were used for rendering,
-    /// based on the specified windowing mode. This allows the view model to expose the
-    /// exact settings used for display.
-    ///
-    /// - Parameters:
-    ///   - mode: The windowing mode to resolve
-    ///   - decoder: The DICOM decoder (used for `.fromDecoder` mode)
-    ///
-    /// - Returns: The resolved window settings
-    ///
-    /// - Throws: ``DICOMError/invalidPixelData(reason:)`` if automatic calculation fails
-    /// Resolve the concrete window and level settings to use for rendering based on the requested windowing mode.
-    /// - Parameters:
-    ///   - mode: The requested windowing mode which may be `.automatic`, `.preset`, `.custom`, or `.fromDecoder`.
-    ///   - decoder: The `DCMDecoder` used to read embedded window settings or pixel data required for calculations.
-    /// - Returns: The resolved `WindowSettings` appropriate for the chosen mode.
-    /// Resolve concrete window/level settings for the specified windowing mode using the provided decoder.
-    /// - Parameters:
-    ///   - mode: The windowing mode to resolve (automatic, preset, custom, or fromDecoder).
-    ///   - decoder: The DICOM decoder supplying pixel data and any stored window settings.
-    /// - Returns: The resolved `WindowSettings` (center and width) to use for rendering.
-    /// - Throws: `DICOMError.invalidPixelData` when pixel data required for automatic calculation or fallback is missing.
-    private func resolveWindowSettings(
-        mode: DicomImageRenderer.WindowingMode,
-        decoder: any DicomImageRendererDecoderProtocol
-    ) throws -> WindowSettings {
-        switch mode {
-        case .automatic:
-            // Get pixels for histogram calculation
-            guard let pixels16 = decoder.getPixels16() else {
-                throw DICOMError.invalidPixelData(reason: "Missing pixel data for automatic windowing")
-            }
-            return DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels16)
-
-        case .preset(let medicalPreset):
-            return DCMWindowingProcessor.getPresetValuesV2(preset: medicalPreset)
-
-        case .custom(let center, let width):
-            return WindowSettings(center: center, width: width)
-
-        case .fromDecoder:
-            let settings = decoder.windowSettingsV2
-            if settings.isValid {
-                return settings
-            } else {
-                // Fallback to automatic if metadata invalid
-                guard let pixels16 = decoder.getPixels16() else {
-                    throw DICOMError.invalidPixelData(reason: "Missing pixel data for automatic windowing fallback")
-                }
-                return DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels16)
-            }
-        }
-    }
 
     private func beginNewLoadGeneration() -> UInt64 {
         loadGeneration &+= 1

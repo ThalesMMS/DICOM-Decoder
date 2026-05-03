@@ -221,6 +221,34 @@ final class BenchmarkReporterTests: XCTestCase {
         XCTAssertTrue(markdown.contains("Performance Improvement"))
     }
 
+    func testMarkdownMetalComparisonUsesMetalAsComparedResult() throws {
+        var results: [BenchmarkType: BenchmarkResult] = [:]
+        results[.windowingVDSP] = try BenchmarkResult(timings: [0.200])
+        results[.windowingMetal] = try BenchmarkResult(timings: [0.100])
+
+        let suiteResult = BenchmarkSuiteResult(results: results, config: BenchmarkConfig())
+        let reporter = BenchmarkReporter(suiteResult: suiteResult)
+
+        let markdown = reporter.generateMarkdown()
+
+        XCTAssertTrue(markdown.contains("- **Speedup**: 2.00x"))
+        XCTAssertTrue(markdown.contains("- **Performance Improvement**: +100.0% faster"))
+    }
+
+    func testMarkdownMetalComparisonReportsSlowerMetal() throws {
+        var results: [BenchmarkType: BenchmarkResult] = [:]
+        results[.windowingVDSP] = try BenchmarkResult(timings: [0.100])
+        results[.windowingMetal] = try BenchmarkResult(timings: [0.125])
+
+        let suiteResult = BenchmarkSuiteResult(results: results, config: BenchmarkConfig())
+        let reporter = BenchmarkReporter(suiteResult: suiteResult)
+
+        let markdown = reporter.generateMarkdown()
+
+        XCTAssertTrue(markdown.contains("- **Speedup**: 0.80x"))
+        XCTAssertTrue(markdown.contains("- **Performance Degradation**: 20.0% slower"))
+    }
+
     func testMarkdownMetalComparisonIndicator() {
         let suiteResult = createSampleResults()
         let reporter = BenchmarkReporter(suiteResult: suiteResult)

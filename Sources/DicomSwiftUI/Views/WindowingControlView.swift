@@ -25,7 +25,6 @@
 //
 
 import SwiftUI
-import Combine
 import DicomCore
 
 /// A SwiftUI view for interactive window/level adjustment controls.
@@ -203,6 +202,9 @@ public struct WindowingControlView: View {
     /// Layout style for the control panel
     private let layout: Layout
 
+    /// Unit announced for slider accessibility values
+    private let accessibilityUnit: String
+
     /// Callback when a preset is selected
     private let onPresetSelected: ((MedicalPreset) -> Void)?
 
@@ -226,6 +228,7 @@ public struct WindowingControlView: View {
     /// - Parameters:
     ///   - windowingViewModel: View model managing windowing state
     ///   - layout: Layout style (`.expanded` or `.compact`). Defaults to `.expanded`
+    ///   - accessibilityUnit: Unit announced for slider values. Defaults to `"Hounsfield units"`
     ///   - onPresetSelected: Optional callback when a preset button is tapped
     ///   - onWindowingChanged: Optional callback when center or width values change
     ///
@@ -259,11 +262,13 @@ public struct WindowingControlView: View {
     public init(
         windowingViewModel: WindowingViewModel,
         layout: Layout = .expanded,
+        accessibilityUnit: String = "Hounsfield units",
         onPresetSelected: ((MedicalPreset) -> Void)? = nil,
         onWindowingChanged: ((WindowSettings) -> Void)? = nil
     ) {
         self.windowingViewModel = windowingViewModel
         self.layout = layout
+        self.accessibilityUnit = accessibilityUnit
         self.onPresetSelected = onPresetSelected
         self.onWindowingChanged = onWindowingChanged
 
@@ -277,13 +282,34 @@ public struct WindowingControlView: View {
     public var body: some View {
         VStack(spacing: layout == .compact ? 12 : 16) {
             // Header
-            headerView
+            WindowingHeaderView(
+                presetName: windowingViewModel.presetName,
+                center: windowingViewModel.center,
+                width: windowingViewModel.width,
+                layout: layout
+            )
 
             // Preset buttons
-            presetButtonsView
+            WindowingPresetButtonsView(
+                presets: windowingViewModel.availablePresets,
+                selectedPreset: windowingViewModel.selectedPreset,
+                layout: layout,
+                onSelectPreset: { preset in
+                    windowingViewModel.selectPreset(preset)
+                    onPresetSelected?(preset)
+                }
+            )
 
             // Sliders
-            slidersView
+            WindowingSlidersView(
+                layout: layout,
+                accessibilityUnit: accessibilityUnit,
+                tempCenter: $tempCenter,
+                tempWidth: $tempWidth,
+                isEditingCenter: $isEditingCenter,
+                isEditingWidth: $isEditingWidth,
+                onCommit: { applySliderChanges() }
+            )
         }
         .padding(layout == .compact ? 12 : 16)
         .accessibilityElement(children: .contain)
@@ -302,188 +328,6 @@ public struct WindowingControlView: View {
         }
     }
 
-    // MARK: - Header View
-
-    /// Header displaying current preset name and values.
-    ///
-    /// Shows the currently selected preset name (or "Custom" if manually adjusted)
-    /// along with the current window center and width values. Values are displayed
-    /// with monospaced digits for consistent alignment during updates.
-    private var headerView: some View {
-        VStack(spacing: 4) {
-            Text(windowingViewModel.presetName)
-                .font(layout == .compact ? .caption : .headline)
-                .foregroundColor(.primary)
-                .accessibilityAddTraits(.isHeader)
-
-            HStack(spacing: layout == .compact ? 8 : 12) {
-                Text("C: \(Int(windowingViewModel.center))")
-                    .font(layout == .compact ? .caption2 : .caption)
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
-
-                Text("W: \(Int(windowingViewModel.width))")
-                    .font(layout == .compact ? .caption2 : .caption)
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Center \(Int(windowingViewModel.center)), Width \(Int(windowingViewModel.width))")
-        }
-    }
-
-    // MARK: - Preset Buttons View
-
-    /// Scrollable row of preset buttons.
-    ///
-    /// Displays all available medical imaging presets (lung, bone, brain, etc.) as
-    /// horizontally scrollable buttons. The currently selected preset is visually
-    /// highlighted with accent color. Buttons use the preset's display name for
-    /// accessibility.
-    private var presetButtonsView: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: layout == .compact ? 6 : 8) {
-                ForEach(windowingViewModel.availablePresets, id: \.self) { preset in
-                    presetButton(for: preset)
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Window presets")
-    }
-
-    /// Creates a preset button.
-    ///
-    /// Generates a button for the specified medical preset with visual selection state.
-    /// Selected buttons use accent color with adaptive text color, while unselected buttons
-    /// use secondary background with primary text. Colors adapt automatically for dark mode.
-    ///
-    /// - Parameter preset: The medical preset this button represents
-    /// Creates a tappable button view for the given medical windowing preset.
-    /// The button applies the preset to the view model and invokes the optional `onPresetSelected` callback when tapped. It also exposes appropriate accessibility label, hint, and selection trait.
-    /// - Parameter preset: The `MedicalPreset` to represent.
-    /// Creates a styled button view for a given windowing preset.
-    /// - Parameter preset: The `MedicalPreset` to display as a selectable button.
-    /// - Returns: A view that presents the preset's display name; tapping the button selects the preset in the view model and invokes `onPresetSelected` if provided. The button's appearance reflects whether the preset is currently selected.
-    private func presetButton(for preset: MedicalPreset) -> some View {
-        let isSelected = windowingViewModel.selectedPreset == preset
-        let buttonBackgroundColor = isSelected ? Color.accentColor : Color.secondary.opacity(0.15)
-        let buttonTextColor = isSelected ? Color.white : Color.primary
-
-        return Button(action: {
-            windowingViewModel.selectPreset(preset)
-            onPresetSelected?(preset)
-        }) {
-            Text(preset.displayName)
-                .font(layout == .compact ? .caption : .footnote)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .foregroundColor(buttonTextColor)
-                .padding(.horizontal, layout == .compact ? 8 : 12)
-                .padding(.vertical, layout == .compact ? 4 : 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(buttonBackgroundColor)
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .accessibilityLabel(preset.displayName + " preset")
-        .accessibilityHint("Double tap to apply \(preset.displayName) window settings")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    // MARK: - Sliders View
-
-    /// Window center and width sliders.
-    ///
-    /// Provides two interactive sliders for precise window/level adjustment:
-    /// - **Center slider**: Adjusts window center from -1000 to +3000 Hounsfield units
-    /// - **Width slider**: Adjusts window width from 1 to 4000 Hounsfield units
-    ///
-    /// Both sliders show range labels and update the view model only when the user
-    /// completes the drag gesture, minimizing performance impact.
-    private var slidersView: some View {
-        VStack(spacing: layout == .compact ? 8 : 12) {
-            // Center slider
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Center (Level)")
-                    .font(layout == .compact ? .caption2 : .caption)
-                    .foregroundColor(.secondary)
-
-                HStack {
-                    Text("-1000")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .monospacedDigit()
-                        .accessibilityHidden(true)
-
-                    Slider(
-                        value: $tempCenter,
-                        in: -1000...3000,
-                        step: 1.0,
-                        onEditingChanged: { editing in
-                            isEditingCenter = editing
-                            if editing {
-                                // User started dragging
-                            } else {
-                                // User finished dragging - apply changes
-                                applySliderChanges()
-                            }
-                        }
-                    )
-                    .accentColor(.accentColor)
-                    .accessibilityLabel("Window center slider")
-                    .accessibilityValue("\(Int(tempCenter)) Hounsfield units")
-                    .accessibilityHint("Swipe up or down to adjust window center. Range is -1000 to 3000 Hounsfield units")
-
-                    Text("3000")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .monospacedDigit()
-                        .accessibilityHidden(true)
-                }
-            }
-
-            // Width slider
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Width")
-                    .font(layout == .compact ? .caption2 : .caption)
-                    .foregroundColor(.secondary)
-
-                HStack {
-                    Text("1")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .monospacedDigit()
-                        .accessibilityHidden(true)
-
-                    Slider(
-                        value: $tempWidth,
-                        in: 1...4000,
-                        step: 1.0,
-                        onEditingChanged: { editing in
-                            isEditingWidth = editing
-                            if editing {
-                                // User started dragging
-                            } else {
-                                // User finished dragging - apply changes
-                                applySliderChanges()
-                            }
-                        }
-                    )
-                    .accentColor(.accentColor)
-                    .accessibilityLabel("Window width slider")
-                    .accessibilityValue("\(Int(tempWidth)) Hounsfield units")
-                    .accessibilityHint("Swipe up or down to adjust window width. Range is 1 to 4000 Hounsfield units")
-
-                    Text("4000")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .monospacedDigit()
-                        .accessibilityHidden(true)
-                }
-            }
-        }
-    }
 
     // MARK: - Helper Methods
 
@@ -505,20 +349,6 @@ public struct WindowingControlView: View {
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func onChangeCompat<Value: Equatable>(
-        of value: Value,
-        fallback publisher: Published<Value>.Publisher,
-        perform action: @escaping (Value) -> Void
-    ) -> some View {
-        if #available(iOS 14.0, macOS 11.0, *) {
-            self.onChange(of: value, perform: action)
-        } else {
-            self.onReceive(publisher.removeDuplicates(), perform: action)
-        }
-    }
-}
 
 // MARK: - SwiftUI Previews
 

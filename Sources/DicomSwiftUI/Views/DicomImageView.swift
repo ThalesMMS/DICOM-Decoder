@@ -367,130 +367,8 @@ public struct DicomImageView: View {
     }
 
     private var baseContent: some View {
-        ZStack {
-            // Black background for medical imaging (standard for both light and dark mode)
-            Color.black
-                .modifier(FullScreenBackgroundModifier())
-                .accessibilityHidden(true)
-
-            switch viewModel.state {
-            case .idle:
-                idleStateView
-
-            case .loading:
-                loadingStateView
-
-            case .loaded:
-                loadedStateView
-
-            case .failed(let error):
-                errorStateView(error)
-            }
-        }
-    }
-
-    // MARK: - State Views
-
-    /// View displayed when idle (no image loaded).
-    ///
-    /// Shows a placeholder icon and message indicating the view is ready to load a
-    /// DICOM image. This state is displayed before any loading has been initiated.
-    private var idleStateView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "photo.on.rectangle")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary)
-
-            Text("Ready to load DICOM image")
-                .font(.callout)
-                .foregroundColor(.secondary)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("No image loaded")
-        .accessibilityHint("Waiting for DICOM file to load")
-    }
-
-    /// View displayed while loading.
-    ///
-    /// Shows an animated progress indicator with loading message. Displayed while the
-    /// DICOM file is being decoded and the windowing transformation is being applied.
-    private var loadingStateView: some View {
-        VStack(spacing: 16) {
-            if #available(iOS 14.0, macOS 11.0, *) {
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .progressViewStyle(CircularProgressViewStyle())
-            } else {
-                Image(systemName: "hourglass")
-                    .font(.system(size: 36))
-                    .foregroundColor(.secondary)
-            }
-
-            Text("Loading DICOM image...")
-                .font(.callout)
-                .foregroundColor(.secondary)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Loading")
-        .accessibilityHint("DICOM image is being loaded")
-    }
-
-    /// View displayed when image loaded successfully.
-    ///
-    /// Shows the rendered DICOM image scaled to fit the container while preserving
-    /// aspect ratio. Includes accessibility labels with image dimensions.
-    private var loadedStateView: some View {
-        Group {
-            if let cgImage = viewModel.image {
-                Image(decorative: cgImage, scale: 1.0)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .accessibilityLabel("DICOM medical image")
-                    .accessibilityHint("Medical image, dimensions \(viewModel.imageWidth) by \(viewModel.imageHeight) pixels")
-                    .accessibilityAddTraits(.isImage)
-            } else {
-                Text("Image loaded but not available")
-                    .foregroundColor(.secondary)
-                    .accessibilityLabel("Error")
-                    .accessibilityHint("Image loaded but display failed")
-            }
-        }
-    }
-
-    /// View displayed when loading fails.
-    ///
-    /// Shows an error icon with descriptive error message. Provides details about
-    /// why the DICOM file failed to load (file not found, invalid format, etc.).
-    ///
-    /// - Parameter error: The error that occurred during loading
-    /// Builds the error state UI shown when loading a DICOM image fails.
-    /// - Parameter error: The `DICOMError` describing the failure; its `localizedDescription` is displayed to the user.
-    /// Displays an error UI for a failed DICOM image load.
-    ///
-    /// Shows a warning icon, a bold "Failed to Load Image" headline, and the error's localized description. The view is an accessibility element with label "Error loading image" and a hint set to the error's localized description.
-    /// - Parameter error: The `DICOMError` describing the failure; its `localizedDescription` is displayed as the message.
-    /// - Returns: A view presenting the error state for the DICOM image viewer.
-    private func errorStateView(_ error: DICOMError) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 48))
-                .foregroundColor(.red)
-
-            VStack(spacing: 8) {
-                Text("Failed to Load Image")
-                    .font(.headline)
-                    .foregroundColor(.primary)
-
-                Text(error.localizedDescription)
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Error loading image")
-        .accessibilityHint(error.localizedDescription)
+        DicomImageViewerContainer(state: viewModel.state)
+            .environmentObject(viewModel)
     }
 
     private func startLegacyLoadTask() {
@@ -519,16 +397,6 @@ public struct DicomImageView: View {
                 windowingMode: windowingMode,
                 processingMode: processingMode
             )
-        }
-    }
-}
-
-private struct FullScreenBackgroundModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 14.0, macOS 11.0, *) {
-            content.ignoresSafeArea()
-        } else {
-            content.edgesIgnoringSafeArea(.all)
         }
     }
 }

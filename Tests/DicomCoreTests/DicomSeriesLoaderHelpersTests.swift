@@ -1,6 +1,7 @@
 import XCTest
 import simd
 @testable import DicomCore
+import DicomTestSupport
 
 // MARK: - DicomSeriesLoader Helpers Tests
 
@@ -8,7 +9,21 @@ final class DicomSeriesLoaderHelpersTests: XCTestCase {
 
     // MARK: - computeZSpacing Tests
 
-    func testComputeZSpacingReturnNilForSingleSlice() {
+    func testValidatedOrientationAcceptsRoundedDirectionCosines() throws {
+        let loader = DicomSeriesLoader()
+
+        let orientation = try loader.validatedOrientation(
+            from: (
+                row: SIMD3<Double>(0.9982, 0, 0),
+                column: SIMD3<Double>(0, 1.0018, 0)
+            )
+        )
+
+        XCTAssertEqual(simd_length(orientation.row), 1.0, accuracy: 1e-10)
+        XCTAssertEqual(simd_length(orientation.column), 1.0, accuracy: 1e-10)
+    }
+
+    func testComputeZSpacingReturnNilForSingleSlice() throws {
         let loader = DicomSeriesLoader()
         let slice = SliceMeta(
             url: URL(fileURLWithPath: "/test/slice1.dcm"),
@@ -17,17 +32,17 @@ final class DicomSeriesLoaderHelpersTests: XCTestCase {
             projection: nil
         )
 
-        let spacing = loader.computeZSpacing(from: [slice], normal: SIMD3<Double>(0, 0, 1))
+        let spacing = try loader.computeZSpacing(from: [slice], normal: SIMD3<Double>(0, 0, 1))
         XCTAssertNil(spacing, "Single slice should return nil spacing")
     }
 
-    func testComputeZSpacingReturnNilForEmptySlices() {
+    func testComputeZSpacingReturnNilForEmptySlices() throws {
         let loader = DicomSeriesLoader()
-        let spacing = loader.computeZSpacing(from: [], normal: SIMD3<Double>(0, 0, 1))
+        let spacing = try loader.computeZSpacing(from: [], normal: SIMD3<Double>(0, 0, 1))
         XCTAssertNil(spacing, "Empty slices should return nil spacing")
     }
 
-    func testComputeZSpacingUniformSpacing() {
+    func testComputeZSpacingUniformSpacing() throws {
         let loader = DicomSeriesLoader()
         // 5 slices with 2.5mm spacing along Z axis
         let slices = (0..<5).map { i in
@@ -39,24 +54,24 @@ final class DicomSeriesLoaderHelpersTests: XCTestCase {
             )
         }
 
-        let spacing = loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
+        let spacing = try loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
         XCTAssertNotNil(spacing, "Should compute spacing for valid slices")
         XCTAssertEqual(spacing!, 2.5, accuracy: 0.001, "Z spacing should be 2.5mm")
     }
 
-    func testComputeZSpacingTwoSlices() {
+    func testComputeZSpacingTwoSlices() throws {
         let loader = DicomSeriesLoader()
         let slices = [
             SliceMeta(url: URL(fileURLWithPath: "/1.dcm"), position: SIMD3<Double>(0, 0, 0), instanceNumber: 1, projection: nil),
             SliceMeta(url: URL(fileURLWithPath: "/2.dcm"), position: SIMD3<Double>(0, 0, 5.0), instanceNumber: 2, projection: nil)
         ]
 
-        let spacing = loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
+        let spacing = try loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
         XCTAssertNotNil(spacing, "Should compute spacing for two slices")
         XCTAssertEqual(spacing!, 5.0, accuracy: 0.001, "Spacing should be 5.0mm")
     }
 
-    func testComputeZSpacingAlongArbitraryNormal() {
+    func testComputeZSpacingAlongArbitraryNormal() throws {
         let loader = DicomSeriesLoader()
         // Slices positioned along a diagonal normal
         let normal = SIMD3<Double>(1, 0, 0) // along X axis
@@ -66,12 +81,12 @@ final class DicomSeriesLoaderHelpersTests: XCTestCase {
             SliceMeta(url: URL(fileURLWithPath: "/3.dcm"), position: SIMD3<Double>(6.0, 0, 0), instanceNumber: 3, projection: nil)
         ]
 
-        let spacing = loader.computeZSpacing(from: slices, normal: normal)
+        let spacing = try loader.computeZSpacing(from: slices, normal: normal)
         XCTAssertNotNil(spacing, "Should compute spacing along X-axis normal")
         XCTAssertEqual(spacing!, 3.0, accuracy: 0.001, "Spacing along X axis should be 3.0mm")
     }
 
-    func testComputeZSpacingWithNilPositions() {
+    func testComputeZSpacingWithNilPositions() throws {
         let loader = DicomSeriesLoader()
         // Slices with nil positions should be skipped
         let slices = [
@@ -80,11 +95,11 @@ final class DicomSeriesLoaderHelpersTests: XCTestCase {
             SliceMeta(url: URL(fileURLWithPath: "/3.dcm"), position: nil, instanceNumber: 3, projection: nil)
         ]
 
-        let spacing = loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
+        let spacing = try loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
         XCTAssertNil(spacing, "All nil positions should return nil spacing")
     }
 
-    func testComputeZSpacingIgnoresZeroDistances() {
+    func testComputeZSpacingIgnoresZeroDistances() throws {
         let loader = DicomSeriesLoader()
         // Duplicate positions should be ignored (zero distance)
         let slices = [
@@ -93,7 +108,7 @@ final class DicomSeriesLoaderHelpersTests: XCTestCase {
             SliceMeta(url: URL(fileURLWithPath: "/3.dcm"), position: SIMD3<Double>(0, 0, 5.0), instanceNumber: 3, projection: nil)
         ]
 
-        let spacing = loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
+        let spacing = try loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
         // The zero distance should be ignored, only one non-zero distance remains
         guard let spacing else {
             XCTFail("Non-zero spacing should be computed")
@@ -102,20 +117,33 @@ final class DicomSeriesLoaderHelpersTests: XCTestCase {
         XCTAssertEqual(spacing, 5.0, accuracy: 0.001, "Non-zero spacing should be 5.0mm")
     }
 
-    func testComputeZSpacingAveragesMultipleDistances() {
+    func testComputeZSpacingUsesMedianForMultipleDistances() throws {
         let loader = DicomSeriesLoader()
-        // Slightly irregular spacing (2.4, 2.5, 2.6 → mean = 2.5)
+        // Slightly irregular spacing within tolerance (2.46, 2.5, 2.54 -> median = 2.5)
         let slices = [
             SliceMeta(url: URL(fileURLWithPath: "/1.dcm"), position: SIMD3<Double>(0, 0, 0.0), instanceNumber: 1, projection: nil),
-            SliceMeta(url: URL(fileURLWithPath: "/2.dcm"), position: SIMD3<Double>(0, 0, 2.4), instanceNumber: 2, projection: nil),
-            SliceMeta(url: URL(fileURLWithPath: "/3.dcm"), position: SIMD3<Double>(0, 0, 4.9), instanceNumber: 3, projection: nil),
+            SliceMeta(url: URL(fileURLWithPath: "/2.dcm"), position: SIMD3<Double>(0, 0, 2.46), instanceNumber: 2, projection: nil),
+            SliceMeta(url: URL(fileURLWithPath: "/3.dcm"), position: SIMD3<Double>(0, 0, 4.96), instanceNumber: 3, projection: nil),
             SliceMeta(url: URL(fileURLWithPath: "/4.dcm"), position: SIMD3<Double>(0, 0, 7.5), instanceNumber: 4, projection: nil)
         ]
 
-        let spacing = loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
-        XCTAssertNotNil(spacing, "Should compute average spacing")
-        // Distances are: 2.4, 2.5, 2.6 → mean = 2.5
-        XCTAssertEqual(spacing!, 2.5, accuracy: 0.01, "Average spacing should be approximately 2.5mm")
+        let spacing = try loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
+        XCTAssertNotNil(spacing, "Should compute median spacing")
+        // Distances are: 2.46, 2.5, 2.54 -> median = 2.5
+        XCTAssertEqual(spacing!, 2.5, accuracy: 0.01, "Median spacing should be approximately 2.5mm")
+    }
+
+    func testComputeZSpacingAllowsSubmillimeterRoundingNoise() throws {
+        let loader = DicomSeriesLoader()
+        let slices = [
+            SliceMeta(url: URL(fileURLWithPath: "/1.dcm"), position: SIMD3<Double>(0, 0, 0.000), instanceNumber: 1, projection: nil),
+            SliceMeta(url: URL(fileURLWithPath: "/2.dcm"), position: SIMD3<Double>(0, 0, 0.300), instanceNumber: 2, projection: nil),
+            SliceMeta(url: URL(fileURLWithPath: "/3.dcm"), position: SIMD3<Double>(0, 0, 0.615), instanceNumber: 3, projection: nil),
+            SliceMeta(url: URL(fileURLWithPath: "/4.dcm"), position: SIMD3<Double>(0, 0, 0.900), instanceNumber: 4, projection: nil)
+        ]
+
+        let spacing = try loader.computeZSpacing(from: slices, normal: SIMD3<Double>(0, 0, 1))
+        XCTAssertEqual(try XCTUnwrap(spacing), 0.3, accuracy: 0.001)
     }
 
     // MARK: - isApproximatelyEqual Tests

@@ -35,6 +35,20 @@ final class BenchmarkRunnerTests: XCTestCase {
         XCTAssertNotNil(runner, "BenchmarkRunner should initialize with custom config")
     }
 
+    /// Test speedup calculation rejects non-positive inputs
+    func testBenchmarkResultSpeedupRejectsNonPositiveInputs() {
+        let valid = BenchmarkResult(meanTime: 1.0, stdDevTime: 0, timings: [1.0], iterationCount: 1)
+        let zero = BenchmarkResult(meanTime: 0, stdDevTime: 0, timings: [0], iterationCount: 1)
+        let negative = BenchmarkResult(meanTime: -1.0, stdDevTime: 0, timings: [-1.0], iterationCount: 1)
+
+        XCTAssertEqual(valid.speedup(comparedTo: zero), 0)
+        XCTAssertEqual(valid.speedup(comparedTo: negative), 0)
+        XCTAssertEqual(zero.speedup(comparedTo: valid), 0)
+        XCTAssertEqual(negative.speedup(comparedTo: valid), 0)
+        XCTAssertTrue(valid.percentageDifference(comparedTo: zero).isNaN)
+        XCTAssertTrue(valid.percentageDifference(comparedTo: negative).isNaN)
+    }
+
     // MARK: - Decoder Benchmark Tests
 
     /// Test lock overhead benchmark
@@ -52,6 +66,8 @@ final class BenchmarkRunnerTests: XCTestCase {
         XCTAssertGreaterThan(result.iterationCount, 0, "Should have iterations")
         XCTAssertGreaterThan(result.meanTime, 0, "Mean time should be positive")
         XCTAssertGreaterThanOrEqual(result.stdDevTime, 0, "Std dev should be non-negative")
+        XCTAssertGreaterThanOrEqual(result.medianTime, 0, "Median time should be non-negative after baseline subtraction")
+        XCTAssertGreaterThan(result.p95Time, 0, "P95 time should exceed timer resolution")
 
         // Lock overhead should be very fast (nanoseconds to microseconds)
         XCTAssertLessThan(result.meanTime, 0.001, "Lock overhead should be <1ms")

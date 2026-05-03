@@ -95,13 +95,13 @@ public protocol StudyDataServiceProtocol {
 
     // MARK: - Thumbnail Generation
 
-    /// Extract thumbnail data from DICOM file (first frame).
+    /// Extract PNG thumbnail data from DICOM file (first frame).
     /// Generates a downsampled image suitable for preview display.
     /// Returns nil if pixel data cannot be extracted.
     /// - Parameters:
     ///   - filePath: Path to the DICOM file
     ///   - maxSize: Maximum dimensions for thumbnail (default: 120x120)
-    /// - Returns: Image data or nil if extraction fails
+    /// - Returns: PNG image data or nil if extraction fails
     func extractThumbnail(from filePath: String, maxSize: CGSize) async -> Data?
 }
 

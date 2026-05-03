@@ -48,8 +48,14 @@ let package = Package(
             path: "Examples/DicomSwiftUIExample"
         ),
         .testTarget(
-            name: "DicomCoreTests",
+            name: "DicomTestSupport",
             dependencies: ["DicomCore"],
+            // Shared test support target that owns MockDicomDecoder for all test targets.
+            path: "Tests/DicomTestSupport"
+        ),
+        .testTarget(
+            name: "DicomCoreTests",
+            dependencies: ["DicomCore", "DicomTestSupport"],
             path: "Tests/DicomCoreTests",
             exclude: ["Fixtures"],
             resources: [
@@ -61,7 +67,7 @@ let package = Package(
         ),
         .testTarget(
             name: "DicomSwiftUITests",
-            dependencies: ["DicomSwiftUI", "DicomCore"],
+            dependencies: ["DicomSwiftUI", "DicomCore", "DicomTestSupport"],
             path: "Tests/DicomSwiftUITests"
         ),
         .testTarget(
@@ -69,6 +75,7 @@ let package = Package(
             dependencies: [
                 "dicomtool",
                 "DicomCore",
+                "DicomTestSupport",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             path: "Tests/dicomtoolTests"

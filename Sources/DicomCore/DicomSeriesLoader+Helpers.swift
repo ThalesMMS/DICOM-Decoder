@@ -4,6 +4,68 @@ import simd
 // MARK: - Helpers
 
 extension DicomSeriesLoader {
+    /// Extract the first paired Window Center / Window Width values from DICOM metadata.
+    ///
+    /// WC/WW may be multi-valued DS fields (for example, `40\80` and `400\2000`).
+    /// Pair by component index so a malformed component in one field does not accidentally
+    /// combine values from different VOI alternatives.
+    func windowCenterWidth(from decoder: any DicomDecoderProtocol) -> (center: Double, width: Double)? {
+        let centers = decimalValues(from: decoder.info(for: .windowCenter))
+        let widths = decimalValues(from: decoder.info(for: .windowWidth))
+        let pairCount = min(centers.count, widths.count)
+
+        guard pairCount > 0 else { return nil }
+        for index in 0..<pairCount {
+            if let center = centers[index], let width = widths[index] {
+                return (center, width)
+            }
+        }
+        return nil
+    }
+
+    private func decimalValues(from value: String) -> [Double?] {
+        value.split(separator: "\\", omittingEmptySubsequences: false).map { component in
+            Double(component.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+    /// Validate and normalize `ImageOrientationPatient` (IOP).
+    ///
+    /// DICOM supplies two direction cosines: the row and column directions in patient space.
+    /// For robust geometry, we require:
+    /// - each vector has non-zero length and is approximately unit length
+    /// - the two vectors are approximately orthogonal
+    ///
+    /// We normalize the vectors to unit length to reduce downstream drift.
+    ///
+    /// - Throws: `DicomSeriesLoaderError.invalidImageOrientation` when the vectors are degenerate or not sufficiently orthogonal.
+    func validatedOrientation(
+        from orientation: (row: SIMD3<Double>, column: SIMD3<Double>),
+        lengthTolerance: Double = 1e-2,
+        orthogonalityTolerance: Double = 1e-3
+    ) throws -> (row: SIMD3<Double>, column: SIMD3<Double>) {
+        let rowLen = simd_length(orientation.row)
+        let colLen = simd_length(orientation.column)
+        guard rowLen.isFinite, colLen.isFinite, rowLen > 0, colLen > 0 else {
+            throw DicomSeriesLoaderError.invalidImageOrientation
+        }
+
+        // Require near-unit direction cosines; allow small drift.
+        guard abs(rowLen - 1.0) <= lengthTolerance, abs(colLen - 1.0) <= lengthTolerance else {
+            throw DicomSeriesLoaderError.invalidImageOrientation
+        }
+
+        let row = orientation.row / rowLen
+        let col = orientation.column / colLen
+
+        let dot = simd_dot(row, col)
+        guard dot.isFinite, abs(dot) <= orthogonalityTolerance else {
+            throw DicomSeriesLoaderError.invalidImageOrientation
+        }
+
+        return (row: row, column: col)
+    }
+
     /// Finds DICOM candidate files by recursively enumerating a directory and returning regular files with a `.dcm` extension or no extension.
     /// - Parameters:
     ///   - directory: The directory URL to search.
@@ -84,19 +146,6 @@ extension DicomSeriesLoader {
         }
     }
 
-    /// Decodes a DICOM slice directly into a provided buffer for memory efficiency.
-    ///
-    /// This method writes decoded pixel data directly into the provided buffer,
-    /// avoiding intermediate allocations. Used by loadSeries() to reuse a single
-    /// buffer across multiple slices.
-    ///
-    /// - Parameters:
-    ///   - url: File URL of the DICOM slice
-    ///   - buffer: Mutable buffer to write decoded pixels into (must have sufficient capacity)
-    ///   - expectedWidth: Expected image width for validation
-    ///   - expectedHeight: Expected image height for validation
-    ///   - isSigned: Whether pixel representation is signed
-    /// - Returns: Number of pixels written to buffer
     /// Decode a DICOM slice from `url` into the provided `buffer`, converting pixel samples to `Int16` using the specified signedness and validating expected image dimensions and format.
     /// - Parameters:
     ///   - url: File URL of the DICOM slice to decode.
@@ -165,19 +214,23 @@ extension DicomSeriesLoader {
         return pixelCount
     }
 
-    /// Computes the average spacing between adjacent slices along a given normal vector.
-    /// 
+    /// Computes slice spacing along the series normal using IPP projection deltas.
+    ///
     /// The function projects slice positions onto `normal`, measures absolute distances between consecutive projections,
-    /// and returns the arithmetic mean of all non-zero distances. Slices with missing `position` values are skipped.
+    /// and returns the **median** delta. The median is more robust than the mean in the presence of outliers.
+    ///
+    /// If the deltas vary beyond supported tolerance, this throws ``DicomSeriesLoaderError/variableSliceSpacing(median:maxDeviation:)``
+    /// rather than silently returning a misleading single Z spacing.
+    ///
     /// - Parameters:
     ///   - slices: An ordered array of `SliceMeta` representing the series (order defines adjacency).
     ///   - normal: The unit or non-unit vector to project positions onto; spacing is measured along this direction.
-    /// - Returns: The average spacing along `normal` as a `Double`, or `nil` if fewer than two valid distances are available.
+    /// - Returns: The median spacing along `normal` as a `Double`, or `nil` if fewer than two valid distances are available.
     func computeZSpacing(from slices: [SliceMeta],
-                         normal: SIMD3<Double>) -> Double? {
+                         normal: SIMD3<Double>) throws -> Double? {
         guard slices.count > 1 else { return nil }
-        var distances: [Double] = []
-        distances.reserveCapacity(slices.count - 1)
+        var deltas: [Double] = []
+        deltas.reserveCapacity(slices.count - 1)
 
         for idx in 1..<slices.count {
             if let p0 = slices[idx - 1].position, let p1 = slices[idx].position {
@@ -185,14 +238,31 @@ extension DicomSeriesLoader {
                 let d1 = simd_dot(p1, normal)
                 let delta = abs(d1 - d0)
                 if delta > 0 {
-                    distances.append(delta)
+                    deltas.append(delta)
                 }
             }
         }
 
-        guard !distances.isEmpty else { return nil }
-        let sum = distances.reduce(0, +)
-        return sum / Double(distances.count)
+        guard !deltas.isEmpty else { return nil }
+        deltas.sort()
+
+        let median: Double
+        if deltas.count % 2 == 1 {
+            median = deltas[deltas.count / 2]
+        } else {
+            let upper = deltas.count / 2
+            median = 0.5 * (deltas[upper - 1] + deltas[upper])
+        }
+
+        // Consider spacing "variable" if any delta deviates from the median beyond clinical acquisition noise.
+        // This primarily catches missing-slice discontinuities or mixed spacing series.
+        let maxDeviation = deltas.map { abs($0 - median) }.max() ?? 0
+        let allowedDeviation = max(0.05, 0.02 * median) // 0.05mm absolute or 2% relative
+        if maxDeviation > allowedDeviation {
+            throw DicomSeriesLoaderError.variableSliceSpacing(median: median, maxDeviation: maxDeviation)
+        }
+
+        return median
     }
 
     /// Checks whether two 3D vectors are equal within a per-component tolerance.

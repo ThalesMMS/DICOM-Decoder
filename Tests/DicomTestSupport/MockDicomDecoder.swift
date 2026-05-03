@@ -1,6 +1,13 @@
 //
 //  MockDicomDecoder.swift
 //
+//  Shared test fixture used by multiple SwiftPM test targets in this repository
+//  (e.g. `DicomCoreTests` and `dicomtoolTests`) via the `DicomTestSupport` target.
+//
+//  IMPORTANT: Keep this as the single source-of-truth mock implementation.
+//  Do not copy/duplicate it into per-target `Mocks/` folders, otherwise the
+//  implementations drift and tests become inconsistent.
+//
 //  Mock implementation of DicomDecoderProtocol for unit testing.
 //  Provides configurable properties and methods to simulate various
 //  DICOM file scenarios without requiring actual DICOM files.
@@ -170,13 +177,42 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
 
     // MARK: - Error Simulation
 
-    private enum InitializationErrorMode {
+    public enum InitializationErrorMode: Sendable {
         case fileNotFound
         case invalidFormat
     }
 
     private static let initErrorLock = NSLock()
     private static var nextInitializationErrorMode: InitializationErrorMode?
+    private static var initializationErrorModesByPath: [String: InitializationErrorMode] = [:]
+
+    /// Configure the next throwing initializer call to throw a specific error (one-shot).
+    /// This is static because the throwing initializer creates the instance.
+    public static func setNextInitializationErrorMode(_ mode: InitializationErrorMode?) {
+        initErrorLock.lock()
+        nextInitializationErrorMode = mode
+        initErrorLock.unlock()
+    }
+
+    /// Configure the next throwing initializer call for a specific file path.
+    public static func setInitializationErrorMode(_ mode: InitializationErrorMode?, forPath path: String) {
+        let normalizedPath = normalizedInitializationErrorPath(path)
+        initErrorLock.lock()
+        if let mode {
+            initializationErrorModesByPath[normalizedPath] = mode
+        } else {
+            initializationErrorModesByPath.removeValue(forKey: normalizedPath)
+        }
+        initErrorLock.unlock()
+    }
+
+    /// Clear all configured throwing initializer errors.
+    public static func resetInitializationErrorModes() {
+        initErrorLock.lock()
+        nextInitializationErrorMode = nil
+        initializationErrorModesByPath.removeAll()
+        initErrorLock.unlock()
+    }
 
     // MARK: - Initialization
 
@@ -193,13 +229,9 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
     /// - Throws: `DICOMError.invalidDICOMFormat` if configured to simulate invalid DICOM
     public convenience init(contentsOf url: URL) throws {
         self.init()
-        if let mode = Self.consumeNextInitializationErrorMode() {
-            switch mode {
-            case .fileNotFound:
-                throw DICOMError.fileNotFound(path: url.path)
-            case .invalidFormat:
-                throw DICOMError.invalidDICOMFormat(reason: "Mock configured to simulate invalid format")
-            }
+        if let mode = Self.consumeInitializationErrorMode(forPath: url.path) ??
+            Self.consumeNextInitializationErrorMode() {
+            try Self.throwInitializationError(mode, path: url.path)
         }
     }
 
@@ -210,13 +242,9 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
     /// - Throws: `DICOMError.invalidDICOMFormat` if configured to simulate invalid DICOM
     public convenience init(contentsOfFile path: String) throws {
         self.init()
-        if let mode = Self.consumeNextInitializationErrorMode() {
-            switch mode {
-            case .fileNotFound:
-                throw DICOMError.fileNotFound(path: path)
-            case .invalidFormat:
-                throw DICOMError.invalidDICOMFormat(reason: "Mock configured to simulate invalid format")
-            }
+        if let mode = Self.consumeInitializationErrorMode(forPath: path) ??
+            Self.consumeNextInitializationErrorMode() {
+            try Self.throwInitializationError(mode, path: path)
         }
     }
 
@@ -294,10 +322,16 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
         }
     }
 
-    private static func setNextInitializationErrorMode(_ mode: InitializationErrorMode?) {
+
+    private static func consumeInitializationErrorMode(forPath path: String) -> InitializationErrorMode? {
+        let normalizedPath = normalizedInitializationErrorPath(path)
         initErrorLock.lock()
-        nextInitializationErrorMode = mode
-        initErrorLock.unlock()
+        defer { initErrorLock.unlock() }
+        return initializationErrorModesByPath.removeValue(forKey: normalizedPath)
+    }
+
+    private static func normalizedInitializationErrorPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
     private static func consumeNextInitializationErrorMode() -> InitializationErrorMode? {
@@ -306,6 +340,15 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
         let mode = nextInitializationErrorMode
         nextInitializationErrorMode = nil
         return mode
+    }
+
+    private static func throwInitializationError(_ mode: InitializationErrorMode, path: String) throws {
+        switch mode {
+        case .fileNotFound:
+            throw DICOMError.fileNotFound(path: path)
+        case .invalidFormat:
+            throw DICOMError.invalidDICOMFormat(reason: "Mock configured to simulate invalid format")
+        }
     }
 
     /// Configure the next throwing initializer call to throw `DICOMError.fileNotFound`.

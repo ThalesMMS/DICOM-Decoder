@@ -143,11 +143,11 @@ struct SeriesViewerView: View {
 ```
 
 `SeriesNavigatorView` features:
-- Thumbnail strip with current slice indicator
+- Slice shortcut strip with current slice indicator
 - Previous/Next buttons
 - Keyboard shortcuts (arrow keys, Page Up/Down)
 - Slice counter display
-- Customizable thumbnail size
+- Compact and expanded layouts
 
 ### Display DICOM Metadata
 

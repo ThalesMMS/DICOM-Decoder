@@ -492,16 +492,13 @@ public final class SeriesNavigatorViewModel: ObservableObject {
         goToIndex(totalCount - 1)
     }
 
-    // MARK: - Public Interface - Thumbnail Loading
+    // MARK: - Public Interface - Thumbnail Loading State
 
-    /// Starts asynchronous thumbnail loading operation.
+    /// Marks thumbnail loading as active.
     ///
-    /// Sets ``isLoadingThumbnails`` to true and can be extended to perform actual
-    /// thumbnail loading operations. The loading state is cleared by calling
-    /// ``completeThumbnailLoading()``.
-    ///
-    /// This is a placeholder for future thumbnail loading functionality. Currently,
-    /// it only manages the loading state flag.
+    /// Sets ``isLoadingThumbnails`` to true so integrations can coordinate loading
+    /// indicators while thumbnail work runs elsewhere. The loading state is cleared
+    /// by calling ``completeThumbnailLoading()``.
     ///
     /// ## Example
     ///

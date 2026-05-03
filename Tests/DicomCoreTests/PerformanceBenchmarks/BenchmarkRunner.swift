@@ -75,22 +75,42 @@ public final class BenchmarkRunner {
     /// - Throws: BenchmarkError if benchmark fails
     public func benchmarkLockOverhead() throws -> BenchmarkResult {
         let iterations = max(1000, config.benchmarkIterations * 10) // More iterations for lock overhead
+        let operationsPerIteration = 10_000
         var timings = [Double]()
         timings.reserveCapacity(iterations)
+        var baselineTimings = [Double]()
+        baselineTimings.reserveCapacity(iterations)
 
         let lock = DicomLock()
+        var baselineCounter = 0
+        var counter = 0
 
-        // Measure lock/unlock overhead per iteration
         for _ in 0..<iterations {
             let start = CFAbsoluteTimeGetCurrent()
-            lock.lock()
-            // Simulate minimal work (equivalent to a property access)
-            _ = Thread.current
-            lock.unlock()
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
-            timings.append(elapsed)
+            for _ in 0..<operationsPerIteration {
+                baselineCounter &+= 1
+            }
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) / Double(operationsPerIteration)
+            baselineTimings.append(elapsed)
         }
 
+        let baselineElapsed = baselineTimings.reduce(0, +) / Double(baselineTimings.count)
+
+        // Batch tiny lock/unlock cycles so each timing sample is above timer resolution,
+        // then subtract the unlocked loop baseline to isolate lock overhead.
+        for _ in 0..<iterations {
+            let start = CFAbsoluteTimeGetCurrent()
+            for _ in 0..<operationsPerIteration {
+                lock.lock()
+                counter &+= 1
+                lock.unlock()
+            }
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) / Double(operationsPerIteration)
+            timings.append(max(0, elapsed - baselineElapsed))
+        }
+
+        _ = baselineCounter
+        _ = counter
         return try BenchmarkResult(timings: timings)
     }
 

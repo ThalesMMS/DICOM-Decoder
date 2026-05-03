@@ -30,11 +30,27 @@ public enum DicomSeriesLoaderError: Error {
     /// - Parameter Int: The actual bit depth value
     case unsupportedBitDepth(Int)
 
+    /// Transfer syntax is unsupported for the volume loading pipeline.
+    ///
+    /// The DICOM-Decoder package can decode some compressed single-frame images,
+    /// but the MTK volume pipeline currently only supports *uncompressed* pixel data
+    /// for series assembly.
+    ///
+    /// - Parameter String: Transfer Syntax UID (0002,0010)
+    case unsupportedTransferSyntax(String)
+
     /// Slices have inconsistent dimensions (width/height mismatch)
     case inconsistentDimensions
 
-    /// Slices have inconsistent orientation vectors
+    /// Slices have inconsistent orientation vectors.
+    ///
+    /// Thrown when:
+    /// - `ImageOrientationPatient` differs across slices beyond tolerance, or
+    /// - the derived row/column vectors are not sufficiently orthonormal (e.g. not unit length or not perpendicular).
     case inconsistentOrientation
+
+    /// Slice orientation (IOP) is present but invalid (row/column vectors are degenerate or not orthogonal within tolerance).
+    case invalidImageOrientation
 
     /// Slices have inconsistent pixel representation (signed/unsigned)
     case inconsistentPixelRepresentation
@@ -42,6 +58,21 @@ public enum DicomSeriesLoaderError: Error {
     /// Failed to decode a specific DICOM file
     /// - Parameter URL: The file URL that failed to decode
     case failedToDecode(URL)
+
+    /// Two or more slices share the same IPP-projected position (duplicate slice locations).
+    ///
+    /// This is ambiguous for volume assembly and often indicates duplicated files in the series.
+    case duplicateSlicePosition
+
+    /// Slice spacing varies beyond supported tolerance.
+    ///
+    /// Indicates the series contains non-uniform slice spacing (e.g., missing slices,
+    /// variable acquisition spacing) large enough that a single Z spacing would be
+    /// misleading for reconstruction.
+    /// - Parameters:
+    ///   - median: The median inter-slice spacing measured from IPP projections (mm).
+    ///   - maxDeviation: The maximum absolute deviation from the median (mm).
+    case variableSliceSpacing(median: Double, maxDeviation: Double)
 }
 
 // MARK: - Volume Data Structure
@@ -97,6 +128,47 @@ public struct DicomSeriesVolume: Sendable {
 
     /// Human-readable series description
     public let seriesDescription: String
+
+    /// Imaging modality from DICOM metadata, when present
+    public let modality: String
+
+    /// Window center from DICOM metadata, when present
+    public let windowCenter: Double?
+
+    /// Window width from DICOM metadata, when present
+    public let windowWidth: Double?
+
+    public init(voxels: Data,
+                width: Int,
+                height: Int,
+                depth: Int,
+                spacing: SIMD3<Double>,
+                orientation: simd_double3x3,
+                origin: SIMD3<Double>,
+                rescaleSlope: Double,
+                rescaleIntercept: Double,
+                bitsAllocated: Int,
+                isSignedPixel: Bool,
+                seriesDescription: String,
+                modality: String = "",
+                windowCenter: Double? = nil,
+                windowWidth: Double? = nil) {
+        self.voxels = voxels
+        self.width = width
+        self.height = height
+        self.depth = depth
+        self.spacing = spacing
+        self.orientation = orientation
+        self.origin = origin
+        self.rescaleSlope = rescaleSlope
+        self.rescaleIntercept = rescaleIntercept
+        self.bitsAllocated = bitsAllocated
+        self.isSignedPixel = isSignedPixel
+        self.seriesDescription = seriesDescription
+        self.modality = modality
+        self.windowCenter = windowCenter
+        self.windowWidth = windowWidth
+    }
 }
 
 struct SliceMeta {
@@ -104,6 +176,22 @@ struct SliceMeta {
     let position: SIMD3<Double>?
     let instanceNumber: Int?
     let projection: Double?
+    let windowCenter: Double?
+    let windowWidth: Double?
+
+    init(url: URL,
+         position: SIMD3<Double>?,
+         instanceNumber: Int?,
+         projection: Double?,
+         windowCenter: Double? = nil,
+         windowWidth: Double? = nil) {
+        self.url = url
+        self.position = position
+        self.instanceNumber = instanceNumber
+        self.projection = projection
+        self.windowCenter = windowCenter
+        self.windowWidth = windowWidth
+    }
 }
 
 // MARK: - Batch Loading Result
@@ -338,6 +426,9 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         var rescaleIntercept: Double = 0.0
         var pixelRepresentation: Int = 0
         var seriesDescription = directory.lastPathComponent
+        var modality = ""
+        var windowCenter: Double?
+        var windowWidth: Double?
 
         var width = 0
         var height = 0
@@ -368,6 +459,14 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                 throw DicomSeriesLoaderError.unsupportedBitDepth(decoder.bitDepth)
             }
 
+            // Explicitly reject compressed / unsupported transfer syntaxes for volume assembly.
+            // The volume pipeline requires a contiguous uncompressed 16-bit voxel buffer.
+            if decoder.compressedImage {
+                let rawUID = decoder.info(for: .transferSyntaxUID)
+                let uid = rawUID.isEmpty ? "<unknown>" : rawUID
+                throw DicomSeriesLoaderError.unsupportedTransferSyntax(uid)
+            }
+
             // Cache the validated decoder for reuse in second pass
             cacheDecoder(decoder, for: url)
 
@@ -378,7 +477,15 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                 height = decoder.height
                 bitsAllocated = decoder.bitDepth
                 spacing = SIMD3<Double>(decoder.pixelWidth, decoder.pixelHeight, decoder.pixelDepth)
-                orientation = decoder.imageOrientation
+
+                // Validate and normalize ImageOrientationPatient (IOP) when present.
+                // We tolerate minor floating-point drift but reject degenerate/non-orthogonal vectors.
+                if let candidate = decoder.imageOrientation {
+                    orientation = try validatedOrientation(from: candidate)
+                } else {
+                    orientation = nil
+                }
+
                 origin = decoder.imagePosition
                 rescaleSlope = decoder.rescaleParametersV2.slope
                 rescaleIntercept = decoder.rescaleParametersV2.intercept
@@ -387,15 +494,21 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                 if !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     seriesDescription = description
                 }
+                modality = decoder.info(for: .modality)
             } else {
                 // Check consistency across slices.
                 guard decoder.width == width, decoder.height == height else {
                     throw DicomSeriesLoaderError.inconsistentDimensions
                 }
-                if let baseline = orientation, let candidate = decoder.imageOrientation {
-                    if !isApproximatelyEqual(baseline.row, candidate.row) ||
-                        !isApproximatelyEqual(baseline.column, candidate.column) {
-                        throw DicomSeriesLoaderError.inconsistentOrientation
+                if let candidateRaw = decoder.imageOrientation {
+                    let candidate = try validatedOrientation(from: candidateRaw)
+                    if let baseline = orientation {
+                        if !isApproximatelyEqual(baseline.row, candidate.row) ||
+                            !isApproximatelyEqual(baseline.column, candidate.column) {
+                            throw DicomSeriesLoaderError.inconsistentOrientation
+                        }
+                    } else {
+                        orientation = candidate
                     }
                 }
                 if decoder.pixelRepresentationTagValue != pixelRepresentation {
@@ -412,10 +525,13 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
             }
             let instance = decoder.intValue(for: .instanceNumber)
 
+            let window = windowCenterWidth(from: decoder)
             slices.append(SliceMeta(url: url,
                                     position: decoder.imagePosition,
                                     instanceNumber: instance,
-                                    projection: projection))
+                                    projection: projection,
+                                    windowCenter: window?.center,
+                                    windowWidth: window?.width))
         }
 
         guard !slices.isEmpty, firstDecoder != nil else {
@@ -423,6 +539,14 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         }
 
         // Sort slices by projection on the normal; fallback to Instance Number then filename.
+        //
+        // Ordering rule (documented):
+        // 1) Prefer ImagePositionPatient projected onto the slice normal derived from IOP.
+        // 2) If IPP projection is unavailable for either slice, fall back to InstanceNumber.
+        // 3) If still tied, fall back to filename.
+        //
+        // Additionally, detect duplicate positions (same projection within epsilon), which are
+        // ambiguous for volume assembly and usually indicate a malformed/duplicated series.
         let normal = orientation.flatMap { simd_normalize(simd_cross($0.row, $0.column)) } ?? SIMD3<Double>(0, 0, 1)
         slices.sort { lhs, rhs in
             if let lp = lhs.projection, let rp = rhs.projection, lp != rp {
@@ -434,9 +558,27 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
             return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent) == .orderedAscending
         }
 
+        // Duplicate-projection check.
+        // Use a small epsilon in mm to allow for floating point decode noise while still
+        // catching truly duplicated slice locations.
+        let duplicateProjectionEpsilon = 1e-3
+        let projectedPositions = slices.compactMap(\.projection)
+        if projectedPositions.count >= 2 {
+            for i in 1..<projectedPositions.count {
+                if abs(projectedPositions[i - 1] - projectedPositions[i]) <= duplicateProjectionEpsilon {
+                    throw DicomSeriesLoaderError.duplicateSlicePosition
+                }
+            }
+        }
+
+        if let windowedSlice = slices.first(where: { $0.windowCenter != nil && $0.windowWidth != nil }) {
+            windowCenter = windowedSlice.windowCenter
+            windowWidth = windowedSlice.windowWidth
+        }
+
         // Compute spacing Z from IPP deltas when available; if the value diverges
         // significantly from the reported slice spacing/thickness, prefer the tag.
-        let computedZ = computeZSpacing(from: slices, normal: normal)
+        let computedZ = try computeZSpacing(from: slices, normal: normal)
         let tagZ = spacing.z
         let zSpacing: Double
         if let computedZ {
@@ -476,7 +618,10 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                                rescaleIntercept: rescaleIntercept,
                                                bitsAllocated: bitsAllocated,
                                                isSignedPixel: pixelRepresentation == 1,
-                                               seriesDescription: seriesDescription)
+                                               seriesDescription: seriesDescription,
+                                               modality: modality,
+                                               windowCenter: windowCenter,
+                                               windowWidth: windowWidth)
 
         var loadError: Error?
 
@@ -543,7 +688,10 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                        rescaleIntercept: rescaleIntercept,
                                        bitsAllocated: bitsAllocated,
                                        isSignedPixel: pixelRepresentation == 1,
-                                       seriesDescription: seriesDescription)
+                                       seriesDescription: seriesDescription,
+                                       modality: modality,
+                                       windowCenter: windowCenter,
+                                       windowWidth: windowWidth)
 
         return volume
     }

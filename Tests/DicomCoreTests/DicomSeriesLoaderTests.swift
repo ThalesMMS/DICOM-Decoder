@@ -68,6 +68,117 @@ final class DicomSeriesLoaderTests: XCTestCase {
         XCTAssertEqual(volume.bitsAllocated, 16, "Bits allocated should match")
         XCTAssertTrue(volume.isSignedPixel, "Should be signed pixel")
         XCTAssertEqual(volume.seriesDescription, "Test Series", "Series description should match")
+        XCTAssertEqual(volume.modality, "", "Modality should default to unknown")
+    }
+
+    func testLoadSeriesPreservesModalityMetadata() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_Modality")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try createFiles(in: directory, count: 2)
+
+        let loader = DicomSeriesLoader(
+            decoderFactory: MockDecoderBuilder.makePathFactory(
+                width: 2,
+                height: 2,
+                pixelValue: 100,
+                modality: "MR",
+                positionProvider: { path in
+                    path.contains("slice_1") ? SIMD3<Double>(0, 0, 1) : .zero
+                }
+            )
+        )
+
+        let volume = try loader.loadSeries(in: directory)
+        XCTAssertEqual(volume.modality, "MR")
+    }
+
+    func testLoadSeriesUsesWindowingFromSortedSlices() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_Windowing")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data().write(to: directory.appendingPathComponent("a_late.dcm"))
+        try Data().write(to: directory.appendingPathComponent("z_early.dcm"))
+
+        let loader = DicomSeriesLoader(
+            decoderFactory: { path in
+                let isEarlySlice = path.contains("z_early")
+                let decoder = MockDecoderBuilder.makeDecoder(
+                    width: 2,
+                    height: 2,
+                    pixelValue: 100,
+                    position: isEarlySlice ? .zero : SIMD3<Double>(0, 0, 1)
+                )
+                if isEarlySlice {
+                    decoder.setTag(DicomTag.windowCenter.rawValue, value: "40")
+                    decoder.setTag(DicomTag.windowWidth.rawValue, value: "400")
+                }
+                return decoder
+            }
+        )
+
+        let volume = try loader.loadSeries(in: directory)
+        XCTAssertEqual(volume.windowCenter, 40)
+        XCTAssertEqual(volume.windowWidth, 400)
+    }
+
+    func testLoadSeriesUsesFirstPairedMultiValueWindowing() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_MultiValueWindowing")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try createFiles(in: directory, count: 2)
+
+        let loader = DicomSeriesLoader(
+            decoderFactory: { path in
+                let decoder = MockDecoderBuilder.makeDecoder(
+                    width: 2,
+                    height: 2,
+                    pixelValue: 100,
+                    position: path.contains("slice_1") ? SIMD3<Double>(0, 0, 1) : .zero
+                )
+                decoder.setTag(DicomTag.windowCenter.rawValue, value: "40\\80")
+                decoder.setTag(DicomTag.windowWidth.rawValue, value: "400\\2000")
+                return decoder
+            }
+        )
+
+        let volume = try loader.loadSeries(in: directory)
+        XCTAssertEqual(volume.windowCenter, 40)
+        XCTAssertEqual(volume.windowWidth, 400)
+    }
+
+    func testLoadSeriesRejectsDuplicateProjectedPositionsSeparatedByNilProjection() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_DuplicateProjection")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data().write(to: directory.appendingPathComponent("slice_1.dcm"))
+        try Data().write(to: directory.appendingPathComponent("slice_2.dcm"))
+        try Data().write(to: directory.appendingPathComponent("slice_3.dcm"))
+
+        let loader = DicomSeriesLoader(
+            decoderFactory: { path in
+                let decoder = MockDecoderBuilder.makeDecoder(
+                    width: 2,
+                    height: 2,
+                    pixelValue: 100,
+                    position: .zero
+                )
+
+                if path.contains("slice_1") {
+                    decoder.setTag(DicomTag.instanceNumber.rawValue, value: "1")
+                } else if path.contains("slice_2") {
+                    decoder.imagePosition = nil
+                    decoder.setTag(DicomTag.instanceNumber.rawValue, value: "2")
+                } else {
+                    decoder.setTag(DicomTag.instanceNumber.rawValue, value: "3")
+                }
+
+                return decoder
+            }
+        )
+
+        XCTAssertThrowsError(try loader.loadSeries(in: directory)) { error in
+            guard case DicomSeriesLoaderError.duplicateSlicePosition = error else {
+                XCTFail("Expected duplicateSlicePosition, got \(error)")
+                return
+            }
+        }
     }
 
     func testDicomSeriesVolumeOrientation() {
@@ -496,6 +607,20 @@ final class DicomSeriesLoaderTests: XCTestCase {
 
         XCTAssertLessThan(diff1, tolerance, "Should be within tolerance")
         XCTAssertGreaterThan(diff2, tolerance, "Should exceed tolerance")
+    }
+
+    private func makeTemporaryDirectory(prefix: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func createFiles(in directory: URL, count: Int) throws {
+        for index in 0..<count {
+            let url = directory.appendingPathComponent("slice_\(index).dcm")
+            try Data().write(to: url)
+        }
     }
 
 }

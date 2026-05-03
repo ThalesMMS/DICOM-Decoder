@@ -289,7 +289,7 @@ final class PerformanceBenchmarkSuite: XCTestCase {
 
             // Calculate Metal speedup
             if let vdspResult = suiteResult.results[.windowingVDSP] {
-                let speedup = vdspResult.speedup(comparedTo: metalResult)
+                let speedup = metalResult.speedup(comparedTo: vdspResult)
                 print("  • Metal speedup: \(String(format: "%.2fx", speedup))")
 
                 if speedup >= 2.0 {
@@ -342,7 +342,7 @@ final class PerformanceBenchmarkSuite: XCTestCase {
         // Check Metal performance
         if let vdspResult = suiteResult.results[.windowingVDSP],
            let metalResult = suiteResult.results[.windowingMetal] {
-            let speedup = vdspResult.speedup(comparedTo: metalResult)
+            let speedup = metalResult.speedup(comparedTo: vdspResult)
 
             if speedup < 1.5 {
                 recommendations.append("Metal acceleration is below 1.5x - consider investigating GPU performance")

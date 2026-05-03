@@ -8,6 +8,7 @@
 import Foundation
 import OSLog
 import CoreGraphics
+import ImageIO
 
 // MARK: - Study Data Service
 
@@ -589,7 +590,7 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
         return 0
     }
     
-    /// Extracts thumbnail data from a DICOM file (first frame).
+    /// Extracts PNG thumbnail data from a DICOM file (first frame).
     ///
     /// Generates a downsampled preview image from the DICOM file, useful for thumbnail
     /// displays in file browsers and study lists. The image is automatically downsampled
@@ -598,7 +599,7 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
     /// - Parameters:
     ///   - filePath: Absolute path to the DICOM file
     ///   - maxSize: Maximum thumbnail dimensions (default: 120×120)
-    /// - Returns: Thumbnail image data, or `nil` if extraction fails
+    /// - Returns: PNG thumbnail image data, or `nil` if extraction fails
     ///
     /// ## Example
     /// ```swift
@@ -608,7 +609,6 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
     /// }
     /// ```
     ///
-    /// - Note: Currently returns placeholder data - full implementation requires image conversion
     public func extractThumbnail(from filePath: String, maxSize: CGSize = CGSize(width: 120, height: 120)) async -> Data? {
         return await withCheckedContinuation { continuation in
             Task.detached(priority: .utility) {
@@ -622,25 +622,76 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
                     return
                 }
 
-                // Try to get downsampled pixels for thumbnail
                 let maxDimension = Int(max(maxSize.width, maxSize.height))
-                guard decoder.getDownsampledPixels16(maxDimension: maxDimension) != nil,
-                      let width = Int(decoder.info(for: DicomTag.columns.rawValue)),
-                      let height = Int(decoder.info(for: DicomTag.rows.rawValue)),
-                      width > 0, height > 0 else {
+                guard maxDimension > 0 else {
+                    self.logger.debug("Invalid thumbnail size for \(filePath): \(maxSize.width)x\(maxSize.height)")
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                guard let thumbnail = decoder.getDownsampledPixels16(maxDimension: maxDimension),
+                      thumbnail.width > 0, thumbnail.height > 0 else {
                     self.logger.debug("Could not extract thumbnail from \(filePath)")
                     continuation.resume(returning: nil)
                     return
                 }
                 
-                // Convert pixel data to image data (simplified)
-                // This would need proper image conversion logic
-                self.logger.debug("📸 Extracted thumbnail from \(filePath): \(width)x\(height)")
-                
-                // For now, return empty data - proper implementation would convert pixels to PNG/JPEG
-                continuation.resume(returning: Data())
+                guard let pngData = Self.encodePNG(
+                    pixels: thumbnail.pixels,
+                    width: thumbnail.width,
+                    height: thumbnail.height
+                ) else {
+                    self.logger.debug("Could not encode thumbnail for \(filePath)")
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                self.logger.debug("Extracted thumbnail from \(filePath): \(thumbnail.width)x\(thumbnail.height)")
+                continuation.resume(returning: pngData)
             }
         }
+    }
+
+    private static func encodePNG(pixels: [UInt16], width: Int, height: Int) -> Data? {
+        guard width > 0, height > 0, pixels.count == width * height else {
+            return nil
+        }
+
+        let minValue = pixels.min() ?? 0
+        let maxValue = pixels.max() ?? minValue
+        let range = maxValue > minValue ? Double(maxValue - minValue) : 1
+        let grayscalePixels = pixels.map { pixel -> UInt8 in
+            UInt8(((Double(pixel - minValue) / range) * 255).rounded())
+        }
+
+        guard let provider = CGDataProvider(data: Data(grayscalePixels) as CFData),
+              let image = CGImage(
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bitsPerPixel: 8,
+                bytesPerRow: width,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: false,
+                intent: .defaultIntent
+              ) else {
+            return nil
+        }
+
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            return nil
+        }
+
+        return data as Data
     }
 }
 

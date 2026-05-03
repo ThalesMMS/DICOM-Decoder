@@ -188,11 +188,8 @@ func initializeWithPreset() -> some View {
 
 // MARK: - Custom Window Values
 
-/// Demonstrates applying custom window-level settings to a DICOM image with preset buttons.
-/// 
-/// Displays a DICOM image alongside a windowing control and two custom preset buttons ("Contrast Enhanced" and "High Contrast"); selecting a preset updates both the control and the displayed image. The view loads a DICOM file from a hardcoded local path.
-/// Presents a SwiftUI example view that displays a DICOM image with a windowing control and two custom preset buttons.
-/// 
+/// Presents a custom windowing example with a DICOM image, controls, and preset buttons.
+///
 /// The view updates the displayed image whenever the control changes and applies preset window center/width values when the "Contrast Enhanced" or "High Contrast" buttons are tapped.
 /// - Returns: A SwiftUI `View` containing a `DicomImageView`, a `WindowingControlView` wired to the image view model, and two buttons that set and apply specific custom windowing values.
 func customWindowValues() -> some View {
@@ -449,8 +446,9 @@ func presetSuggestions() -> some View {
                 let decoder = try await DCMDecoder(contentsOfFile: dicomURL.path)
 
                 // Get suggested presets based on modality and body part
-                let modality = decoder.info(for: .modality)
-                let bodyPart = decoder.info(for: .bodyPartExamined)
+                let metadata = DicomMetadataAccessor(decoder: decoder)
+                let modality = metadata.string(.modality)
+                let bodyPart = metadata.string(.bodyPartExamined)
                 suggestedPresets = DCMWindowingProcessor.suggestPresets(
                     for: modality,
                     bodyPart: bodyPart
@@ -595,12 +593,9 @@ func comparePresets() -> some View {
 
 // MARK: - Complete Windowing Application
 
-/// Creates a SwiftUI example app demonstrating interactive DICOM windowing and optional image-quality metrics.
-/// 
-/// The returned view presents a DICOM image, a windowing control UI that supports presets and custom center/width adjustments, and an optional metrics panel that shows contrast and SNR when available. Adjusting windowing updates the displayed image and refreshes the quality metrics.
-/// Creates a complete DICOM windowing sample view that displays a DICOM image, provides windowing controls, and optionally shows image quality metrics.
-/// 
-/// The returned view includes a large image area, a WindowingControlView that applies presets or custom center/width values to the image, and a toggleable metrics panel that shows contrast and SNR when available.
+/// Creates a complete DICOM windowing sample with interactive controls and optional image-quality metrics.
+///
+/// The returned view presents a large DICOM image area, a `WindowingControlView` that applies presets or custom center/width values, and a toggleable metrics panel that shows contrast and SNR when available.
 /// - Returns: A SwiftUI view demonstrating a full windowing app with image display, windowing controls (preset and custom), and optional quality metrics.
 func fullWindowingApp() -> some View {
     struct WindowingApp: View {

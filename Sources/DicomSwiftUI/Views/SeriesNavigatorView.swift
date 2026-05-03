@@ -24,7 +24,6 @@
 //
 
 import SwiftUI
-import Combine
 import DicomCore
 
 /// A SwiftUI view for navigating through DICOM series slices.
@@ -45,7 +44,7 @@ import DicomCore
 /// - Slice counter display (e.g., "3 / 150")
 /// - Interactive slider for direct navigation
 /// - First/Last jump buttons
-/// - Thumbnail strip placeholder for future enhancement
+/// - Slice shortcut strip in expanded layout
 /// - Customizable layout (compact or expanded)
 /// - Dark mode support
 /// - Full accessibility support for VoiceOver
@@ -158,14 +157,14 @@ public struct SeriesNavigatorView: View {
         /// Full layout with all controls and labels.
         ///
         /// Provides standard spacing (16pt), full-size fonts (.title2, .headline),
-        /// labeled buttons, progress percentage, and thumbnail strip. Best for primary
+        /// labeled buttons, progress percentage, and a slice shortcut strip. Best for primary
         /// navigation contexts where space is not constrained.
         case expanded
 
         /// Compact layout for embedded use.
         ///
         /// Uses smaller spacing (12pt), reduced fonts (.title3, .body), icon-only
-        /// buttons, and no thumbnail strip. Ideal for toolbars, sidebars, or embedded
+        /// buttons, and no slice shortcut strip. Ideal for toolbars, sidebars, or embedded
         /// contexts where space is limited.
         case compact
     }
@@ -231,20 +230,29 @@ public struct SeriesNavigatorView: View {
 
     public var body: some View {
         VStack(spacing: layout == .compact ? 12 : 16) {
-            // Position indicator
-            positionIndicatorView
+            SeriesNavigatorPositionIndicatorView(
+                navigatorViewModel: navigatorViewModel,
+                layout: layout
+            )
 
-            // Navigation buttons
-            navigationButtonsView
+            SeriesNavigatorNavigationButtonsView(
+                navigatorViewModel: navigatorViewModel,
+                layout: layout
+            )
 
-            // Slider
             if !navigatorViewModel.isEmpty {
-                sliderView
+                SeriesNavigatorSliderView(
+                    navigatorViewModel: navigatorViewModel,
+                    layout: layout,
+                    tempSliderValue: $tempSliderValue,
+                    isEditingSlider: $isEditingSlider
+                )
             }
 
-            // Thumbnail strip placeholder
             if layout == .expanded && !navigatorViewModel.isEmpty {
-                thumbnailStripView
+                SeriesNavigatorSliceShortcutStripView(
+                    navigatorViewModel: navigatorViewModel
+                )
             }
         }
         .padding(layout == .compact ? 12 : 16)
@@ -266,304 +274,7 @@ public struct SeriesNavigatorView: View {
         }
     }
 
-    // MARK: - Position Indicator View
 
-    /// Position indicator showing current slice and total count.
-    ///
-    /// Displays the current position in the series (e.g., "25 / 150") with large,
-    /// monospaced digits for readability. In expanded layout, also shows progress
-    /// percentage. Displays "No Series Loaded" message when the series is empty.
-    private var positionIndicatorView: some View {
-        VStack(spacing: 4) {
-            if navigatorViewModel.isEmpty {
-                Text("No Series Loaded")
-                    .font(layout == .compact ? .caption : .headline)
-                    .foregroundColor(.secondary)
-                    .accessibilityLabel("No series loaded")
-            } else {
-                Text(navigatorViewModel.positionString)
-                    .font(layout == .compact ? .title3 : .title2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .monospacedDigit()
-                    .accessibilityLabel("Slice \(navigatorViewModel.currentIndex + 1) of \(navigatorViewModel.totalCount)")
-
-                if layout == .expanded {
-                    Text("\(Int(navigatorViewModel.progressPercentage * 100))% complete")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .accessibilityLabel("\(Int(navigatorViewModel.progressPercentage * 100)) percent complete")
-                }
-            }
-        }
-    }
-
-    // MARK: - Navigation Buttons View
-
-    /// Navigation buttons (First, Previous, Next, Last).
-    ///
-    /// Provides four navigation buttons with appropriate styling and enabled states:
-    /// - **First**: Jumps to first slice (disabled when at first slice)
-    /// - **Previous**: Goes to previous slice (prominent style, disabled when can't go back)
-    /// - **Next**: Goes to next slice (prominent style, disabled when can't go forward)
-    /// - **Last**: Jumps to last slice (disabled when at last slice)
-    ///
-    /// In compact layout, buttons show icons only. In expanded layout, buttons include
-    /// text labels for clarity.
-    private var navigationButtonsView: some View {
-        HStack(spacing: layout == .compact ? 8 : 12) {
-            // First button
-            Button(action: {
-                navigatorViewModel.goToFirst()
-            }) {
-                Label(
-                    layout == .compact ? "" : "First",
-                    systemImage: "backward.end.fill"
-                )
-                .font(layout == .compact ? .body : .headline)
-                .frame(minWidth: layout == .compact ? 0 : 60)
-            }
-            .buttonStyle(.bordered)
-            .disabled(navigatorViewModel.isEmpty || navigatorViewModel.isAtFirst)
-            .accessibilityLabel("First slice")
-            .accessibilityHint("Jump to first slice in series")
-
-            // Previous button
-            Button(action: {
-                navigatorViewModel.goToPrevious()
-            }) {
-                Label(
-                    layout == .compact ? "" : "Previous",
-                    systemImage: "chevron.left"
-                )
-                .font(layout == .compact ? .body : .headline)
-                .frame(minWidth: layout == .compact ? 0 : 80)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!navigatorViewModel.canGoPrevious)
-            .accessibilityLabel("Previous slice")
-            .accessibilityHint("Go to previous slice")
-
-            Spacer()
-
-            // Next button
-            Button(action: {
-                navigatorViewModel.goToNext()
-            }) {
-                Label(
-                    layout == .compact ? "" : "Next",
-                    systemImage: "chevron.right"
-                )
-                .font(layout == .compact ? .body : .headline)
-                .labelStyle(.trailingIcon)
-                .frame(minWidth: layout == .compact ? 0 : 80)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!navigatorViewModel.canGoNext)
-            .accessibilityLabel("Next slice")
-            .accessibilityHint("Go to next slice")
-
-            // Last button
-            Button(action: {
-                navigatorViewModel.goToLast()
-            }) {
-                Label(
-                    layout == .compact ? "" : "Last",
-                    systemImage: "forward.end.fill"
-                )
-                .font(layout == .compact ? .body : .headline)
-                .labelStyle(.trailingIcon)
-                .frame(minWidth: layout == .compact ? 0 : 60)
-            }
-            .buttonStyle(.bordered)
-            .disabled(navigatorViewModel.isEmpty || navigatorViewModel.isAtLast)
-            .accessibilityLabel("Last slice")
-            .accessibilityHint("Jump to last slice in series")
-        }
-    }
-
-    // MARK: - Slider View
-
-    /// Slider for direct slice selection.
-    ///
-    /// Provides an interactive slider for jumping directly to any slice in the series.
-    /// The slider range spans from 1 to the total number of slices, with single-slice
-    /// stepping. Navigation occurs when the user releases the slider, not during dragging.
-    private var sliderView: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Slice Navigation")
-                .font(layout == .compact ? .caption2 : .caption)
-                .foregroundColor(.secondary)
-
-            HStack {
-                Text("1")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
-                    .accessibilityHidden(true)
-
-                Slider(
-                    value: $tempSliderValue,
-                    in: 0...Double(max(0, navigatorViewModel.totalCount - 1)),
-                    step: 1.0,
-                    onEditingChanged: { editing in
-                        isEditingSlider = editing
-                        if editing {
-                            // User started dragging
-                        } else {
-                            // User finished dragging - apply navigation
-                            navigatorViewModel.goToIndex(Int(tempSliderValue))
-                        }
-                    }
-                )
-                .accentColor(.accentColor)
-                .accessibilityLabel("Slice navigation slider")
-                .accessibilityValue("Slice \(Int(tempSliderValue) + 1) of \(navigatorViewModel.totalCount)")
-                .accessibilityHint("Swipe up or down to navigate directly to any slice in the series")
-
-                Text("\(navigatorViewModel.totalCount)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
-                    .accessibilityHidden(true)
-            }
-        }
-    }
-
-    // MARK: - Thumbnail Strip View
-
-    /// Placeholder for thumbnail strip (future enhancement).
-    ///
-    /// Displays thumbnail placeholders for up to 10 slices in the series. Each thumbnail
-    /// is a tappable placeholder that navigates to the corresponding slice when selected.
-    /// The currently displayed slice is highlighted with accent color border.
-    ///
-    /// This is a placeholder implementation showing icon placeholders. In a future version,
-    /// this could be enhanced to show actual image thumbnails using ``DicomImageRenderer``.
-    private var thumbnailStripView: some View {
-        VStack(spacing: 4) {
-            Text("Thumbnails")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(0..<min(10, navigatorViewModel.totalCount), id: \.self) { index in
-                        thumbnailPlaceholder(for: index)
-                    }
-
-                    if navigatorViewModel.totalCount > 10 {
-                        Text("... +\(navigatorViewModel.totalCount - 10) more")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 8)
-                    }
-                }
-            }
-            .frame(height: 60)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Thumbnail strip")
-        .accessibilityHint("Visual preview of series slices")
-    }
-
-    /// Creates a thumbnail placeholder.
-    ///
-    /// Generates a placeholder button for the specified slice index. Selected slices
-    /// are highlighted with accent color border and background. All thumbnails show
-    /// a photo icon as placeholder content with adaptive colors for dark mode.
-    ///
-    /// - Parameter index: The zero-based slice index
-    /// Creates a tappable thumbnail placeholder for the slice at the given index.
-    /// The thumbnail visually indicates the currently selected slice and navigates to the specified slice when activated.
-    /// - Parameter index: Zero-based index of the slice.
-    /// Creates a tappable thumbnail view for a specific slice index.
-    /// - Parameter index: The zero-based index of the slice represented by this thumbnail.
-    /// - Returns: A button-styled view that visually represents the slice at `index`, highlights when it matches the current slice, and navigates to that slice when activated. The view includes accessibility label, hint, and selection trait.
-    private func thumbnailPlaceholder(for index: Int) -> some View {
-        let isSelected = index == navigatorViewModel.currentIndex
-        let fillColor = isSelected ? Color.accentColor.opacity(0.3) : Color.secondary.opacity(0.15)
-
-        return Button(action: {
-            navigatorViewModel.goToIndex(index)
-        }) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(fillColor)
-                    .frame(width: 50, height: 50)
-
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(Color.accentColor, lineWidth: 2)
-                        .frame(width: 50, height: 50)
-                }
-
-                Image(systemName: "photo")
-                    .foregroundColor(isSelected ? .primary : .secondary)
-                    .font(.caption)
-            }
-        }
-        .buttonStyle(PlainButtonStyle())
-        .accessibilityLabel("Slice \(index + 1) thumbnail")
-        .accessibilityHint("Double tap to navigate to slice \(index + 1)")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-}
-
-private extension View {
-    @ViewBuilder
-    func onChangeCompat<Value: Equatable>(
-        of value: Value,
-        fallback publisher: Published<Value>.Publisher,
-        perform action: @escaping (Value) -> Void
-    ) -> some View {
-        if #available(iOS 14.0, macOS 11.0, *) {
-            self.onChange(of: value, perform: action)
-        } else {
-            self.onReceive(publisher.removeDuplicates(), perform: action)
-        }
-    }
-}
-
-// MARK: - Custom Label Style
-
-/// Label style that places the icon after the text.
-///
-/// A custom SwiftUI `LabelStyle` that reverses the default icon-text order,
-/// placing the icon to the right of the text. Used for "Next" and "Last"
-/// navigation buttons to maintain directional consistency.
-///
-/// ## Usage
-///
-/// ```swift
-/// Label("Next", systemImage: "chevron.right")
-///     .labelStyle(.trailingIcon)
-/// ```
-@available(iOS 14.0, macOS 12.0, *)
-private struct TrailingIconLabelStyle: LabelStyle {
-    /// Positions a label's title before its icon in a horizontal row with fixed spacing.
-    /// - Parameter configuration: The label configuration containing `title` and `icon` views.
-    /// Arranges a label's title followed by its icon in a horizontal layout.
-    /// - Parameters:
-    ///   - configuration: The label configuration providing `title` and `icon` views.
-    /// - Returns: A view that places the title then the icon in an `HStack` with 6 points of spacing.
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.title
-            configuration.icon
-        }
-    }
-}
-
-@available(iOS 14.0, macOS 12.0, *)
-extension LabelStyle where Self == TrailingIconLabelStyle {
-    /// Creates a label style with icon placed after text.
-    ///
-    /// Convenience accessor for ``TrailingIconLabelStyle`` that allows dot-syntax usage.
-    static var trailingIcon: TrailingIconLabelStyle {
-        TrailingIconLabelStyle()
-    }
 }
 
 // MARK: - SwiftUI Previews

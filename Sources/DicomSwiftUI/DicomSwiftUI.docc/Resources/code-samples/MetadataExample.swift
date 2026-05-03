@@ -319,12 +319,8 @@ func integratedMetadataViewer() -> some View {
     return IntegratedViewer(dicomURL: URL(fileURLWithPath: "/path/to/image.dcm"))
 }
 
-/// Displays a responsive split view combining a DICOM image preview and its metadata.
-///
-/// - On macOS, presents an HSplitView with the image on the left and form-styled metadata on the right.
-/// On iOS and other platforms, uses a side-by-side HStack when the available width is greater than 600 points and a stacked VStack (image above metadata) for narrower widths.
 /// Displays a responsive split/stack layout showing a DICOM image alongside its metadata.
-/// 
+///
 /// On macOS the view uses a horizontal split with the image on the left and a fixed-width metadata pane on the right. On compact platforms the layout adapts: for widths greater than 600 points it shows a 60/40 horizontal layout, otherwise it stacks the image above the metadata with each occupying half the height. While visible the view loads the image and metadata for the configured DICOM URL and presents the metadata using a form-style pane in side-by-side layouts and a list-style pane in stacked layouts.
 /// - Returns: A view containing the adaptive image + metadata UI that loads and displays the DICOM image and its metadata.
 func splitViewMetadata() -> some View {
@@ -405,14 +401,16 @@ func customMetadataFields() -> some View {
 
         var body: some View {
             List {
+                let metadata = DicomMetadataAccessor(decoder: decoder)
+
                 Section(header: Text("Patient")) {
-                    MetadataRow(label: "Name", value: decoder.info(for: .patientName))
-                    MetadataRow(label: "ID", value: decoder.info(for: .patientID))
+                    MetadataRow(label: "Name", value: metadata.string(.patientName, fallback: "N/A"))
+                    MetadataRow(label: "ID", value: metadata.string(.patientID, fallback: "N/A"))
                 }
 
                 Section(header: Text("Study")) {
-                    MetadataRow(label: "Description", value: decoder.info(for: .studyDescription))
-                    MetadataRow(label: "Modality", value: decoder.info(for: .modality))
+                    MetadataRow(label: "Description", value: metadata.string(.studyDescription, fallback: "N/A"))
+                    MetadataRow(label: "Modality", value: DicomDisplayFormatter.modality(metadata.optionalString(.modality)))
                 }
 
                 Section(header: Text("Image")) {
@@ -552,7 +550,7 @@ func exportableMetadata() -> some View {
         /// Builds a plain-text DICOM metadata summary suitable for sharing.
         /// Builds a plain-text summary of the decoder's patient, study, and image metadata suitable for export.
         /// Produces a plain-text export of the currently loaded DICOM metadata.
-        /// If no metadata is loaded, returns a user-facing placeholder message.
+        /// If no metadata is loaded, returns a user-facing fallback message.
         /// - Returns: A formatted plain-text string containing patient information, study information, and image properties, or `"No metadata loaded."` when no decoder is available.
         private func generateMetadataText() -> String {
             guard let decoder = loader.decoder else {
@@ -562,16 +560,18 @@ func exportableMetadata() -> some View {
             var text = "DICOM Metadata Export\n"
             text += "====================\n\n"
 
+            let metadata = DicomMetadataAccessor(decoder: decoder)
+
             text += "Patient Information:\n"
-            text += "  Name: \(decoder.info(for: .patientName))\n"
-            text += "  ID: \(decoder.info(for: .patientID))\n"
-            text += "  Sex: \(decoder.info(for: .patientSex))\n"
-            text += "  Age: \(decoder.info(for: .patientAge))\n\n"
+            text += "  Name: \(metadata.string(.patientName, fallback: "N/A"))\n"
+            text += "  ID: \(metadata.string(.patientID, fallback: "N/A"))\n"
+            text += "  Sex: \(DicomDisplayFormatter.sex(metadata.optionalString(.patientSex)))\n"
+            text += "  Age: \(metadata.string(.patientAge, fallback: "N/A"))\n\n"
 
             text += "Study Information:\n"
-            text += "  Description: \(decoder.info(for: .studyDescription))\n"
-            text += "  Date: \(decoder.info(for: .studyDate))\n"
-            text += "  Modality: \(decoder.info(for: .modality))\n\n"
+            text += "  Description: \(metadata.string(.studyDescription, fallback: "N/A"))\n"
+            text += "  Date: \(DicomDisplayFormatter.date(metadata.optionalString(.studyDate)))\n"
+            text += "  Modality: \(DicomDisplayFormatter.modality(metadata.optionalString(.modality)))\n\n"
 
             text += "Image Properties:\n"
             text += "  Dimensions: \(decoder.width) × \(decoder.height)\n"
@@ -666,16 +666,10 @@ func metadataWithSeriesNavigation() -> some View {
 
 // MARK: - Comparison View
 
-/// Displays a comparison of selected metadata for two DICOM files.
-/// 
-/// The view lists Patient Name, Study Date, and image Dimensions for each file and highlights differences in red. If either DICOM file cannot be loaded, the function returns a view showing an error message.
-/// Presents a side-by-side comparison of metadata from two DICOM files.
-/// 
-/// The returned view displays Patient Name, Study Date, and image Dimensions for two DICOM images and highlights any differing values in red; if loading either file fails, the view shows an error message instead.
-/// Presents a UI that loads and compares metadata from two DICOM files.
-/// 
-/// The returned view concurrently loads both files, shows a loading indicator while fetching, displays an error message on failure, and presents a list comparing Patient Name, Study Date, and image Dimensions when both decoders are available. Differences between the two files are highlighted in red; matching values use a secondary color.
+/// Presents a side-by-side UI that loads and compares metadata from two DICOM files.
 ///
+/// The returned view concurrently loads both files, shows a loading indicator while fetching, displays an error message on failure, and presents a list comparing Patient Name, Study Date, and image Dimensions when both decoders are available. Differences between the two files are highlighted in red; matching values use a secondary color.
+/// - Returns: A view that compares selected metadata values from two DICOM files.
 func compareMetadata() -> some View {
     struct CompareMetadataView: View {
         let url1: URL
@@ -776,13 +770,11 @@ func compareMetadata() -> some View {
 
 // MARK: - Complete Metadata Application
 
-/// Builds a sample SwiftUI view showcasing a DICOM image preview, a segmented picker to choose metadata presentation style (List or Form), and metadata sections with key information and full details, plus toolbar actions for export, copy, and print.
-/// Presents a complete metadata exploration UI combining an image preview, a presentation-style picker, and metadata display with export and utility actions.
+/// Builds a sample SwiftUI view showcasing a DICOM image preview, a segmented picker to choose metadata presentation style (List or Form), and metadata sections with key information and full details, plus a toolbar export action.
+/// Presents a complete metadata exploration UI combining an image preview, a presentation-style picker, metadata display, and metadata export.
 /// 
-/// The view displays a DICOM image preview, lets the user choose between list and form presentation for metadata, shows key information and full metadata sections extracted from the DICOM file, and provides toolbar actions to export, copy, or print the metadata.
+/// The view displays a DICOM image preview, lets the user choose between list and form presentation for metadata, shows key information and full metadata sections extracted from the DICOM file, and provides a toolbar action to export the metadata.
 /// - Returns: A view containing the "Key Information" and "All Details" sections; missing values are displayed as `"N/A"`.
-/// Placeholder implementation: currently logs the copy action and does not perform clipboard integration.
-/// Placeholder implementation: currently logs the print action and does not invoke platform print UI.
 func completeMetadataApp() -> some View {
     struct CompleteMetadataApp: View {
         @StateObject private var imageVM = DicomImageViewModel()
@@ -833,17 +825,6 @@ func completeMetadataApp() -> some View {
                         }
                         .disabled(metadataLoader.decoder == nil)
 
-                        Menu {
-                            Button(action: copyToClipboard) {
-                                Label("Copy Metadata", systemImage: "doc.on.doc")
-                            }
-
-                            Button(action: printMetadata) {
-                                Label("Print", systemImage: "printer")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
                     }
                 }
             }
@@ -867,32 +848,15 @@ func completeMetadataApp() -> some View {
         @ViewBuilder
         private func metadataSections(for decoder: DCMDecoder) -> some View {
             Section(header: Text("Key Information")) {
-                MetadataRow(label: "Patient", value: decoder.info(for: .patientName))
-                MetadataRow(label: "Study", value: decoder.info(for: .studyDescription))
-                MetadataRow(label: "Modality", value: decoder.info(for: .modality))
+                let metadata = DicomMetadataAccessor(decoder: decoder)
+                MetadataRow(label: "Patient", value: metadata.string(.patientName, fallback: "N/A"))
+                MetadataRow(label: "Study", value: metadata.string(.studyDescription, fallback: "N/A"))
+                MetadataRow(label: "Modality", value: DicomDisplayFormatter.modality(metadata.optionalString(.modality)))
             }
 
             Section(header: Text("All Details")) {
                 MetadataView(decoder: decoder, style: presentationStyle)
             }
-        }
-
-        /// Copies the currently displayed metadata text to the system clipboard.
-        ///
-        /// Copies the currently displayed metadata as plain text into the system clipboard.
-        private func copyToClipboard() {
-            print("Copying metadata to clipboard")
-            // Implement clipboard functionality
-        }
-
-        /// Initiates printing of the currently displayed DICOM metadata.
-        /// 
-        /// Initiates printing of the currently displayed metadata.
-        /// 
-        /// This is a placeholder implementation; integrate the platform print UI to produce a printable representation of the metadata.
-        private func printMetadata() {
-            print("Printing metadata")
-            // Implement print functionality
         }
 
         private func generateMetadataText() -> String {
@@ -902,9 +866,10 @@ func completeMetadataApp() -> some View {
 
             var text = "DICOM Metadata Export\n"
             text += "====================\n\n"
-            text += "Patient: \(decoder.info(for: .patientName))\n"
-            text += "Study: \(decoder.info(for: .studyDescription))\n"
-            text += "Modality: \(decoder.info(for: .modality))\n"
+            let metadata = DicomMetadataAccessor(decoder: decoder)
+            text += "Patient: \(metadata.string(.patientName, fallback: "N/A"))\n"
+            text += "Study: \(metadata.string(.studyDescription, fallback: "N/A"))\n"
+            text += "Modality: \(DicomDisplayFormatter.modality(metadata.optionalString(.modality)))\n"
             text += "Dimensions: \(decoder.width) × \(decoder.height)\n"
             text += "Bit Depth: \(decoder.bitDepth)\n"
             return text

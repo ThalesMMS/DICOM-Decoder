@@ -51,7 +51,9 @@ import Foundation
 /// - Little-endian byte ordering (`bigEndianTransferSyntax = false`)
 ///
 /// This ensures parsing continues even for proprietary or future
-/// transfer syntaxes.
+/// transfer syntaxes. Note that higher-level consumers (such as volume
+/// assembly) may still choose to treat unknown or compressed transfer
+/// syntaxes as unsupported to avoid silently producing incorrect results.
 ///
 /// **Example DICOM Data:**
 ///

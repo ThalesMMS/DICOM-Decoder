@@ -85,7 +85,7 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - Window/Level with medical presets (CT, mammography, PET, and more)
 - Automatic preset suggestions based on modality and body part
 - Quality metrics (SNR, contrast, dynamic range)
-- Basic helpers for contrast stretching and noise reduction (CLAHE placeholder, simple blur)
+- Basic helpers for contrast stretching and noise reduction
 - Hounsfield Unit conversions for CT images
 
 ### Modern APIs
@@ -466,13 +466,10 @@ The `dicomtool` command-line utility provides fast DICOM file inspection, valida
 
 ### Installation
 
-**Homebrew** (recommended):
+**Homebrew formula:**
 
 ```bash
-# Install from Homebrew tap (once published)
-brew install thalesmms/dicom/dicomtool
-
-# Or install from local formula
+# From the repository checkout
 brew install ./dicomtool.rb
 ```
 
@@ -924,7 +921,6 @@ struct SeriesViewerView: View {
 - Interactive slider
 - Slice counter with progress percentage
 - Keyboard shortcuts support
-- Thumbnail strip placeholder
 
 #### 4. Metadata Display
 
@@ -1367,6 +1363,7 @@ autoreleasepool {
 - Compressed transfer syntaxes: Native support for JPEG Lossless (Process 14, all selection values 0-7). Best-effort single-frame JPEG/JPEG2000 via ImageIO. RLE and multi-frame encapsulated compression are not supported - convert first if needed.
 - Thread safety: The decoder is not thread-safe. Use one instance per thread or synchronize access.
 - Very large files (>1GB): May consume significant memory. Process in chunks or downsample.
+- `SeriesNavigatorView` provides slice shortcut controls in its expanded layout, but image thumbnail strips are not implemented.
 
 ### Frameworks Used
 
