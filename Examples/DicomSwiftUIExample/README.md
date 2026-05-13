@@ -483,7 +483,7 @@ Found a bug or want to improve an example? Contributions are welcome!
 
 ## License
 
-This example application is part of the SwiftDICOMDecoder library and shares the same license. See LICENSE file in repository root for details.
+This example application is part of the DICOMDecoder library and shares the same license. See LICENSE file in repository root for details.
 
 ## Support
 
