@@ -1186,8 +1186,7 @@ DICOM-Decoder/
 |   |-- Logging/                  # Logging utilities
 |   |-- DicomCore.docc/           # DocC documentation
 |   `-- Resources/DCMDictionary.plist
-|-- Tests/DicomCoreTests/
-`-- ViewerReference/
+`-- Tests/DicomCoreTests/
 ```
 
 ### Common DICOM Tags
