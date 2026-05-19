@@ -20,7 +20,7 @@
 //  - For backward compatibility, the default processing mode is vDSP.
 //
 //  **Image Enhancement Operations:**
-//  - **vImage**: Hardware-accelerated histogram equalization (CLAHE) and
+//  - **vImage**: Hardware-accelerated histogram equalization and
 //    convolution operations (noise reduction) using Accelerate framework.
 //  - ``vImageEqualization_Planar8``: Optimized histogram equalization
 //    with SIMD operations for contrast enhancement.
@@ -146,7 +146,7 @@ public enum ProcessingMode {
 /// - Linear window/level transformations with medical presets
 /// - CPU acceleration via vDSP (Accelerate framework)
 /// - GPU acceleration via Metal compute shaders (3.94× speedup on 1024×1024 images)
-/// - CLAHE histogram equalization for contrast enhancement
+/// - Global histogram equalization for contrast enhancement
 /// - Gaussian noise reduction using vImage convolution
 /// - Automatic optimal window/level calculation
 /// - 13 medical imaging presets (lung, bone, brain, etc.)
@@ -210,8 +210,8 @@ public enum ProcessingMode {
 /// Apply image enhancement:
 ///
 /// ```swift
-/// // Apply CLAHE for contrast enhancement
-/// if let enhancedData = DCMWindowingProcessor.applyCLAHE(
+/// // Apply histogram equalization for contrast enhancement
+/// if let enhancedData = DCMWindowingProcessor.applyHistogramEqualization(
 ///     imageData: pixels8,
 ///     width: decoder.width,
 ///     height: decoder.height
@@ -262,7 +262,7 @@ public enum ProcessingMode {
 ///
 /// ### Image Enhancement
 ///
-/// - ``applyCLAHE(imageData:width:height:clipLimit:gridSize:)``
+/// - ``applyHistogramEqualization(imageData:width:height:)``
 /// - ``applyNoiseReduction(imageData:width:height:)``
 ///
 /// ### Quality Metrics

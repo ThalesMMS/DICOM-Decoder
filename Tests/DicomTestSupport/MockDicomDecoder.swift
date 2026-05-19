@@ -143,12 +143,6 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
         set { queue.sync { _compressedImage = newValue } }
     }
 
-    private var _dicomDir: Bool = false
-    public var dicomDir: Bool {
-        get { queue.sync { _dicomDir } }
-        set { queue.sync { _dicomDir = newValue } }
-    }
-
     private var _signedImage: Bool = false
     public var signedImage: Bool {
         get { queue.sync { _signedImage } }

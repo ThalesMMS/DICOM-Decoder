@@ -16,11 +16,15 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.2.0")
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.2.0"),
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.19")
     ],
     targets: [
         .target(
             name: "DicomCore",
+            dependencies: [
+                .product(name: "ZIPFoundation", package: "ZIPFoundation")
+            ],
             path: "Sources/DicomCore",
             resources: [
                 .process("Resources")
@@ -55,7 +59,11 @@ let package = Package(
         ),
         .testTarget(
             name: "DicomCoreTests",
-            dependencies: ["DicomCore", "DicomTestSupport"],
+            dependencies: [
+                "DicomCore",
+                "DicomTestSupport",
+                .product(name: "ZIPFoundation", package: "ZIPFoundation")
+            ],
             path: "Tests/DicomCoreTests",
             exclude: ["Fixtures"],
             resources: [

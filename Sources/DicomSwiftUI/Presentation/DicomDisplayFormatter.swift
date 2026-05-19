@@ -80,7 +80,7 @@ public enum DicomDisplayFormatter {
     /// - Returns: `notAvailable` when spacing is invalid; otherwise a string like
     ///   `"X.XX × Y.YY mm"` or `"X.XX × Y.YY × Z.ZZ mm"`.
     public static func pixelSpacing(_ spacing: PixelSpacing) -> String {
-        guard spacing.isValid else { return notAvailable }
+        guard spacing.x > 0, spacing.y > 0, spacing.z >= 0 else { return notAvailable }
 
         let x = String(format: "%.2f", spacing.x)
         let y = String(format: "%.2f", spacing.y)

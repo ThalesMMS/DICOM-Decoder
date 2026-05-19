@@ -217,22 +217,9 @@ final class DCMDictionaryTests: XCTestCase {
         }
     }
 
-    func testOptimizedWindowingPerformance() {
-        let pixels: [UInt16] = Array(repeating: 1000, count: 512 * 512)
-
-        measure {
-            _ = DCMWindowingProcessor.optimizedApplyWindowLevel(
-                pixels16: pixels,
-                center: 40.0,
-                width: 80.0,
-                useParallel: true
-            )
-        }
-    }
-
     // MARK: - Image Enhancement Tests
 
-    func testCLAHEApplication() {
+    func testHistogramEqualizationApplication() {
         // Create sample 8-bit image data
         let width = 100
         let height = 100
@@ -246,36 +233,33 @@ final class DCMDictionaryTests: XCTestCase {
         }
 
         let imageData = Data(pixels)
-        let result = DCMWindowingProcessor.applyCLAHE(
+        let result = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: imageData,
             width: width,
-            height: height,
-            clipLimit: 2.0
+            height: height
         )
 
-        XCTAssertNotNil(result, "CLAHE should return result")
+        XCTAssertNotNil(result, "Histogram equalization should return result")
         XCTAssertEqual(result?.count, imageData.count, "Result should have same size as input")
     }
 
-    func testCLAHEInvalidInput() {
+    func testHistogramEqualizationInvalidInput() {
         let emptyData = Data()
-        let result = DCMWindowingProcessor.applyCLAHE(
+        let result = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: emptyData,
             width: 0,
-            height: 0,
-            clipLimit: 2.0
+            height: 0
         )
-        XCTAssertNil(result, "CLAHE should return nil for invalid input")
+        XCTAssertNil(result, "Histogram equalization should return nil for invalid input")
 
         // Test mismatched dimensions
         let data = Data([UInt8](repeating: 0, count: 100))
-        let mismatchResult = DCMWindowingProcessor.applyCLAHE(
+        let mismatchResult = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: data,
             width: 10,
-            height: 20,
-            clipLimit: 2.0
+            height: 20
         )
-        XCTAssertNil(mismatchResult, "CLAHE should return nil for mismatched dimensions")
+        XCTAssertNil(mismatchResult, "Histogram equalization should return nil for mismatched dimensions")
     }
 
     func testNoiseReduction() {
@@ -345,43 +329,6 @@ final class DCMDictionaryTests: XCTestCase {
     }
 
     // MARK: - Batch Processing Tests
-
-    func testBatchApplyWindowLevel() throws {
-        let pixels1: [UInt16] = Array(repeating: 1000, count: 100)
-        let pixels2: [UInt16] = Array(repeating: 2000, count: 100)
-        let pixels3: [UInt16] = Array(repeating: 3000, count: 100)
-
-        let imagePixels = [pixels1, pixels2, pixels3]
-        let centers = [40.0, 50.0, 60.0]
-        let widths = [80.0, 100.0, 120.0]
-
-        let results = try DCMWindowingProcessor.batchApplyWindowLevel(
-            imagePixels: imagePixels,
-            centers: centers,
-            widths: widths
-        )
-
-        XCTAssertEqual(results.count, 3, "Should process all images")
-        XCTAssertNotNil(results[0], "First result should not be nil")
-        XCTAssertNotNil(results[1], "Second result should not be nil")
-        XCTAssertNotNil(results[2], "Third result should not be nil")
-    }
-
-    func testBatchApplyWindowLevelMismatch() {
-        let pixels1: [UInt16] = Array(repeating: 1000, count: 100)
-        let imagePixels = [pixels1]
-        let centers = [40.0, 50.0]
-        let widths = [80.0]
-
-        XCTAssertThrowsError(try DCMWindowingProcessor.batchApplyWindowLevel(
-            imagePixels: imagePixels,
-            centers: centers,
-            widths: widths
-        )) { error in
-            XCTAssertEqual(error as? WindowingBatchError,
-                           .mismatchedInputCounts(imagePixels: 1, centers: 2, widths: 1))
-        }
-    }
 
     func testBatchCalculateOptimalWindowLevel() {
         let pixels1: [UInt16] = Array(0..<1000).map { UInt16($0) }
@@ -580,34 +527,6 @@ final class DCMDictionaryTests: XCTestCase {
         )
 
         XCTAssertEqual(convertedHU, originalHU, accuracy: 0.01, "Round-trip conversion should preserve value")
-    }
-
-    func testOptimizedWindowingWithSmallDataset() {
-        // Test that optimized version works correctly with small datasets
-        let pixels: [UInt16] = Array(repeating: 1000, count: 100)
-        let result = DCMWindowingProcessor.optimizedApplyWindowLevel(
-            pixels16: pixels,
-            center: 1000.0,
-            width: 500.0,
-            useParallel: false
-        )
-
-        XCTAssertNotNil(result, "Should work with small dataset")
-        XCTAssertEqual(result?.count, 100, "Should have correct size")
-    }
-
-    func testOptimizedWindowingWithLargeDataset() {
-        // Test that optimized version works correctly with large datasets
-        let pixels: [UInt16] = Array(repeating: 2000, count: 20000)
-        let result = DCMWindowingProcessor.optimizedApplyWindowLevel(
-            pixels16: pixels,
-            center: 2000.0,
-            width: 1000.0,
-            useParallel: true
-        )
-
-        XCTAssertNotNil(result, "Should work with large dataset")
-        XCTAssertEqual(result?.count, 20000, "Should have correct size")
     }
 
     func testPresetNameRecognitionWithTolerance() {

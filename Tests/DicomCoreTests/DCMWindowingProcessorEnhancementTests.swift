@@ -3,7 +3,7 @@
 //  DicomCoreTests
 //
 //  Unit tests for DCMWindowingProcessor enhancement operations.
-//  These tests verify vImage-based CLAHE and noise reduction implementations,
+//  These tests verify vImage-based histogram equalization and noise reduction implementations,
 //  including basic functionality, edge cases, numerical equivalence with manual
 //  implementations, and performance characteristics.
 //
@@ -13,10 +13,10 @@ import XCTest
 
 class DCMWindowingProcessorEnhancementTests: XCTestCase {
 
-    // MARK: - vImage CLAHE Tests
+    // MARK: - vImage Histogram Equalization Tests
 
-    func testVImageCLAHE_BasicFunctionality() {
-        // Verify basic CLAHE operation produces valid output
+    func testVImageHistogramEqualization_BasicFunctionality() {
+        // Verify basic histogram equalization produces valid output
         let width = 64
         let height = 64
         let pixelCount = width * height
@@ -32,21 +32,20 @@ class DCMWindowingProcessorEnhancementTests: XCTestCase {
         }
         let imageData = Data(pixels)
 
-        // Apply CLAHE
-        let result = DCMWindowingProcessor.applyCLAHE(
+        // Apply histogram equalization
+        let result = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: imageData,
             width: width,
-            height: height,
-            clipLimit: 2.0
+            height: height
         )
 
-        XCTAssertNotNil(result, "CLAHE should produce output")
+        XCTAssertNotNil(result, "Histogram equalization should produce output")
         XCTAssertEqual(result?.count, pixelCount, "Output size should match input size")
 
         // Verify output has enhanced contrast (different from input)
         let resultBytes = [UInt8](result!)
         let isDifferent = zip(pixels, resultBytes).contains { $0 != $1 }
-        XCTAssertTrue(isDifferent, "CLAHE should modify pixel values")
+        XCTAssertTrue(isDifferent, "Histogram equalization should modify pixel values")
 
         // Verify output uses full dynamic range
         let minOutput = resultBytes.min() ?? 0
@@ -55,24 +54,22 @@ class DCMWindowingProcessorEnhancementTests: XCTestCase {
         XCTAssertGreaterThan(maxOutput, 200, "Output should include high values")
     }
 
-    func testVImageCLAHE_EdgeCases() {
+    func testVImageHistogramEqualization_EdgeCases() {
         // Test 1: Empty input
         let emptyData = Data()
-        let emptyResult = DCMWindowingProcessor.applyCLAHE(
+        let emptyResult = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: emptyData,
             width: 0,
-            height: 0,
-            clipLimit: 2.0
+            height: 0
         )
         XCTAssertNil(emptyResult, "Empty input should return nil")
 
         // Test 2: Single pixel
         let singlePixel = Data([128])
-        let singleResult = DCMWindowingProcessor.applyCLAHE(
+        let singleResult = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: singlePixel,
             width: 1,
-            height: 1,
-            clipLimit: 2.0
+            height: 1
         )
         XCTAssertNotNil(singleResult, "Single pixel should be processed")
         XCTAssertEqual(singleResult?.count, 1, "Output should have one pixel")
@@ -80,41 +77,38 @@ class DCMWindowingProcessorEnhancementTests: XCTestCase {
         // Test 3: Uniform image (all pixels same value)
         let uniformPixels = [UInt8](repeating: 127, count: 100)
         let uniformData = Data(uniformPixels)
-        let uniformResult = DCMWindowingProcessor.applyCLAHE(
+        let uniformResult = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: uniformData,
             width: 10,
-            height: 10,
-            clipLimit: 2.0
+            height: 10
         )
         XCTAssertNotNil(uniformResult, "Uniform image should be processed")
-        // Note: CLAHE (histogram equalization) will modify uniform images
+        // Note: histogram equalization will modify uniform images
         // by spreading them across the full dynamic range. This is expected behavior.
         let uniformResultBytes = [UInt8](uniformResult!)
         XCTAssertEqual(uniformResultBytes.count, 100, "Output should have correct size")
 
         // Test 4: Invalid dimensions (mismatched data size)
         let invalidData = Data([1, 2, 3, 4])
-        let invalidResult = DCMWindowingProcessor.applyCLAHE(
+        let invalidResult = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: invalidData,
             width: 10,
-            height: 10,  // 10×10 = 100 pixels, but data has only 4
-            clipLimit: 2.0
+            height: 10  // 10×10 = 100 pixels, but data has only 4
         )
         XCTAssertNil(invalidResult, "Invalid dimensions should return nil")
 
         // Test 5: Zero dimensions
         let zeroData = Data([1, 2, 3])
-        let zeroResult = DCMWindowingProcessor.applyCLAHE(
+        let zeroResult = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: zeroData,
             width: 0,
-            height: 3,
-            clipLimit: 2.0
+            height: 3
         )
         XCTAssertNil(zeroResult, "Zero width should return nil")
     }
 
-    func testVImageCLAHE_VariousClipLimits() {
-        // Test CLAHE with different clip limits
+    func testVImageHistogramEqualization_BimodalImage() {
+        // Test histogram equalization with a bimodal image.
         let width = 32
         let height = 32
 
@@ -129,27 +123,14 @@ class DCMWindowingProcessorEnhancementTests: XCTestCase {
         }
         let imageData = Data(pixels)
 
-        // Test with low clip limit
-        let lowClipResult = DCMWindowingProcessor.applyCLAHE(
+        let result = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: imageData,
             width: width,
-            height: height,
-            clipLimit: 0.5
+            height: height
         )
-        XCTAssertNotNil(lowClipResult, "CLAHE with low clip limit should succeed")
 
-        // Test with high clip limit
-        let highClipResult = DCMWindowingProcessor.applyCLAHE(
-            imageData: imageData,
-            width: width,
-            height: height,
-            clipLimit: 5.0
-        )
-        XCTAssertNotNil(highClipResult, "CLAHE with high clip limit should succeed")
-
-        // Both should produce valid output
-        XCTAssertEqual(lowClipResult?.count, width * height)
-        XCTAssertEqual(highClipResult?.count, width * height)
+        XCTAssertNotNil(result, "Histogram equalization should succeed")
+        XCTAssertEqual(result?.count, width * height)
     }
 
     // MARK: - vImage Noise Reduction Tests
@@ -440,8 +421,8 @@ class DCMWindowingProcessorEnhancementTests: XCTestCase {
 
     // MARK: - Integration Tests
 
-    func testCLAHEFollowedByNoiseReduction() {
-        // Test applying CLAHE followed by noise reduction (common workflow)
+    func testHistogramEqualizationFollowedByNoiseReduction() {
+        // Test applying histogram equalization followed by noise reduction (common workflow)
         let width = 64
         let height = 64
 
@@ -455,28 +436,27 @@ class DCMWindowingProcessorEnhancementTests: XCTestCase {
         }
         let imageData = Data(pixels)
 
-        // Step 1: Apply CLAHE
-        let claheResult = DCMWindowingProcessor.applyCLAHE(
+        // Step 1: Apply histogram equalization
+        let equalizedResult = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: imageData,
             width: width,
-            height: height,
-            clipLimit: 2.0
+            height: height
         )
-        XCTAssertNotNil(claheResult, "CLAHE should succeed")
+        XCTAssertNotNil(equalizedResult, "Histogram equalization should succeed")
 
-        // Step 2: Apply noise reduction to CLAHE output
+        // Step 2: Apply noise reduction to histogram equalization output
         let finalResult = DCMWindowingProcessor.applyNoiseReduction(
-            imageData: claheResult!,
+            imageData: equalizedResult!,
             width: width,
             height: height,
             strength: 0.5
         )
-        XCTAssertNotNil(finalResult, "Noise reduction after CLAHE should succeed")
+        XCTAssertNotNil(finalResult, "Noise reduction after histogram equalization should succeed")
         XCTAssertEqual(finalResult?.count, width * height, "Final output should have correct size")
     }
 
-    func testNoiseReductionFollowedByCLAHE() {
-        // Test applying noise reduction followed by CLAHE (alternative workflow)
+    func testNoiseReductionFollowedByHistogramEqualization() {
+        // Test applying noise reduction followed by histogram equalization (alternative workflow)
         let width = 64
         let height = 64
 
@@ -499,14 +479,13 @@ class DCMWindowingProcessorEnhancementTests: XCTestCase {
         )
         XCTAssertNotNil(noiseReductionResult, "Noise reduction should succeed")
 
-        // Step 2: Apply CLAHE to smoothed output
-        let finalResult = DCMWindowingProcessor.applyCLAHE(
+        // Step 2: Apply histogram equalization to smoothed output
+        let finalResult = DCMWindowingProcessor.applyHistogramEqualization(
             imageData: noiseReductionResult!,
             width: width,
-            height: height,
-            clipLimit: 2.0
+            height: height
         )
-        XCTAssertNotNil(finalResult, "CLAHE after noise reduction should succeed")
+        XCTAssertNotNil(finalResult, "Histogram equalization after noise reduction should succeed")
         XCTAssertEqual(finalResult?.count, width * height, "Final output should have correct size")
     }
 
@@ -529,19 +508,18 @@ class DCMWindowingProcessorEnhancementTests: XCTestCase {
         }
     }
 
-    func testCLAHEPerformance() {
-        // Measure performance of CLAHE on moderately sized image
+    func testHistogramEqualizationPerformance() {
+        // Measure performance of histogram equalization on a moderately sized image
         let width = 512
         let height = 512
         let pixels = [UInt8](repeating: 128, count: width * height)
         let imageData = Data(pixels)
 
         measure {
-            _ = DCMWindowingProcessor.applyCLAHE(
+            _ = DCMWindowingProcessor.applyHistogramEqualization(
                 imageData: imageData,
                 width: width,
-                height: height,
-                clipLimit: 2.0
+                height: height
             )
         }
     }

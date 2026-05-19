@@ -3,7 +3,7 @@
 //
 //  Verification tests for memory-mapped file compatibility with streaming pixel access.
 //  These tests verify that range-based pixel access works correctly with memory-mapped
-//  files (>10MB) and that mappedData is used efficiently.
+//  files (>10MB) and that mapped file data is used efficiently.
 //
 
 import Foundation
@@ -66,7 +66,7 @@ final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
         // Create a >10MB raw pixel file on disk to avoid large in-memory buffers.
         let width = 2500
         let height = 2500
-        let (mappedData, fileURL) = try makeMappedPixelData(width: width, height: height) { index in
+        let (mappedPixelData, fileURL) = try makeMappedPixelData(width: width, height: height) { index in
             UInt16(index % 65536)
         }
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -76,7 +76,7 @@ final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
 
         // Test 1: Verify full buffer access works (baseline)
         let fullPixels = DCMPixelReader.readPixels16(
-            data: mappedData,
+            data: mappedPixelData,
             range: 0..<totalPixels,
             width: width,
             height: height,
@@ -90,7 +90,7 @@ final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
 
         // Test 2: Verify streaming access to first chunk (simulating tile at top-left)
         let firstTile = DCMPixelReader.readPixels16(
-            data: mappedData,
+            data: mappedPixelData,
             range: 0..<tileSize,
             width: width,
             height: height,
@@ -113,7 +113,7 @@ final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
         let middleStart = (height / 2) * width + (width / 2) - (256 / 2)
         let middleRange = middleStart..<(middleStart + tileSize)
         let middleTile = DCMPixelReader.readPixels16(
-            data: mappedData,
+            data: mappedPixelData,
             range: middleRange,
             width: width,
             height: height,
@@ -128,7 +128,7 @@ final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
         // Test 4: Verify streaming access to last chunk (simulating tile at bottom-right)
         let lastStart = totalPixels - tileSize
         let lastTile = DCMPixelReader.readPixels16(
-            data: mappedData,
+            data: mappedPixelData,
             range: lastStart..<totalPixels,
             width: width,
             height: height,
@@ -153,7 +153,7 @@ final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
         // Simulate a large file (>10MB) without holding all pixels in memory.
         let width = 4096
         let height = 4096
-        let (mappedData, fileURL) = try makeMappedPixelData(width: width, height: height) { index in
+        let (mappedPixelData, fileURL) = try makeMappedPixelData(width: width, height: height) { index in
             UInt16(index % 65536)
         }
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -171,7 +171,7 @@ final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
 
         for (index, range) in ranges.enumerated() {
             let chunk = DCMPixelReader.readPixels16(
-                data: mappedData,
+                data: mappedPixelData,
                 range: range,
                 width: width,
                 height: height,
@@ -322,8 +322,8 @@ final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
             offset += count
         }
 
-        let mappedData = try Data(contentsOf: tempURL, options: .mappedIfSafe)
-        return (mappedData, tempURL)
+        let mappedPixelData = try Data(contentsOf: tempURL, options: .mappedIfSafe)
+        return (mappedPixelData, tempURL)
     }
 
     /// Documents memory-mapped file integration design.
@@ -378,16 +378,15 @@ final class DCMDecoderMemoryMappedStreamingTests: XCTestCase {
         //    ✅ API supports range-based pixel access
         //       (getPixels8/16/24(range:) methods implemented and tested)
         //    ✅ Compatible with existing memory-mapped file support
-        //       (This test suite - streaming works seamlessly with mappedData)
+        //       (This test suite - streaming works seamlessly with mapped file Data)
         //
         // 6. IMPLEMENTATION VERIFICATION:
         //    DCMDecoder.swift line 98-100:
-        //    - private var mappedData: Data?  // Stores memory-mapped Data
+        //    - dicomData stores file contents and owns mapped file lifetime
         //
         //    DCMDecoder.swift line 351-361:
         //    - if fileSize > 10_000_000 {
         //        dicomData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-        //        mappedData = dicomData
         //      }
         //
         //    DCMDecoder.swift line 531, 574, 620 (range-based methods):

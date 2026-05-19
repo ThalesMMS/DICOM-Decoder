@@ -2107,12 +2107,11 @@ let windowed = DCMWindowingProcessor.applyWindowLevel(
 
 guard let windowedData = windowed else { return }
 
-// Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-let enhanced = DCMWindowingProcessor.applyCLAHE(
+// Apply global histogram equalization
+let enhanced = DCMWindowingProcessor.applyHistogramEqualization(
     imageData: windowedData,
     width: decoder.width,
-    height: decoder.height,
-    clipLimit: 2.0
+    height: decoder.height
 )
 
 // Apply noise reduction
@@ -2129,12 +2128,12 @@ let denoised = DCMWindowingProcessor.applyNoiseReduction(
 ```swift
 guard let pixels16 = decoder.getPixels16() else { return }
 
-// Use optimized windowing for large datasets
-let optimized = DCMWindowingProcessor.optimizedApplyWindowLevel(
+// Use automatic backend selection for large datasets
+let windowed = DCMWindowingProcessor.applyWindowLevel(
     pixels16: pixels16,
     center: 40.0,
     width: 80.0,
-    useParallel: true  // Enable parallel processing for large images
+    processingMode: .auto
 )
 
 // Use downsampled pixels for preview/thumbnail

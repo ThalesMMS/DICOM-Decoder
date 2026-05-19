@@ -50,7 +50,7 @@ This project is a full DICOM decoder written in Swift, modernized from a legacy 
 - Window/level with medical presets and automatic suggestions
 - Modern async/await APIs for non-blocking operations
 - File validation before processing
-- Zero external dependencies
+- Directory, selected-file, and ZIP series loading through `DicomDecodedSeries`
 
 DICOM (Digital Imaging and Communications in Medicine) is the standard for medical imaging used by CT, MRI, X-ray, ultrasound, and hospital PACS systems.
 

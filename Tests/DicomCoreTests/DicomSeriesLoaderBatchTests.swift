@@ -147,7 +147,8 @@ final class DicomSeriesLoaderBatchTests: XCTestCase {
             decoderFactory: MockDecoderBuilder.makePathFactory(
                 width: 128,
                 height: 128,
-                pixelValue: 100
+                pixelValue: 100,
+                positionProvider: Self.slicePosition(for:)
             )
         )
 
@@ -191,5 +192,11 @@ final class DicomSeriesLoaderBatchTests: XCTestCase {
         for index in 1..<progressUpdates.count {
             XCTAssertGreaterThanOrEqual(progressUpdates[index].fraction, progressUpdates[index - 1].fraction)
         }
+    }
+
+    private static func slicePosition(for path: String) -> SIMD3<Double> {
+        let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        let index = stem.split(separator: "_").last.flatMap { Double($0) } ?? 0
+        return SIMD3<Double>(0, 0, index)
     }
 }

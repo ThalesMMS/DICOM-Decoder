@@ -326,14 +326,14 @@ print("Load time: \(elapsed)s")
 
 Cause: Processing large pixel arrays.
 
-Solution: Use the optimized path with parallel processing:
+Solution: Use automatic backend selection:
 
 ```swift
-let optimized = DCMWindowingProcessor.optimizedApplyWindowLevel(
+let windowed = DCMWindowingProcessor.applyWindowLevel(
     pixels16: pixels16,
     center: 40.0,
     width: 80.0,
-    useParallel: true
+    processingMode: .auto
 )
 ```
 

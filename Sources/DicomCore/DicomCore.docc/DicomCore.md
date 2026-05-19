@@ -15,7 +15,7 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - Window/level operations with medical presets and GPU acceleration
 - Modern async/await APIs for non-blocking operations
 - File validation before processing
-- Zero external dependencies - uses only Apple frameworks
+- Pure Swift implementation with ZIP archive support through ZIPFoundation
 
 ## Topics
 
@@ -39,6 +39,8 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - ``SeriesModel``
 - ``ImageModel``
 - ``DicomSeriesVolume``
+- ``DicomDecodedSeries``
+- ``DicomSeriesSource``
 
 ### Value Types
 
@@ -65,6 +67,7 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 ### Advanced Topics
 
 - <doc:SeriesLoading>
+- <doc:DicomLoading>
 - <doc:GeometryAndOrientation>
 - <doc:PerformanceOptimization>
 

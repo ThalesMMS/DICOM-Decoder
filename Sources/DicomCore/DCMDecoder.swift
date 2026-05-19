@@ -164,7 +164,6 @@ private typealias VR = DicomVR
 /// ### Status Properties
 ///
 /// - ``compressedImage``
-/// - ``dicomDir``
 /// - ``signedImage``
 /// - ``pixelRepresentationTagValue``
 /// - ``isSignedPixelRepresentation``
@@ -271,14 +270,10 @@ public final class DCMDecoder: DicomDecoderProtocol, @unchecked Sendable {
     /// never exposed directly.
     var dicomFileName: String = ""
 
-    /// Raw DICOM file contents.  The Data type is used instead of
-    /// NSData to take advantage of value semantics and Swift
-    /// performance characteristics.  All reads into this data
-    /// respect the current ``location`` cursor.
+    /// Raw DICOM file contents. Large files may be memory-mapped into this
+    /// `Data` value; keeping it alive preserves the mapping lifetime.
+    /// All reads into this data respect the current ``location`` cursor.
     var dicomData: Data = Data()
-    
-    /// OPTIMIZATION: Memory-mapped file for ultra-fast large file access
-    var mappedData: Data?
     var fileSize: Int = 0
 
     /// Cursor into ``dicomData`` used for sequential reading.
@@ -491,9 +486,8 @@ public final class DCMDecoder: DicomDecoderProtocol, @unchecked Sendable {
     /// 128.  `dicomFileReadSuccess` indicates whether the header
     /// parsed successfully and pixels were read.  `compressedImage`
     /// becomes true if an unsupported transfer syntax is detected.
-    /// `dicomDir` is reserved for future use to distinguish
-    /// directory records.  `signedImage` indicates whether the
-    /// pixel data originally used two's complement representation.
+    /// `signedImage` indicates whether the pixel data originally used
+    /// two's complement representation.
     private var _dicomFound: Bool = false
     public internal(set) var dicomFound: Bool {
         get { synchronized { _dicomFound } }
@@ -513,11 +507,6 @@ public final class DCMDecoder: DicomDecoderProtocol, @unchecked Sendable {
     public internal(set) var compressedImage: Bool {
         get { synchronized { _compressedImage } }
         set { synchronized { _compressedImage = newValue } }
-    }
-    private var _dicomDir: Bool = false
-    public internal(set) var dicomDir: Bool {
-        get { synchronized { _dicomDir } }
-        set { synchronized { _dicomDir = newValue } }
     }
     private var _signedImage: Bool = false
     public internal(set) var signedImage: Bool {

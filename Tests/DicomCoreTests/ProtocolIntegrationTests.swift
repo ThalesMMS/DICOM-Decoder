@@ -476,7 +476,6 @@ final class ProtocolIntegrationTests: XCTestCase {
         XCTAssertTrue(decoder.dicomFound, "dicomFound should be accessible")
         XCTAssertTrue(decoder.isValid(), "isValid() should be callable")
         XCTAssertNotNil(decoder.compressedImage, "compressedImage should be accessible")
-        XCTAssertNotNil(decoder.dicomDir, "dicomDir should be accessible")
         XCTAssertNotNil(decoder.signedImage, "signedImage should be accessible")
         XCTAssertGreaterThanOrEqual(decoder.pixelRepresentationTagValue, 0, "pixelRepresentationTagValue should be accessible")
         XCTAssertNotNil(decoder.isSignedPixelRepresentation, "isSignedPixelRepresentation should be accessible")

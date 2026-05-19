@@ -187,15 +187,13 @@ extension DCMDecoder {
             let startTime = CFAbsoluteTimeGetCurrent()
 
             if fileSize > 10_000_000 { // >10MB - use memory mapping
-                // Memory-mapped access for large files - dramatically faster
+                // Memory-mapped access for large files; dicomData owns the mapping lifetime.
                 dicomData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-                mappedData = dicomData
                 let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
                 debugPerfLog("[PERF] Memory-mapped DICOM load: \(String(format: "%.2f", elapsed))ms | size: \(fileSize/1024/1024)MB")
             } else {
                 // Regular loading for smaller files
                 dicomData = try Data(contentsOf: fileURL)
-                mappedData = nil
             }
         } catch {
             dicomFileName = ""
@@ -206,7 +204,6 @@ extension DCMDecoder {
         // Reset state
         dicomFileReadSuccess = false
         signedImage = false
-        dicomDir = false
         pixelsNotLoaded = true
         pixels8 = nil
         pixels16 = nil

@@ -16,12 +16,10 @@ extension DCMWindowingProcessor {
     ///   - imageData: Grayscale pixel bytes in row-major order (length must equal `width * height`).
     ///   - width: Image width in pixels.
     ///   - height: Image height in pixels.
-    ///   - clipLimit: Accepted for API compatibility but currently unused.
     /// - Returns: Equalized image pixel data as `Data` on success, or `nil` if inputs are invalid or the vImage operation fails.
-    private static func applyVImageCLAHE(imageData: Data,
-                                         width: Int,
-                                         height: Int,
-                                         clipLimit: Double) -> Data? {
+    private static func applyVImageHistogramEqualization(imageData: Data,
+                                                         width: Int,
+                                                         height: Int) -> Data? {
         // Validate input parameters
         guard let pixelCount = safePixelCount(width: width, height: height),
               imageData.count == pixelCount else { return nil }
@@ -168,19 +166,15 @@ extension DCMWindowingProcessor {
     }
 
     /// Applies global histogram equalization to an 8-bit grayscale image.
-    ///
-    /// Delegates to `applyVImageCLAHE`. The `clipLimit` parameter is accepted for API compatibility but is currently unused.
     /// - Parameters:
     ///   - imageData: Raw pixel bytes in row-major order (length must equal `width * height`).
     ///   - width: Image width in pixels (must be > 0).
     ///   - height: Image height in pixels (must be > 0).
-    ///   - clipLimit: Reserved for future tile-based CLAHE; currently unused.
     /// - Returns: The equalized image bytes as `Data` on success, or `nil` if input validation fails or processing encounters an error.
-    public static func applyCLAHE(imageData: Data,
-                                  width: Int,
-                                  height: Int,
-                                  clipLimit: Double) -> Data? {
-        return applyVImageCLAHE(imageData: imageData, width: width, height: height, clipLimit: clipLimit)
+    public static func applyHistogramEqualization(imageData: Data,
+                                                  width: Int,
+                                                  height: Int) -> Data? {
+        return applyVImageHistogramEqualization(imageData: imageData, width: width, height: height)
     }
 
     /// Applies Gaussian noise reduction to an 8-bit grayscale image by blending a 3×3 blurred version with the original.

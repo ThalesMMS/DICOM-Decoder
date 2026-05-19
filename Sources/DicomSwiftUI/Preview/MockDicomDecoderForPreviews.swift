@@ -98,7 +98,6 @@ public final class MockDicomDecoderForPreviews: DicomDecoderProtocol, @unchecked
 
     public let dicomFound: Bool = true
     public let compressedImage: Bool = false
-    public let dicomDir: Bool = false
     public let signedImage: Bool = false
     public let pixelRepresentationTagValue: Int = 0
 

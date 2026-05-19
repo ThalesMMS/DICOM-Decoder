@@ -128,7 +128,6 @@ import simd
 ///
 /// - ``dicomFound``
 /// - ``compressedImage``
-/// - ``dicomDir``
 /// - ``signedImage``
 /// - ``pixelRepresentationTagValue``
 /// - ``isSignedPixelRepresentation``
@@ -211,9 +210,6 @@ public protocol DicomDecoderProtocol: AnyObject, Sendable {
 
     /// True if file uses a compressed transfer syntax.
     var compressedImage: Bool { get }
-
-    /// True if this is a DICOMDIR file (reserved for future use).
-    var dicomDir: Bool { get }
 
     /// True if pixel data uses two's complement representation.
     var signedImage: Bool { get }

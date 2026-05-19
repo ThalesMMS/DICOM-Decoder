@@ -34,7 +34,8 @@ final class DicomSeriesLoaderAsyncTests: XCTestCase {
                 width: width,
                 height: height,
                 pixelValue: pixelValue,
-                seriesDescription: seriesDescription
+                seriesDescription: seriesDescription,
+                positionProvider: Self.slicePosition(for:)
             )
         )
     }
@@ -54,7 +55,8 @@ final class DicomSeriesLoaderAsyncTests: XCTestCase {
                 return try MockDecoderBuilder.makePathFactory(
                     width: width,
                     height: height,
-                    pixelValue: pixelValue
+                    pixelValue: pixelValue,
+                    positionProvider: Self.slicePosition(for:)
                 )(path)
             }
         )
@@ -66,11 +68,18 @@ final class DicomSeriesLoaderAsyncTests: XCTestCase {
                 width: 128,
                 height: 128,
                 pixelValue: 50,
+                positionProvider: Self.slicePosition(for:),
                 sizeProvider: { path in
                     path.contains("slice_0") ? (128, 128) : (256, 256)
                 }
             )
         )
+    }
+
+    private static func slicePosition(for path: String) -> SIMD3<Double> {
+        let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        let index = stem.split(separator: "_").last.flatMap { Double($0) } ?? 0
+        return SIMD3<Double>(0, 0, index)
     }
 
     private func collectProgress(

@@ -138,6 +138,15 @@ public struct DicomSeriesVolume: Sendable {
     /// Window width from DICOM metadata, when present
     public let windowWidth: Double?
 
+    /// Study Instance UID (0020,000D), when present.
+    public let studyInstanceUID: String?
+
+    /// Series Instance UID (0020,000E), when present.
+    public let seriesInstanceUID: String?
+
+    /// Frame of Reference UID (0020,0052), when present.
+    public let frameOfReferenceUID: String?
+
     public init(voxels: Data,
                 width: Int,
                 height: Int,
@@ -152,7 +161,10 @@ public struct DicomSeriesVolume: Sendable {
                 seriesDescription: String,
                 modality: String = "",
                 windowCenter: Double? = nil,
-                windowWidth: Double? = nil) {
+                windowWidth: Double? = nil,
+                studyInstanceUID: String? = nil,
+                seriesInstanceUID: String? = nil,
+                frameOfReferenceUID: String? = nil) {
         self.voxels = voxels
         self.width = width
         self.height = height
@@ -168,6 +180,9 @@ public struct DicomSeriesVolume: Sendable {
         self.modality = modality
         self.windowCenter = windowCenter
         self.windowWidth = windowWidth
+        self.studyInstanceUID = studyInstanceUID
+        self.seriesInstanceUID = seriesInstanceUID
+        self.frameOfReferenceUID = frameOfReferenceUID
     }
 }
 
@@ -429,6 +444,9 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         var modality = ""
         var windowCenter: Double?
         var windowWidth: Double?
+        var studyInstanceUID: String?
+        var seriesInstanceUID: String?
+        var frameOfReferenceUID: String?
 
         var width = 0
         var height = 0
@@ -495,6 +513,9 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                     seriesDescription = description
                 }
                 modality = decoder.info(for: .modality)
+                studyInstanceUID = nonEmpty(decoder.info(for: DicomTag.studyInstanceUID.rawValue))
+                seriesInstanceUID = nonEmpty(decoder.info(for: DicomTag.seriesInstanceUID.rawValue))
+                frameOfReferenceUID = nonEmpty(decoder.info(for: 0x0020_0052))
             } else {
                 // Check consistency across slices.
                 guard decoder.width == width, decoder.height == height else {
@@ -621,7 +642,10 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                                seriesDescription: seriesDescription,
                                                modality: modality,
                                                windowCenter: windowCenter,
-                                               windowWidth: windowWidth)
+                                               windowWidth: windowWidth,
+                                               studyInstanceUID: studyInstanceUID,
+                                               seriesInstanceUID: seriesInstanceUID,
+                                               frameOfReferenceUID: frameOfReferenceUID)
 
         var loadError: Error?
 
@@ -691,8 +715,16 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                        seriesDescription: seriesDescription,
                                        modality: modality,
                                        windowCenter: windowCenter,
-                                       windowWidth: windowWidth)
+                                       windowWidth: windowWidth,
+                                       studyInstanceUID: studyInstanceUID,
+                                       seriesInstanceUID: seriesInstanceUID,
+                                       frameOfReferenceUID: frameOfReferenceUID)
 
         return volume
     }
+}
+
+private func nonEmpty(_ value: String) -> String? {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
 }

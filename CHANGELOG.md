@@ -135,7 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Window/level processor (`DCMWindowingProcessor`):
   - Medical imaging window/level transformations
   - Basic medical presets (lung, bone, soft tissue, brain, liver)
-  - Image enhancement (CLAHE, noise reduction)
+  - Image enhancement (global histogram equalization, noise reduction)
   - Statistical analysis and quality metrics
   - Batch processing and Hounsfield unit conversion
 
