@@ -102,6 +102,32 @@ final class DicomDecodedSeriesTests: XCTestCase {
         XCTAssertEqual(int16Values(in: decoded.modalityVoxels), [7, 7])
     }
 
+    func testLoadDecodedSeriesUsesIPPDeltaForZSpacingWhenSliceThicknessDiffers() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomDecodedSeriesIPPSpacing")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try createFiles(in: directory, count: 3)
+
+        let loader = DicomSeriesLoader(
+            decoderFactory: MockDecoderBuilder.makePathFactory(
+                width: 1,
+                height: 1,
+                pixelValue: 7,
+                pixelSpacing: SIMD3<Double>(1, 1, 2),
+                positionProvider: { path in
+                    if path.contains("slice_2") { return SIMD3<Double>(0, 0, 2) }
+                    if path.contains("slice_1") { return SIMD3<Double>(0, 0, 1) }
+                    return .zero
+                }
+            )
+        )
+
+        let decoded = try loader.loadDecodedSeries(from: directory)
+
+        XCTAssertEqual(decoded.spacing.x, 1.0)
+        XCTAssertEqual(decoded.spacing.y, 1.0)
+        XCTAssertEqual(decoded.spacing.z, 1.0, accuracy: 1e-6)
+    }
+
     func testLoadDecodedSeriesExtractsZipAndCleansTemporaryDirectory() throws {
         let directory = try makeTemporaryDirectory(prefix: "DicomDecodedSeriesZip")
         defer { try? FileManager.default.removeItem(at: directory) }

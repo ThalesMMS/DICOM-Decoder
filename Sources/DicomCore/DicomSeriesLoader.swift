@@ -597,22 +597,12 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
             windowWidth = windowedSlice.windowWidth
         }
 
-        // Compute spacing Z from IPP deltas when available; if the value diverges
-        // significantly from the reported slice spacing/thickness, prefer the tag.
+        // Compute Z spacing from IPP deltas when available. For volume reconstruction,
+        // ImagePositionPatient gives the actual center-to-center slice distance in patient space.
+        // Tag-derived Z spacing may come from SliceThickness or SpacingBetweenSlices and can be
+        // absent, nominal, or inconsistent with the real reconstructed slice positions.
         let computedZ = try computeZSpacing(from: slices, normal: normal)
-        let tagZ = spacing.z
-        let zSpacing: Double
-        if let computedZ {
-            let tolerance = 0.2 // mm-level tolerance
-            if tagZ > 0 && abs(computedZ - tagZ) > tolerance {
-                zSpacing = tagZ
-            } else {
-                zSpacing = computedZ
-            }
-        } else {
-            zSpacing = tagZ
-        }
-        spacing = SIMD3<Double>(spacing.x, spacing.y, zSpacing)
+        spacing = SIMD3<Double>(spacing.x, spacing.y, computedZ ?? spacing.z)
 
         let depth = slices.count
         let sliceVoxelCount = width * height
