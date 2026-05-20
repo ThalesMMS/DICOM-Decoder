@@ -208,14 +208,14 @@ MetalBenchmark/
    - Warmup iterations eliminate this from benchmarks
    - Metal driver caching makes subsequent runs fast
 
-## Task-Specific Notes
+## Implementation Notes
 
-This research was conducted for **task 027: Metal GPU Performance Validation & Documentation**. The MetalBenchmark CLI tool successfully validates Metal GPU achieves **3.94x speedup** on 1024×1024 images compared to vDSP baseline using the runtime compilation pattern documented above.
+The MetalBenchmark CLI tool validates that Metal GPU processing can achieve **3.94x speedup** on 1024×1024 images compared to the vDSP baseline using the runtime compilation pattern documented above.
 
-The optional subtask-3-2 ("Fix SPM Metal bundling in main Package.swift") remains pending. Based on this research, the "fix" would involve:
+Applying the same SPM Metal pattern in the main library would involve:
 1. Adding `.metal` shader source to main library's resources
 2. Updating DCMWindowingProcessor to use runtime compilation pattern
 3. Accepting ~50-100ms first-use overhead
 4. Documenting that this is the correct SPM pattern (not a workaround)
 
-However, **external validation via MetalBenchmark is sufficient** - fixing the main library's test target is optional.
+External validation via MetalBenchmark is sufficient for benchmark reporting; adopting the same runtime compilation pattern in the main library should be treated as a separate implementation decision.

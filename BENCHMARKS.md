@@ -105,29 +105,24 @@ BenchmarkConfig:
 
 ## Test Environment
 
-### Reference Platform (Latest Results)
+### Reference Platform (Checked-In Results)
 
-Performance benchmarks are continuously updated via GitHub Actions CI. The reference platform represents typical Apple Silicon hardware:
+The checked-in benchmark reports in this repository are point-in-time measurements. Use them as reference data, not as a guarantee for every host. Rerun the benchmark suite on the target machine before making release, regression, or clinical-performance claims.
 
 | Component | Specification |
 |-----------|---------------|
-| **Platform** | macOS 14.0+ |
+| **Platform** | macOS 14.0+ or later |
 | **Architecture** | arm64 (Apple Silicon) |
-| **Test Hardware** | GitHub Actions `macos-14` runners |
-| **Expected CPU** | Apple M-series (M1/M2/M3/M4) |
+| **Reference Hardware** | Apple Silicon Mac |
+| **Expected CPU** | Apple M-series |
 | **Processor Cores** | 8+ logical cores |
 | **Swift Version** | 5.9+ |
-| **Xcode Version** | 15.4+ |
+| **Xcode Version** | 15.0+ |
 | **Metal Support** | Metal 3.0+ |
 
-### CI Integration
+### Repository Integration
 
-Benchmarks run automatically on:
-- **Every push** to `main` and `develop` branches
-- **Pull requests** (quick verification only)
-- **Manual dispatch** for ad-hoc testing
-
-Results are stored as artifacts with 90-365 day retention for historical analysis.
+The benchmark suite lives under `Tests/DicomCoreTests/PerformanceBenchmarks/`. Generated Markdown reports can be committed as dated evidence when they are needed for review, release notes, or regression analysis. The repository also includes baseline JSON files for local comparison.
 
 ---
 
@@ -150,10 +145,10 @@ Performance metrics for core DICOM decoding operations:
 | **Metadata Access** | 0.020 ms | 0.019 ms | 0.023 ms | 0.002 ms | 10.0% | Cached tag lookup |
 
 **Key Findings:**
-- ✅ **Low overhead**: Lock operations add minimal latency (~50 microseconds)
-- ✅ **Fast initialization**: Decoder instances created in sub-millisecond time
-- ✅ **Quick validation**: File format checks complete in ~5ms
-- ✅ **Efficient caching**: Metadata access benefits from tag caching
+- **Low overhead:** Lock operations add minimal latency (~50 microseconds)
+- **Fast initialization:** Decoder instances are created in sub-millisecond time
+- **Quick validation:** File format checks complete in ~5ms
+- **Efficient caching:** Metadata access benefits from tag caching
 
 ### Window/Level Processing
 
@@ -169,9 +164,9 @@ Baseline CPU performance using Accelerate framework with ARM NEON SIMD:
 | 2048×2048 | 35.0 ms | 228 MB/s | 120 Mpixels/s | High-resolution scans |
 
 **Key Findings:**
-- ✅ **Consistent throughput**: ~230 MB/s across all image sizes
-- ✅ **ARM NEON optimization**: Leverages Apple Silicon SIMD instructions
-- ✅ **Linear scaling**: Performance scales linearly with pixel count
+- **Consistent throughput:** ~230 MB/s across all image sizes
+- **ARM NEON optimization:** Leverages Apple Silicon SIMD instructions
+- **Linear scaling:** Performance scales linearly with pixel count
 
 #### Metal (GPU) Performance
 
@@ -185,10 +180,10 @@ GPU-accelerated performance using Metal compute shaders:
 | 2048×2048 | 8.00 ms | 1000 MB/s | 524 Mpixels/s | 4.38× speedup |
 
 **Key Findings:**
-- 🚀 **Massive throughput**: Up to 1 GB/s for large images
-- 🚀 **Super-linear speedup**: GPU efficiency increases with image size
-- 🚀 **Optimal for typical DICOM sizes**: 1024×1024 shows 3.94× speedup
-- ⚠️ **Small image overhead**: 512×512 sees only 1.84× due to GPU setup cost
+- **High throughput:** Up to 1 GB/s for large images
+- **Super-linear speedup:** GPU efficiency increases with image size
+- **Optimal for typical DICOM sizes:** 1024×1024 shows 3.94× speedup
+- **Small image overhead:** 512×512 sees only 1.84× due to GPU setup cost
 
 ### Metal vs vDSP Comparison
 
@@ -334,17 +329,9 @@ BENCHMARK_OUTPUT_DIR=./my-benchmarks \
 swift test --filter PerformanceBenchmarkSuite
 ```
 
-### CI Integration
+### Persisting Results
 
-Benchmarks run automatically in GitHub Actions:
-
-```bash
-# View workflow runs
-open https://github.com/ThalesMMS/DICOM-Decoder/actions/workflows/benchmarks.yml
-
-# Download artifacts
-gh run download <run-id> --name benchmark-results-macos
-```
+Use `BENCHMARK_OUTPUT_DIR` to keep dated reports under a reviewable directory. Commit generated reports only when they support a release note, performance investigation, or baseline update.
 
 ---
 
@@ -382,28 +369,28 @@ gh run download <run-id> --name benchmark-results-macos
 
 | Operation | Target | Actual | Status |
 |-----------|--------|--------|--------|
-| Lock overhead | <0.1 ms | ~0.05 ms | ✅ Excellent |
-| Decoder init | <1 ms | ~0.1 ms | ✅ Excellent |
-| File validation | <20 ms | ~5 ms | ✅ Excellent |
-| Windowing 512×512 | <10 ms | 1-2 ms | ✅ Excellent |
-| Windowing 1024×1024 | <20 ms | 2-9 ms | ✅ Excellent |
-| Metal speedup (1024×1024) | ≥2× | 3.94× | ✅ Exceeds target |
+| Lock overhead | <0.1 ms | ~0.05 ms | Excellent |
+| Decoder init | <1 ms | ~0.1 ms | Excellent |
+| File validation | <20 ms | ~5 ms | Excellent |
+| Windowing 512×512 | <10 ms | 1-2 ms | Excellent |
+| Windowing 1024×1024 | <20 ms | 2-9 ms | Excellent |
+| Metal speedup (1024×1024) | ≥2× | 3.94× | Exceeds target |
 
 ### Red Flags
 
 Watch for these warning signs in benchmark results:
 
-⚠️ **High Variability (CV >20%)**
+**High Variability (CV >20%)**
 - Indicates inconsistent performance
 - May suggest thermal throttling, system load, or memory pressure
 - Consider running benchmarks in controlled environment
 
-⚠️ **Metal Slower Than vDSP**
+**Metal Slower Than vDSP**
 - Should never occur for images ≥800×800
 - Check Metal device availability
 - Verify GPU not under heavy load
 
-⚠️ **Throughput Degradation**
+**Throughput Degradation**
 - vDSP should maintain ~230 MB/s across sizes
 - Metal should exceed ~600 MB/s for 1024×1024
 - Lower throughput suggests system bottleneck
@@ -414,16 +401,16 @@ Watch for these warning signs in benchmark results:
 
 ### Baseline Comparison
 
-Performance regressions are detected automatically by comparing current results against stored baselines.
+Performance regressions can be detected by comparing current results against stored baselines.
 
 #### Regression Thresholds
 
-| Level | Threshold | Action | Workflow Behavior |
+| Level | Threshold | Action | Gate Behavior |
 |-------|-----------|--------|-------------------|
-| **None** | <10% slower | ✅ Pass | No action |
-| **Warning** | 10-20% slower | ⚠️ Warning | Log warning, continue |
-| **Failure** | >20% slower | ❌ Fail | Fail workflow, block PR |
-| **Improvement** | ≥10% faster | 🚀 Improved | Log improvement |
+| **None** | <10% slower | Pass | No action |
+| **Warning** | 10-20% slower | Warning | Log warning, continue |
+| **Failure** | >20% slower | Fail | Fail the configured review gate |
+| **Improvement** | ≥10% faster | Improved | Log improvement |
 
 #### Regression Example
 
@@ -434,13 +421,13 @@ Operation: windowing_vdsp (1024×1024)
   Baseline: 8.67 ms
   Current:  9.54 ms
   Delta:    +0.87 ms (+10.0%)
-  Status:   ⚠️ WARNING - Performance degraded by 10.0%
+  Status:   WARNING - Performance degraded by 10.0%
 
 Operation: windowing_metal (1024×1024)
   Baseline: 2.20 ms
   Current:  2.65 ms
   Delta:    +0.45 ms (+20.5%)
-  Status:   ❌ FAILURE - Performance degraded by 20.5%
+  Status:   FAILURE - Performance degraded by 20.5%
 ```
 
 ### Creating New Baselines
@@ -475,26 +462,9 @@ swift test --filter PerformanceBenchmarkSuite
 
 ### Tracking Performance Over Time
 
-GitHub Actions automatically stores benchmark results for historical analysis:
-
-#### Artifact Retention
-
-| Artifact Type | Retention | Purpose |
-|---------------|-----------|---------|
-| Complete Results | 90 days | Recent investigation |
-| Historical Tracking | 365 days | Long-term trend analysis |
-| Latest Baseline | 365 days | Automatic regression detection |
-| Dated Baseline Archive | 365 days | Point-in-time comparisons |
-
-#### Downloading Historical Data
+Keep historical benchmark data as dated JSON or Markdown reports when it is useful for review:
 
 ```bash
-# List recent benchmark runs
-gh run list --workflow=benchmarks.yml --limit 10
-
-# Download specific run
-gh run download <run-id> --name benchmark-history-macos
-
 # Analyze trend (requires jq)
 for file in benchmark-*.json; do
   echo "$file:"
@@ -517,13 +487,13 @@ Version 1.1.0 (Metal Acceleration):
 - 3-4× speedup achieved
 
 Version 1.2.0 (Optimization):
-- vDSP windowing: 8.67ms (1024×1024) ⬇ improved
-- Metal windowing: 2.20ms (1024×1024) ⬇ improved
-- 3.94× speedup ⬆ improved
+- vDSP windowing: 8.67ms (1024×1024), improved
+- Metal windowing: 2.20ms (1024×1024), improved
+- 3.94× speedup, improved
 
-Future (Continuous Improvement):
+Ongoing maintenance:
 - Maintain or improve current performance
-- Detect regressions immediately via CI
+- Detect regressions with local or CI benchmark runs
 - Update baselines after verified optimizations
 ```
 
@@ -533,13 +503,13 @@ Future (Continuous Improvement):
 
 ### Performance Highlights
 
-✅ **Lock Overhead**: Minimal (~0.05ms) - thread-safe with negligible cost
-✅ **Fast Initialization**: Decoder instances created in ~0.1ms
-✅ **Efficient Validation**: DICOM files validated in ~5ms
-✅ **Cached Metadata**: Tag lookups complete in ~0.02ms
-✅ **Optimized CPU Processing**: vDSP delivers consistent 230 MB/s throughput
-🚀 **GPU Acceleration**: Metal provides **2-4× speedup** for images ≥800×800
-🚀 **Typical Medical Imaging**: 1024×1024 images processed in **2.2ms with Metal** (3.94× faster than CPU)
+**Lock Overhead:** Minimal (~0.05ms), thread-safe with negligible cost.
+**Fast Initialization:** Decoder instances are created in ~0.1ms.
+**Efficient Validation:** DICOM files validate in ~5ms.
+**Cached Metadata:** Tag lookups complete in ~0.02ms.
+**Optimized CPU Processing:** vDSP delivers consistent baseline throughput.
+**GPU Acceleration:** Metal can provide **2-4× speedup** for images ≥800×800 on the measured Apple Silicon reference hardware.
+**Typical Medical Imaging:** 1024×1024 images measured at **2.2ms with Metal** in the reference benchmark run.
 
 ### Recommendations
 
@@ -555,11 +525,11 @@ Future (Continuous Improvement):
 - Update baselines after verified optimizations
 - Document performance-impacting changes
 
-**For CI/CD Integration:**
-- Benchmarks run automatically on main/develop pushes
-- Regression failures block PRs (>20% slowdown)
-- Historical artifacts enable trend analysis
-- Quick verification provides fast feedback
+**For Repository Integration:**
+- Run quick verification before small performance-sensitive changes.
+- Run the full suite before release notes or baseline updates.
+- Preserve dated JSON/Markdown reports when they are used as review evidence.
+- Treat regression thresholds as review gates when CI is configured to run the suite.
 
 ---
 
@@ -567,13 +537,12 @@ Future (Continuous Improvement):
 
 - [API Documentation](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/)
 - [Getting Started Guide](GETTING_STARTED.md)
-- [CLAUDE.md - Performance Section](CLAUDE.md#performance)
-- [GitHub Actions Workflow](.github/workflows/benchmarks.yml)
+- [Performance Guide](Sources/DicomCore/DicomCore.docc/Articles/PerformanceGuide.md)
 - [Benchmark Source Code](Tests/DicomCoreTests/PerformanceBenchmarks/)
 
 ---
 
-**Last Updated:** February 2026
+**Reference Data:** February 2026 benchmark summary plus checked-in generated reports.
 **Benchmark Version:** 1.0
 **Library Version:** 1.2.0+
 

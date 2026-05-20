@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Added release-prep guidance for this dev repo, including a first-stable-release gate checklist in `RELEASING.md`.
+- Added release-prep guidance, including a first-stable-release gate checklist in `RELEASING.md`.
 
 ### Added
 

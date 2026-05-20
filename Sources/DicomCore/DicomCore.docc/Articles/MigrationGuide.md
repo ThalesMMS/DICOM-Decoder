@@ -1,22 +1,22 @@
 # Migration Guide
 
-Upgrade your code to use the latest DicomCore APIs with improved type safety, error handling, and Swift idioms.
+Upgrade your code to use the current DicomCore APIs with improved type safety, error handling, and Swift idioms.
 
 ## Overview
 
 DicomCore has evolved to provide more Swift-idiomatic APIs. This guide helps you migrate from deprecated patterns to modern, recommended approaches.
 
-**What's New:**
+**Recommended APIs:**
 - **Throwing initializers** (v1.1.0+) - Swift-idiomatic error handling
 - **Type-safe DicomTag enum** (v1.2.0+) - Semantic tag names replace hex values
 - **Type-safe value types** (v1.2.0+) - Structs replace tuples for better type safety
 - **V2 windowing methods** (v1.2.0+) - Return WindowSettings instead of tuples
 
-> **⚠️ BREAKING CHANGES IN v2.0.0**
+> **Planned breaking changes in v2.0.0**
 >
-> Version 2.0.0 removes all deprecated APIs that were marked for removal in v1.x releases. You **must** migrate to the modern APIs documented in this guide before upgrading to v2.0.0.
+> Version 2.0.0 is expected to remove deprecated APIs that were marked for removal in v1.x releases. Migrate to the modern APIs documented in this guide before upgrading to v2.0.0.
 >
-> **Removed in v2.0.0:**
+> **Planned for removal in v2.0.0:**
 > - Legacy file loading API (`setDicomFilename()`, `dicomFileReadSuccess`, `loadDICOMFileAsync()`)
 > - Tuple-based properties (`windowSettings`, `pixelSpacing`, `rescaleParameters`)
 > - Tuple-based windowing methods (`calculateOptimalWindowLevel()`, `getPresetValues()`, etc.)
@@ -268,13 +268,13 @@ let patientName = decoder.info(for: .patientName)    // Preferred
 
 ## Migration Path 3: DCMDictionary Singleton to Instance
 
-**Status:** Recommended since v1.2.0, **required for v2.0.0**
+**Status:** Recommended since v1.2.0, planned as required for v2.0.0
 **Replaces:** `DCMDictionary.shared` singleton pattern
 
-### Old Pattern (Removed in v2.0.0)
+### Old Pattern (Deprecated)
 
 ```swift
-// Removed in v2.0.0: Singleton pattern
+// Deprecated: singleton pattern
 let tagName = DCMDictionary.shared.description(forKey: 0x00100010)
 let vrCode = DCMDictionary.shared.vrCode(forKey: 0x00100010)
 ```
@@ -550,24 +550,24 @@ let jsonData = try JSONEncoder().encode(results)
 
 ## Migration Path 6: Async Pixel Methods
 
-**Status:** Removed in v2.0.0
+**Status:** Deprecated; planned for removal in v2.0.0
 **Replaces:** Async convenience wrappers for pixel data access
 
 ### Overview
 
-The async pixel methods (`getPixels16Async()`, `getPixels8Async()`, etc.) were simple async wrappers around synchronous pixel access methods. These have been **removed in v2.0.0** because:
+The async pixel methods (`getPixels16Async()`, `getPixels8Async()`, etc.) are simple async wrappers around synchronous pixel access methods. They are planned for removal in v2.0.0 because:
 
 1. Pixel data access is already memory-mapped and non-blocking for large files
 2. The synchronous methods are fast enough that async wrapping adds no benefit
 3. If async behavior is truly needed, you can wrap calls yourself with more control
 
-### Old Pattern (Removed in v2.0.0)
+### Old Pattern (Deprecated)
 
 ```swift
-// Removed in v2.0.0: Async pixel wrappers
+// Deprecated: async pixel wrappers
 let decoder = try DCMDecoder(contentsOfFile: "/path/to/image.dcm")
 
-// These methods no longer exist:
+// Prefer the synchronous pixel accessors shown below:
 let pixels16 = await decoder.getPixels16Async()
 let pixels8 = await decoder.getPixels8Async()
 let pixels24 = await decoder.getPixels24Async()
@@ -713,8 +713,8 @@ do {
 
 ### API Replacement Table
 
-| Removed API (v2.0.0) | Replacement API | Migration Path |
-|----------------------|-----------------|----------------|
+| Deprecated API | Replacement API | Migration Path |
+|----------------|-----------------|----------------|
 | `DCMDecoder()` + `setDicomFilename()` | `try DCMDecoder(contentsOfFile:)` | Path 1 |
 | `DCMDecoder()` + `setDicomFilename()` | `try DCMDecoder(contentsOf:)` | Path 1 |
 | `loadDICOMFileAsync()` | `try await DCMDecoder(contentsOfFile:)` | Path 1 |
@@ -737,7 +737,7 @@ do {
 | `getDownsampledPixels16Async()` | `getDownsampledPixels16()` (synchronous) | Path 6 |
 | `getDownsampledPixels8Async()` | `getDownsampledPixels8()` (synchronous) | Path 6 |
 
-### Migration Checklist (Required for v2.0.0)
+### Migration Checklist (Before v2.0.0)
 
 **File Loading (Path 1):**
 - [ ] Replace `setDicomFilename()` with throwing initializers
@@ -775,7 +775,7 @@ do {
 **Final Verification:**
 - [ ] Build without deprecation warnings on v1.x
 - [ ] All tests pass
-- [ ] Ready to upgrade to v2.0.0
+- [ ] Ready for the v2.0.0 compatibility break
 
 ### Need Help?
 
@@ -786,11 +786,11 @@ do {
 
 ---
 
-## Version 2.0.0 Breaking Changes
+## Preparing for Version 2.0.0 Breaking Changes
 
-**Important:** Version 2.0.0 is a **major breaking release** that removes all deprecated APIs.
+**Important:** Version 2.0.0 is planned as a major breaking release that removes deprecated APIs.
 
-### What Was Removed
+### What Is Planned for Removal
 
 1. **Legacy file loading API**
    - `setDicomFilename(_:)` → Use `init(contentsOfFile:) throws`
@@ -825,7 +825,7 @@ do {
 
 - **v1.1.0** (2024) - Throwing initializers added, legacy loading deprecated
 - **v1.2.0** (2024) - Type-safe DicomTag enum and V2 methods added, tuples deprecated
-- **v2.0.0** (2025) - **All deprecated APIs removed** ⚠️
+- **v2.0.0** (planned) - Deprecated APIs removed
 
 ### Before Upgrading to v2.0.0
 
@@ -836,11 +836,11 @@ do {
 
 ### Backward Compatibility (v1.x only)
 
-In version 1.x releases, all deprecated APIs remained functional:
+In version 1.x releases, deprecated APIs remain functional:
 
-1. **No breaking changes** - Existing code continued to work
-2. **Gradual migration** - Could update one component at a time
-3. **Incremental adoption** - Could mix old and new APIs during transition
-4. **Clear deprecation warnings** - Compiler guided to modern APIs
+1. **No breaking changes** - Existing code continues to work
+2. **Gradual migration** - You can update one component at a time
+3. **Incremental adoption** - You can mix old and new APIs during transition
+4. **Clear deprecation warnings** - The compiler guides you to modern APIs
 
-**Version 2.0.0 ends this compatibility period.** All deprecated APIs have been removed.
+**Version 2.0.0 is expected to end this compatibility period.** Plan to remove all deprecated API usage before upgrading.

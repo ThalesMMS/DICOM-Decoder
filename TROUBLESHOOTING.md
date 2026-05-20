@@ -37,7 +37,7 @@ Message: "Requires minimum Swift 5.9"
 
 Solution:
 
-1. Update Xcode to version 14.0 or later.
+1. Update Xcode to version 15.0 or later.
 2. Check Swift version:
    ```bash
    swift --version
@@ -400,18 +400,12 @@ let time = formatter.date(from: timeString)
 
 ### Thread Sanitizer warnings
 
-Cause: Concurrent access to the decoder.
+Cause: Shared mutable decoder state, custom decoder implementations, or legacy code paths that bypass the public synchronized API.
 
-Solution: `DCMDecoder` is not thread-safe. Use one instance per thread or synchronize access.
+Solution: Use the public `DCMDecoder` API, which synchronizes instance state internally. For batch work, prefer factory-based services that create a decoder per file.
 
 ```swift
-// Wrong: sharing a decoder across threads
-let decoder = try DCMDecoder(contentsOfFile: file1)
-DispatchQueue.global().async {
-    decoder.getPixels16()  // Race condition
-}
-
-// Correct: use separate instances per thread
+// Preferred: use isolated decoder instances in concurrent work
 await withTaskGroup(of: Void.self) { group in
     for file in files {
         group.addTask {

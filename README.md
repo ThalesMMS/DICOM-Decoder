@@ -74,7 +74,7 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - Exposes width/height, bitsAllocated, pixelRepresentation (signed/unsigned), rescale slope/intercept.
 - Returns Series Description and raw tag access via `info(for:)`.
 
-### Series Loading (new)
+### Series Loading
 
 - Directory-level loader that scans `.dcm` files, orders slices by IPP projection on the IOP normal (fallback: Instance Number), and computes Z spacing from IPP deltas.
 - Validates single-channel 16-bit geometry consistency and assembles a contiguous volume buffer (signed/unsigned preserved).
@@ -165,7 +165,7 @@ let pixels8bit = DCMWindowingProcessor.applyWindowLevel(
 
 For more examples, see the windowing snippets in this README and the runnable code under `MetalBenchmark/`.
 
-**📊 Benchmark notes:** The benchmark harness used for these measurements lives in `MetalBenchmark/`, so the performance setup can be inspected and reproduced directly from this repository.
+**Benchmark notes:** The benchmark harness used for these measurements lives in `MetalBenchmark/`, so the performance setup can be inspected and reproduced directly from this repository. Rerun benchmarks on the target hardware before making release or clinical-performance claims.
 
 ---
 
@@ -324,7 +324,7 @@ targets: [
 
 - Swift 5.9+
 - iOS 13.0+ or macOS 12.0+
-- Xcode 14.0+
+- Xcode 15.0+
 
 ---
 
@@ -750,7 +750,7 @@ All commands support `--format json` for programmatic parsing:
 
 - macOS 12.0+ (10.15+ for basic functionality)
 - Swift 5.9+
-- Xcode 14.0+ (for building from source)
+- Xcode 15.0+ (for building from source)
 
 ---
 
@@ -1087,12 +1087,12 @@ DicomImageView(url: dicomURL)
 
 All components include comprehensive accessibility support:
 
-- ✅ **VoiceOver** labels and hints
-- ✅ **Dynamic Type** text scaling
-- ✅ **Keyboard navigation** support
-- ✅ **Dark mode** adaptive colors
-- ✅ **High contrast** compatibility
-- ✅ **Reduced motion** preferences
+- VoiceOver labels and hints
+- Dynamic Type text scaling
+- Keyboard navigation support
+- Dark mode adaptive colors
+- High contrast compatibility
+- Reduced motion preferences
 
 ### Example Application
 
@@ -1122,7 +1122,7 @@ See [Examples/DicomSwiftUIExample/README.md](Examples/DicomSwiftUIExample/README
 ### Platform Support
 
 - **Core vs SwiftUI**: `DicomCore` supports iOS 13.0+ / macOS 12.0+; `DicomSwiftUI` components require iOS 14.0+ because examples use `@StateObject`.
-- **Recommended (new)**: Use the `@StateObject` examples on iOS 14+ / macOS 12+.
+- **Recommended**: Use the `@StateObject` examples on iOS 14+ / macOS 12+.
 - **Legacy fallback (iOS 13)**: Use the `@ObservedObject` initialization/injection pattern shown above, then migrate to `@StateObject` when iOS 14+ is your minimum target.
 
 ---
@@ -1360,7 +1360,7 @@ autoreleasepool {
 ### Known Limitations
 
 - Compressed transfer syntaxes: Native support for JPEG Lossless (Process 14, all selection values 0-7). Best-effort single-frame JPEG/JPEG2000 via ImageIO. RLE and multi-frame encapsulated compression are not supported - convert first if needed.
-- Thread safety: The decoder is not thread-safe. Use one instance per thread or synchronize access.
+- Thread safety: `DCMDecoder` uses internal locking for public API access, and batch/series services create isolated decoder instances for concurrent work.
 - Very large files (>1GB): May consume significant memory. Process in chunks or downsample.
 - `SeriesNavigatorView` provides slice shortcut controls in its expanded layout, but image thumbnail strips are not implemented.
 

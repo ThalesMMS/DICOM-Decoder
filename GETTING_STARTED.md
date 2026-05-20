@@ -33,7 +33,7 @@ A DICOM file (`.dcm`) contains:
 
 Before you start, ensure you have:
 
-- Xcode 14.0+
+- Xcode 15.0+
 - Swift 5.9+
 - macOS 12+ or iOS 13+
 - Basic Swift knowledge
