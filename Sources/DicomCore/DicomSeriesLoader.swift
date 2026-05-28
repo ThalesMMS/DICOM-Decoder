@@ -126,6 +126,9 @@ public struct DicomSeriesVolume: Sendable {
     /// Whether pixel values are signed integers
     public let isSignedPixel: Bool
 
+    /// DICOM person name for the loaded subject, when present
+    public let patientName: String
+
     /// Human-readable series description
     public let seriesDescription: String
 
@@ -158,6 +161,7 @@ public struct DicomSeriesVolume: Sendable {
                 rescaleIntercept: Double,
                 bitsAllocated: Int,
                 isSignedPixel: Bool,
+                patientName: String = "",
                 seriesDescription: String,
                 modality: String = "",
                 windowCenter: Double? = nil,
@@ -176,6 +180,7 @@ public struct DicomSeriesVolume: Sendable {
         self.rescaleIntercept = rescaleIntercept
         self.bitsAllocated = bitsAllocated
         self.isSignedPixel = isSignedPixel
+        self.patientName = patientName
         self.seriesDescription = seriesDescription
         self.modality = modality
         self.windowCenter = windowCenter
@@ -441,6 +446,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         var rescaleIntercept: Double = 0.0
         var pixelRepresentation: Int = 0
         var seriesDescription = directory.lastPathComponent
+        var patientName = ""
         var modality = ""
         var windowCenter: Double?
         var windowWidth: Double?
@@ -512,6 +518,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                 if !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     seriesDescription = description
                 }
+                patientName = decoder.info(for: .patientName)
                 modality = decoder.info(for: .modality)
                 studyInstanceUID = nonEmpty(decoder.info(for: DicomTag.studyInstanceUID.rawValue))
                 seriesInstanceUID = nonEmpty(decoder.info(for: DicomTag.seriesInstanceUID.rawValue))
@@ -629,6 +636,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                                rescaleIntercept: rescaleIntercept,
                                                bitsAllocated: bitsAllocated,
                                                isSignedPixel: pixelRepresentation == 1,
+                                               patientName: patientName,
                                                seriesDescription: seriesDescription,
                                                modality: modality,
                                                windowCenter: windowCenter,
@@ -702,6 +710,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                        rescaleIntercept: rescaleIntercept,
                                        bitsAllocated: bitsAllocated,
                                        isSignedPixel: pixelRepresentation == 1,
+                                       patientName: patientName,
                                        seriesDescription: seriesDescription,
                                        modality: modality,
                                        windowCenter: windowCenter,

@@ -99,6 +99,7 @@ public struct DicomDecodedSeries: Sendable {
     public let origin: SIMD3<Double>
     public let modalityIntensityRange: ClosedRange<Int32>
     public let recommendedWindow: ClosedRange<Int32>?
+    public let patientName: String
     public let modality: String
     public let seriesDescription: String
     public let studyInstanceUID: String?
@@ -121,6 +122,7 @@ public struct DicomDecodedSeries: Sendable {
                 origin: SIMD3<Double>,
                 modalityIntensityRange: ClosedRange<Int32>,
                 recommendedWindow: ClosedRange<Int32>?,
+                patientName: String = "",
                 modality: String,
                 seriesDescription: String,
                 studyInstanceUID: String?,
@@ -142,6 +144,7 @@ public struct DicomDecodedSeries: Sendable {
         self.origin = origin
         self.modalityIntensityRange = modalityIntensityRange
         self.recommendedWindow = recommendedWindow
+        self.patientName = patientName
         self.modality = modality
         self.seriesDescription = seriesDescription
         self.studyInstanceUID = studyInstanceUID
@@ -311,6 +314,7 @@ private extension DicomDecodedSeries {
             origin: volume.origin,
             modalityIntensityRange: conversion.range,
             recommendedWindow: window.recommendedWindow,
+            patientName: volume.patientName,
             modality: volume.modality,
             seriesDescription: volume.seriesDescription,
             studyInstanceUID: volume.studyInstanceUID,
