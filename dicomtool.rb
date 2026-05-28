@@ -5,7 +5,7 @@ class Dicomtool < Formula
   url "https://github.com/ThalesMMS/DICOM-Decoder/archive/refs/tags/1.0.1.tar.gz"
   # To obtain SHA256, run: curl -sL "https://github.com/ThalesMMS/DICOM-Decoder/archive/refs/tags/1.0.1.tar.gz" | shasum -a 256
   sha256 "d5480b7608ef33b79d8c45110b8a6316e9f78ebe40e6977da7a3ddebad38d114"
-  license "MIT"
+  license "Apache-2.0"
   head "https://github.com/ThalesMMS/DICOM-Decoder.git", branch: "main"
 
   depends_on xcode: ["14.0", :build]

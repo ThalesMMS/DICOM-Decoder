@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/Swift-5.9+-orange.svg" />
   <img src="https://img.shields.io/badge/iOS-13.0+-blue.svg" />
   <img src="https://img.shields.io/badge/macOS-12.0+-blue.svg" />
-  <img src="https://img.shields.io/badge/license-MIT-green.svg" />
+  <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" />
   <br/>
   <img src="https://github.com/ThalesMMS/DICOM-Decoder/actions/workflows/tests.yml/badge.svg" alt="Tests" />
 </p>
@@ -1412,16 +1412,7 @@ Contributions are welcome.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
-
-```
-MIT License
-
-Copyright (c) 2024 ThalesMMS
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software...
-```
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
 
 ---
 
