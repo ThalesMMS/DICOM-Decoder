@@ -102,6 +102,7 @@ public struct DicomDecodedSeries: Sendable {
     public let patientName: String
     public let modality: String
     public let seriesDescription: String
+    public let studyDescription: String?
     public let studyInstanceUID: String?
     public let seriesInstanceUID: String?
     public let frameOfReferenceUID: String?
@@ -109,7 +110,10 @@ public struct DicomDecodedSeries: Sendable {
     public let rescaleIntercept: Double
     public let windowCenter: Double?
     public let windowWidth: Double?
+    public let quantitativeValueProfile: DicomQuantitativeValueProfile
     public let sourceURL: URL
+    public let imageInstances: [DicomSeriesImageInstance]
+    public let keyObjectSelectionDocuments: [DicomSRDocument]
     public let warnings: [DicomDecodedSeriesWarning]
 
     public init(rawVoxels: Data,
@@ -125,6 +129,7 @@ public struct DicomDecodedSeries: Sendable {
                 patientName: String = "",
                 modality: String,
                 seriesDescription: String,
+                studyDescription: String? = nil,
                 studyInstanceUID: String?,
                 seriesInstanceUID: String?,
                 frameOfReferenceUID: String?,
@@ -132,7 +137,10 @@ public struct DicomDecodedSeries: Sendable {
                 rescaleIntercept: Double,
                 windowCenter: Double?,
                 windowWidth: Double?,
+                quantitativeValueProfile: DicomQuantitativeValueProfile = .empty,
                 sourceURL: URL,
+                imageInstances: [DicomSeriesImageInstance] = [],
+                keyObjectSelectionDocuments: [DicomSRDocument] = [],
                 warnings: [DicomDecodedSeriesWarning]) {
         self.rawVoxels = rawVoxels
         self.modalityVoxels = modalityVoxels
@@ -147,6 +155,7 @@ public struct DicomDecodedSeries: Sendable {
         self.patientName = patientName
         self.modality = modality
         self.seriesDescription = seriesDescription
+        self.studyDescription = studyDescription
         self.studyInstanceUID = studyInstanceUID
         self.seriesInstanceUID = seriesInstanceUID
         self.frameOfReferenceUID = frameOfReferenceUID
@@ -154,7 +163,10 @@ public struct DicomDecodedSeries: Sendable {
         self.rescaleIntercept = rescaleIntercept
         self.windowCenter = windowCenter
         self.windowWidth = windowWidth
+        self.quantitativeValueProfile = quantitativeValueProfile
         self.sourceURL = sourceURL
+        self.imageInstances = imageInstances
+        self.keyObjectSelectionDocuments = keyObjectSelectionDocuments
         self.warnings = warnings
     }
 }
@@ -184,7 +196,11 @@ public extension DicomSeriesLoader {
             _ = sliceData
         }
 
-        return try DicomDecodedSeries(volume: volume, sourceURL: prepared.sourceURL)
+        return try DicomDecodedSeries(
+            volume: volume,
+            sourceURL: prepared.sourceURL,
+            keyObjectSelectionDocuments: keyObjectSelectionDocuments(in: prepared.directory)
+        )
     }
 }
 
@@ -195,6 +211,14 @@ private struct PreparedSeriesDirectory {
 }
 
 private extension DicomSeriesLoader {
+    func keyObjectSelectionDocuments(in directory: URL) -> [DicomSRDocument] {
+        guard let urls = try? listDicomFiles(in: directory) else { return [] }
+        return urls.compactMap { url in
+            guard let decoder = try? DCMDecoder(contentsOf: url) else { return nil }
+            return decoder.keyObjectSelection
+        }
+    }
+
     func prepareDirectory(from source: DicomSeriesSource) throws -> PreparedSeriesDirectory {
         switch source {
         case .directory(let url):
@@ -285,8 +309,10 @@ private extension DicomSeriesLoader {
     }
 }
 
-private extension DicomDecodedSeries {
-    init(volume: DicomSeriesVolume, sourceURL: URL) throws {
+extension DicomDecodedSeries {
+    public init(volume: DicomSeriesVolume,
+                sourceURL: URL,
+                keyObjectSelectionDocuments: [DicomSRDocument] = []) throws {
         let representation: DicomPixelRepresentation = volume.isSignedPixel ? .signedInt16 : .unsignedInt16
         let conversion = try Self.makeModalityVoxels(
             rawVoxels: volume.voxels,
@@ -317,6 +343,7 @@ private extension DicomDecodedSeries {
             patientName: volume.patientName,
             modality: volume.modality,
             seriesDescription: volume.seriesDescription,
+            studyDescription: volume.studyDescription,
             studyInstanceUID: volume.studyInstanceUID,
             seriesInstanceUID: volume.seriesInstanceUID,
             frameOfReferenceUID: volume.frameOfReferenceUID,
@@ -324,17 +351,20 @@ private extension DicomDecodedSeries {
             rescaleIntercept: volume.rescaleIntercept,
             windowCenter: volume.windowCenter,
             windowWidth: volume.windowWidth,
+            quantitativeValueProfile: volume.quantitativeValueProfile,
             sourceURL: sourceURL,
+            imageInstances: volume.imageInstances,
+            keyObjectSelectionDocuments: keyObjectSelectionDocuments,
             warnings: window.warnings
         )
     }
 
-    static func makeModalityVoxels(rawVoxels: Data,
-                                   voxelCount: Int,
-                                   representation: DicomPixelRepresentation,
-                                   slope: Double,
-                                   intercept: Double,
-                                   sourceURL: URL) throws -> (data: Data, range: ClosedRange<Int32>) {
+    private static func makeModalityVoxels(rawVoxels: Data,
+                                           voxelCount: Int,
+                                           representation: DicomPixelRepresentation,
+                                           slope: Double,
+                                           intercept: Double,
+                                           sourceURL: URL) throws -> (data: Data, range: ClosedRange<Int32>) {
         let expectedBytes = voxelCount * MemoryLayout<Int16>.size
         guard rawVoxels.count == expectedBytes else {
             throw DicomSeriesLoaderError.failedToDecode(sourceURL)
@@ -379,19 +409,19 @@ private extension DicomDecodedSeries {
         return (converted, minimum...maximum)
     }
 
-    static func convertedModalityValue(raw: Double,
-                                       slope: Double,
-                                       intercept: Double) -> (int16: Int16, int32: Int32) {
+    private static func convertedModalityValue(raw: Double,
+                                               slope: Double,
+                                               intercept: Double) -> (int16: Int16, int32: Int32) {
         let rounded = lround(raw * slope + intercept)
         let clamped = max(Int(Int16.min), min(Int(Int16.max), rounded))
         return (Int16(clamped), Int32(clamped))
     }
 
-    static func recommendedWindow(center: Double?,
-                                  width: Double?,
-                                  modality: String,
-                                  intensityRange: ClosedRange<Int32>) -> (recommendedWindow: ClosedRange<Int32>?,
-                                                                          warnings: [DicomDecodedSeriesWarning]) {
+    private static func recommendedWindow(center: Double?,
+                                          width: Double?,
+                                          modality: String,
+                                          intensityRange: ClosedRange<Int32>) -> (recommendedWindow: ClosedRange<Int32>?,
+                                                                                  warnings: [DicomDecodedSeriesWarning]) {
         if let center, let width {
             let bounds = windowBounds(width: width, center: center)
             return (Int32(floor(bounds.lower))...Int32(ceil(bounds.upper)), [])
@@ -416,7 +446,7 @@ private extension DicomDecodedSeries {
         ])
     }
 
-    static func windowBounds(width: Double, center: Double) -> (lower: Double, upper: Double) {
+    private static func windowBounds(width: Double, center: Double) -> (lower: Double, upper: Double) {
         let clampedWidth = max(width, 1)
         let halfSpan = (clampedWidth - 1) * 0.5
         return (center - 0.5 - halfSpan, center - 0.5 + halfSpan)

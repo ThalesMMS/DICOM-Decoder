@@ -18,7 +18,7 @@ import DicomCore
 /// `dicomtool` provides developer-friendly commands for working with DICOM medical imaging files:
 /// - Inspect metadata and patient information
 /// - Validate DICOM conformance
-/// - Extract pixel data to PNG/TIFF with windowing
+/// - Extract pixel data to PNG/JPEG/TIFF with windowing
 /// - Batch process directories with glob patterns
 ///
 /// ## Usage

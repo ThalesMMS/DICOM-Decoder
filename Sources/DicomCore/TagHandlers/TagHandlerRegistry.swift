@@ -59,6 +59,7 @@ private typealias Tag = DicomTag
 /// **Registered Handlers:**
 ///
 /// - TransferSyntaxTagHandler: Transfer Syntax UID (0002,0010)
+/// - SpecificCharacterSetTagHandler: Specific Character Set (0008,0005)
 /// - ImageDimensionTagHandler: Rows, Columns, Bits Allocated
 /// - PixelInterpretationTagHandler: Samples per Pixel, Photometric Interpretation, Pixel Representation, Planar Configuration
 /// - WindowingTagHandler: Window Center, Window Width
@@ -89,6 +90,10 @@ internal final class TagHandlerRegistry {
         // Register Transfer Syntax handler
         let transferSyntaxHandler = TransferSyntaxTagHandler()
         registry[Tag.transferSyntaxUID.rawValue] = transferSyntaxHandler
+
+        // Register Specific Character Set handler
+        let specificCharacterSetHandler = SpecificCharacterSetTagHandler()
+        registry[Tag.specificCharacterSet.rawValue] = specificCharacterSetHandler
 
         // Register Image Dimension handler
         let imageDimensionHandler = ImageDimensionTagHandler()
@@ -126,6 +131,9 @@ internal final class TagHandlerRegistry {
 
         // Register Palette handler
         let paletteHandler = PaletteTagHandler()
+        registry[Tag.redPaletteDescriptor.rawValue] = paletteHandler
+        registry[Tag.greenPaletteDescriptor.rawValue] = paletteHandler
+        registry[Tag.bluePaletteDescriptor.rawValue] = paletteHandler
         registry[Tag.redPalette.rawValue] = paletteHandler
         registry[Tag.greenPalette.rawValue] = paletteHandler
         registry[Tag.bluePalette.rawValue] = paletteHandler

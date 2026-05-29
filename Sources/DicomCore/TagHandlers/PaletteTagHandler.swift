@@ -1,17 +1,14 @@
 //
 //  PaletteTagHandler.swift
 //
-//  Handler for DICOM palette color lookup table tags: Red Palette
-//  (0028,1201), Green Palette (0028,1202), and Blue Palette
-//  (0028,1203).  These tags define color lookup tables (LUTs) for
-//  converting grayscale pixel values to RGB color values in
-//  PALETTE COLOR images.
+//  Handler for DICOM palette color lookup table descriptor and data tags.
+//  These tags define color lookup tables (LUTs) for converting grayscale
+//  pixel values to RGB color values in PALETTE COLOR images.
 //
 //  Supported Tags:
 //
-//  - Red Palette Color Lookup Table Data (0028,1201)
-//  - Green Palette Color Lookup Table Data (0028,1202)
-//  - Blue Palette Color Lookup Table Data (0028,1203)
+//  - Red/Green/Blue Palette Color Lookup Table Descriptor (0028,1101-1103)
+//  - Red/Green/Blue Palette Color Lookup Table Data (0028,1201-1203)
 //
 //  PALETTE COLOR Images:
 //
@@ -20,9 +17,9 @@
 //  lookup tables rather than direct RGB values.  The palette tags
 //  store the red, green, and blue intensity mappings.
 //
-//  Each LUT is stored as a sequence of 16-bit values, but only the
-//  high 8 bits are used for display (low 8 bits are discarded).
-//  The `readLUT()` method automatically performs this conversion.
+//  LUT data is stored as 8-bit or 16-bit entries according to the descriptor.
+//  Display output uses 8-bit values, preserving 8-bit LUT entries directly and
+//  using the high byte of 16-bit entries.
 //
 //  Color Mapping:
 //
@@ -60,7 +57,7 @@ private typealias Tag = DicomTag
 ///
 /// 1. Determines which palette tag is being processed
 /// 2. Gets the element length from the tag parser
-/// 3. Calls `reader.readLUT()` to read and convert the 16-bit LUT to 8-bit
+/// 3. Reads the LUT descriptor or data payload
 /// 4. If successful, updates the corresponding context property:
 ///    - Red Palette → `context.reds`
 ///    - Green Palette → `context.greens`
@@ -106,34 +103,118 @@ internal final class PaletteTagHandler: TagHandler {
         addInfo: (Int, String?) -> Void,
         addInfoInt: (Int, Int) -> Void
     ) -> Bool {
-        // Get element length from parser
         let elementLength = parser.currentElementLength
 
-        // Read lookup table from DICOM stream (converts 16-bit to 8-bit)
-        if let table = reader.readLUT(length: elementLength, location: &location) {
-            // Update the appropriate context property based on tag type
+        switch tag {
+        case Tag.redPaletteDescriptor.rawValue,
+             Tag.greenPaletteDescriptor.rawValue,
+             Tag.bluePaletteDescriptor.rawValue:
+            let descriptor = readDescriptor(reader: reader, length: elementLength, location: &location)
             switch tag {
-            case Tag.redPalette.rawValue:
-                context.reds = table
-                addInfoInt(tag, table.count)
-
-            case Tag.greenPalette.rawValue:
-                context.greens = table
-                addInfoInt(tag, table.count)
-
-            case Tag.bluePalette.rawValue:
-                context.blues = table
-                addInfoInt(tag, table.count)
-
+            case Tag.redPaletteDescriptor.rawValue:
+                context.redPaletteDescriptor = descriptor
+            case Tag.greenPaletteDescriptor.rawValue:
+                context.greenPaletteDescriptor = descriptor
+            case Tag.bluePaletteDescriptor.rawValue:
+                context.bluePaletteDescriptor = descriptor
             default:
-                // Should not reach here if registry is configured correctly
                 break
             }
-        }
-        // If readLUT returns nil, the location is already advanced
-        // and we silently skip this palette (graceful degradation)
+            addInfo(tag, descriptor.map {
+                "\($0.storedEntryCount)\\\($0.firstMappedValue)\\\($0.bitsPerEntry)"
+            } ?? "")
 
-        // Continue processing subsequent tags
+        case Tag.redPalette.rawValue,
+             Tag.greenPalette.rawValue,
+             Tag.bluePalette.rawValue:
+            let descriptor = descriptor(for: tag, context: context)
+            if let table = readPaletteData(
+                reader: reader,
+                length: elementLength,
+                descriptor: descriptor,
+                location: &location
+            ) {
+                switch tag {
+                case Tag.redPalette.rawValue:
+                    context.reds = table
+                    addInfoInt(tag, table.count)
+                case Tag.greenPalette.rawValue:
+                    context.greens = table
+                    addInfoInt(tag, table.count)
+                case Tag.bluePalette.rawValue:
+                    context.blues = table
+                    addInfoInt(tag, table.count)
+                default:
+                    break
+                }
+            }
+
+        default:
+            location += elementLength
+        }
+
         return true
+    }
+
+    private func readDescriptor(
+        reader: DCMBinaryReader,
+        length: Int,
+        location: inout Int
+    ) -> DicomLUTDescriptor? {
+        guard length >= 6 else {
+            location += length
+            return nil
+        }
+
+        let start = location
+        let storedEntryCount = Int(reader.readShort(location: &location))
+        let firstMappedValue = Int(reader.readShort(location: &location))
+        let bitsPerEntry = Int(reader.readShort(location: &location))
+        if length > location - start {
+            location += length - (location - start)
+        }
+
+        return DicomLUTDescriptor(
+            storedEntryCount: storedEntryCount,
+            firstMappedValue: firstMappedValue,
+            bitsPerEntry: bitsPerEntry
+        )
+    }
+
+    private func descriptor(for tag: Int, context: DecoderContext) -> DicomLUTDescriptor? {
+        switch tag {
+        case Tag.redPalette.rawValue:
+            return context.redPaletteDescriptor
+        case Tag.greenPalette.rawValue:
+            return context.greenPaletteDescriptor
+        case Tag.bluePalette.rawValue:
+            return context.bluePaletteDescriptor
+        default:
+            return nil
+        }
+    }
+
+    private func readPaletteData(
+        reader: DCMBinaryReader,
+        length: Int,
+        descriptor: DicomLUTDescriptor?,
+        location: inout Int
+    ) -> [UInt8]? {
+        guard let descriptor else {
+            return reader.readLUT(length: length, location: &location)
+        }
+
+        if descriptor.bitsPerEntry <= 8 {
+            var table: [UInt8] = []
+            table.reserveCapacity(min(length, descriptor.entryCount))
+            for _ in 0..<length {
+                table.append(reader.readByte(location: &location))
+            }
+            return Array(table.prefix(descriptor.entryCount))
+        }
+
+        return reader.readLUT(length: length, location: &location).map {
+            Array($0.prefix(descriptor.entryCount))
+        }
     }
 }

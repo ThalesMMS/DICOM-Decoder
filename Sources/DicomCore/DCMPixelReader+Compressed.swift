@@ -8,6 +8,120 @@ import Foundation
 import CoreGraphics
 import ImageIO
 
+internal enum DicomCompressedPixelBackend: Equatable {
+    case nativeJPEGLossless
+    case nativeRLELossless
+    case nativeJPEGLS
+    case imageIOJPEGBaseline
+    case imageIOJPEGExtended
+    case imageIOJPEG2000
+    case openJPEG2000
+    case legacyImageIO
+    case unsupported
+}
+
+internal struct DicomCompressedPixelBackendDecision: Equatable {
+    let backend: DicomCompressedPixelBackend
+    let diagnostics: [String]
+}
+
+internal enum DicomCompressedPixelBackendResolver {
+    static func resolve(
+        transferSyntax: DicomTransferSyntax?,
+        requestedBitDepth: Int?,
+        samplesPerPixel: Int?
+    ) -> DicomCompressedPixelBackendDecision {
+        guard let transferSyntax else {
+            return DicomCompressedPixelBackendDecision(backend: .legacyImageIO, diagnostics: [])
+        }
+
+        switch transferSyntax {
+        case .rleLossless:
+            return DicomCompressedPixelBackendDecision(backend: .nativeRLELossless, diagnostics: [])
+        case .jpegLSLossless, .jpegLSNearLossless:
+            return DicomCompressedPixelBackendDecision(backend: .nativeJPEGLS, diagnostics: [])
+        case .jpegLossless, .jpegLosslessFirstOrder:
+            return DicomCompressedPixelBackendDecision(backend: .nativeJPEGLossless, diagnostics: [])
+        case .jpegBaseline:
+            if let requestedBitDepth, requestedBitDepth > 8 {
+                return unsupported(
+                    "JPEG Baseline (Process 1) is limited to 8-bit output; refusing \(requestedBitDepth)-bit decode to avoid precision loss."
+                )
+            }
+            return DicomCompressedPixelBackendDecision(backend: .imageIOJPEGBaseline, diagnostics: [])
+        case .jpegExtended:
+            guard let requestedBitDepth else {
+                return unsupported(
+                    "JPEG Extended (Process 2 and 4) decode requires DICOM bit-depth metadata before using ImageIO."
+                )
+            }
+            if requestedBitDepth > 8 {
+                return unsupported(
+                    "JPEG Extended 12-bit output has no precision-preserving backend in this build; refusing ImageIO fallback."
+                )
+            }
+            return DicomCompressedPixelBackendDecision(backend: .imageIOJPEGExtended, diagnostics: [])
+        case .jpeg2000Lossless, .jpeg2000:
+            if let requestedBitDepth, requestedBitDepth > 16 {
+                return unsupported(
+                    "JPEG 2000 \(requestedBitDepth)-bit output exceeds the supported 16-bit grayscale backend path."
+                )
+            }
+            if let samplesPerPixel, samplesPerPixel > 1, let requestedBitDepth, requestedBitDepth > 8 {
+                return unsupported(
+                    "JPEG 2000 color output above 8 bits per component has no precision-preserving backend path."
+                )
+            }
+            if DicomJPEG2000Codec.isAvailable {
+                return DicomCompressedPixelBackendDecision(backend: .openJPEG2000, diagnostics: [])
+            }
+            if let requestedBitDepth, requestedBitDepth > 8 {
+                return unsupported(
+                    "JPEG 2000 >8-bit output requires the OpenJPEG runtime library; refusing ImageIO fallback."
+                )
+            }
+            return DicomCompressedPixelBackendDecision(backend: .imageIOJPEG2000, diagnostics: [])
+        case .jpeg2000Part2MulticomponentLossless, .jpeg2000Part2Multicomponent:
+            return unsupported(
+                "\(transferSyntax.registryEntry.name) stores frames as a multi-component volume; use DicomJP3DVolumeDocument to decode the volume buffer."
+            )
+        case .jpipReferenced, .jpipReferencedDeflate:
+            return unsupported(
+                "\(transferSyntax.registryEntry.name) references remote pixel data; use DicomJPIPClient to stream progressive updates."
+            )
+        case .mpeg2MainProfileMainLevel,
+             .mpeg2MainProfileMainLevelFragmentable,
+             .mpeg2MainProfileHighLevel,
+             .mpeg2MainProfileHighLevelFragmentable,
+             .mpeg4AVCH264HighProfileLevel41,
+             .mpeg4AVCH264HighProfileLevel41Fragmentable,
+             .mpeg4AVCH264BDCompatibleHighProfileLevel41,
+             .mpeg4AVCH264BDCompatibleHighProfileLevel41Fragmentable,
+             .mpeg4AVCH264HighProfileLevel42For2DVideo,
+             .mpeg4AVCH264HighProfileLevel42For2DVideoFragmentable,
+             .mpeg4AVCH264HighProfileLevel42For3DVideo,
+             .mpeg4AVCH264HighProfileLevel42For3DVideoFragmentable,
+             .mpeg4AVCH264StereoHighProfileLevel42,
+             .mpeg4AVCH264StereoHighProfileLevel42Fragmentable,
+             .hevcH265MainProfileLevel51,
+             .hevcH265Main10ProfileLevel51:
+            return unsupported(
+                "\(transferSyntax.registryEntry.name) stores an encoded video stream; use DicomVideo to forward it to a video player."
+            )
+        case .htj2kLossless, .htj2kLosslessRPCL, .htj2k:
+            return unsupported(
+                "\(transferSyntax.registryEntry.name) requires an HTJ2K backend; ImageIO JPEG 2000 fallback is not used for HTJ2K."
+            )
+        case .implicitVRLittleEndian, .explicitVRLittleEndian, .deflatedExplicitVRLittleEndian, .explicitVRBigEndian:
+            return unsupported("Transfer syntax \(transferSyntax.rawValue) is not compressed.")
+        }
+    }
+
+    private static func unsupported(_ diagnostic: String) -> DicomCompressedPixelBackendDecision {
+        DicomCompressedPixelBackendDecision(backend: .unsupported, diagnostics: [diagnostic])
+    }
+}
+
 extension DCMPixelReader {
 
     /// Decode compressed image bytes starting at `offset` and produce a `DCMPixelReadResult`.
@@ -22,7 +136,13 @@ extension DCMPixelReader {
     internal static func decodeCompressedPixelData(
         data: Data,
         offset: Int,
+        transferSyntax: DicomTransferSyntax? = nil,
+        width: Int? = nil,
+        height: Int? = nil,
+        bitDepth: Int? = nil,
+        samplesPerPixel: Int? = nil,
         pixelRepresentation: Int = 0,
+        photometricInterpretation: String = "MONOCHROME2",
         logger: LoggerProtocol? = nil
     ) -> DCMPixelReadResult? {
         guard offset > 0, offset <= data.count else {
@@ -31,31 +151,165 @@ extension DCMPixelReader {
         }
 
         let compressedData = data.subdata(in: offset..<data.count)
-        let signedImage = pixelRepresentation == 1
+        return decodeCompressedFrameData(
+            data: compressedData,
+            transferSyntax: transferSyntax,
+            width: width,
+            height: height,
+            bitDepth: bitDepth,
+            samplesPerPixel: samplesPerPixel,
+            pixelRepresentation: pixelRepresentation,
+            photometricInterpretation: photometricInterpretation,
+            logger: logger
+        )
+    }
 
-        if compressedData.count >= 2,
-           compressedData[0] == 0xFF,
-           compressedData[1] == 0xD8,
-           isJPEGLossless(data: compressedData) {
-            let decoder = JPEGLosslessDecoder()
-            do {
-                let losslessResult = try decoder.decode(data: compressedData)
-                return DCMPixelReadResult(
-                    pixels8: nil,
-                    pixels16: losslessResult.pixels,
-                    pixels24: nil,
-                    signedImage: signedImage,
-                    width: losslessResult.width,
-                    height: losslessResult.height,
-                    bitDepth: losslessResult.bitDepth,
-                    samplesPerPixel: 1
-                )
-            } catch {
-                logger?.warning("JPEG Lossless decoding failed: \(error)")
+    internal static func decodeCompressedFrameData(
+        data compressedData: Data,
+        transferSyntax: DicomTransferSyntax? = nil,
+        width: Int? = nil,
+        height: Int? = nil,
+        bitDepth: Int? = nil,
+        samplesPerPixel: Int? = nil,
+        pixelRepresentation: Int = 0,
+        photometricInterpretation: String = "MONOCHROME2",
+        logger: LoggerProtocol? = nil
+    ) -> DCMPixelReadResult? {
+        let backendDecision = DicomCompressedPixelBackendResolver.resolve(
+            transferSyntax: transferSyntax,
+            requestedBitDepth: bitDepth,
+            samplesPerPixel: samplesPerPixel
+        )
+
+        switch backendDecision.backend {
+        case .nativeRLELossless:
+            guard let width, let height, let bitDepth, let samplesPerPixel else {
+                logger?.warning("RLE Lossless decode requires image dimensions, bit depth, and samples per pixel")
                 return nil
             }
+            do {
+                return try DicomRLELosslessDecoder.decode(
+                    frame: compressedData,
+                    width: width,
+                    height: height,
+                    bitsAllocated: bitDepth,
+                    samplesPerPixel: samplesPerPixel,
+                    pixelRepresentation: pixelRepresentation,
+                    photometricInterpretation: photometricInterpretation
+                )
+            } catch {
+                logger?.warning("RLE Lossless decoding failed: \(error)")
+                return nil
+            }
+
+        case .nativeJPEGLS:
+            do {
+                let decoded = try DicomJPEGLSCodec.decode(compressedData)
+                return makeResult(
+                    from: decoded,
+                    pixelRepresentation: pixelRepresentation,
+                    photometricInterpretation: photometricInterpretation
+                )
+            } catch {
+                logger?.warning("JPEG-LS decoding failed: \(error)")
+                return nil
+            }
+
+        case .nativeJPEGLossless:
+            return decodeJPEGLosslessFrame(
+                compressedData,
+                pixelRepresentation: pixelRepresentation,
+                photometricInterpretation: photometricInterpretation,
+                logger: logger
+            )
+
+        case .imageIOJPEGBaseline, .imageIOJPEGExtended, .imageIOJPEG2000:
+            return decodeImageIOFrame(
+                compressedData,
+                backend: backendDecision.backend,
+                requestedBitDepth: bitDepth,
+                pixelRepresentation: pixelRepresentation,
+                photometricInterpretation: photometricInterpretation,
+                logger: logger
+            )
+
+        case .openJPEG2000:
+            do {
+                let decoded = try DicomJPEG2000Codec.decode(compressedData)
+                return makeResult(
+                    bytes: decoded.bytes,
+                    width: decoded.width,
+                    height: decoded.height,
+                    bitsPerSample: decoded.bitsPerSample,
+                    componentCount: decoded.componentCount,
+                    pixelRepresentation: pixelRepresentation,
+                    photometricInterpretation: photometricInterpretation
+                )
+            } catch {
+                logger?.warning("JPEG 2000 decoding failed: \(error)")
+                return nil
+            }
+
+        case .legacyImageIO:
+            if isJPEGLosslessFrame(compressedData) {
+                return decodeJPEGLosslessFrame(
+                    compressedData,
+                    pixelRepresentation: pixelRepresentation,
+                    photometricInterpretation: photometricInterpretation,
+                    logger: logger
+                )
+            }
+            return decodeImageIOFrame(
+                compressedData,
+                backend: .legacyImageIO,
+                requestedBitDepth: bitDepth,
+                pixelRepresentation: pixelRepresentation,
+                photometricInterpretation: photometricInterpretation,
+                logger: logger
+            )
+
+        case .unsupported:
+            backendDecision.diagnostics.forEach { logger?.warning($0) }
+            return nil
+        }
+    }
+
+    private static func decodeJPEGLosslessFrame(
+        _ compressedData: Data,
+        pixelRepresentation: Int,
+        photometricInterpretation: String,
+        logger: LoggerProtocol?
+    ) -> DCMPixelReadResult? {
+        guard isJPEGLosslessFrame(compressedData) else {
+            logger?.warning("JPEG Lossless transfer syntax requires a JPEG Lossless SOF3 frame")
+            return nil
         }
 
+        let decoder = JPEGLosslessDecoder()
+        do {
+            let losslessResult = try decoder.decode(data: compressedData)
+            return makeGrayscaleResult(
+                pixels: losslessResult.pixels,
+                width: losslessResult.width,
+                height: losslessResult.height,
+                bitDepth: losslessResult.bitDepth,
+                pixelRepresentation: pixelRepresentation,
+                photometricInterpretation: photometricInterpretation
+            )
+        } catch {
+            logger?.warning("JPEG Lossless decoding failed: \(error)")
+            return nil
+        }
+    }
+
+    private static func decodeImageIOFrame(
+        _ compressedData: Data,
+        backend: DicomCompressedPixelBackend,
+        requestedBitDepth: Int?,
+        pixelRepresentation: Int,
+        photometricInterpretation: String,
+        logger: LoggerProtocol?
+    ) -> DCMPixelReadResult? {
         guard let source = CGImageSourceCreateWithData(compressedData as CFData, nil) else {
             logger?.warning("Failed to create image source from compressed data")
             return nil
@@ -70,8 +324,16 @@ extension DCMPixelReader {
         let bitDepth = cgImage.bitsPerComponent
         let samples = max(1, cgImage.bitsPerPixel / cgImage.bitsPerComponent)
         let samplesPerPixel = samples >= 3 ? 3 : 1
-        guard bitDepth <= 8 else {
-            logger?.warning("ImageIO fallback does not support >8-bit compressed output. Found \(bitDepth)-bit components")
+        if let requestedBitDepth, requestedBitDepth > 8, bitDepth <= 8 {
+            logger?.warning("ImageIO decoded \(bitDepth)-bit output for \(requestedBitDepth)-bit DICOM pixels; refusing precision-losing fallback")
+            return nil
+        }
+        if bitDepth > 16 {
+            logger?.warning("ImageIO decoded \(bitDepth)-bit output, but only 8-bit and 16-bit buffers are supported")
+            return nil
+        }
+        if bitDepth > 8 && samplesPerPixel != 1 {
+            logger?.warning("ImageIO \(backend) does not support >8-bit color output without precision loss")
             return nil
         }
 
@@ -79,7 +341,7 @@ extension DCMPixelReader {
             pixels8: nil,
             pixels16: nil,
             pixels24: nil,
-            signedImage: signedImage,
+            signedImage: pixelRepresentation == 1,
             width: width,
             height: height,
             bitDepth: bitDepth,
@@ -87,6 +349,16 @@ extension DCMPixelReader {
         )
 
         if samplesPerPixel == 1 {
+            if bitDepth > 8 {
+                return decodeImageIOGrayscale16(
+                    cgImage,
+                    requestedBitDepth: requestedBitDepth,
+                    pixelRepresentation: pixelRepresentation,
+                    photometricInterpretation: photometricInterpretation,
+                    logger: logger
+                )
+            }
+
             let colorSpace = CGColorSpaceCreateDeviceGray()
             let bytesPerRow = width
             guard let ctx = CGContext(
@@ -146,6 +418,219 @@ extension DCMPixelReader {
         return result
     }
 
+    private static func decodeImageIOGrayscale16(
+        _ cgImage: CGImage,
+        requestedBitDepth: Int?,
+        pixelRepresentation: Int,
+        photometricInterpretation: String,
+        logger: LoggerProtocol?
+    ) -> DCMPixelReadResult? {
+        let width = cgImage.width
+        let height = cgImage.height
+        let sampleCount = width * height
+        let bytesPerRow = width * MemoryLayout<UInt16>.size
+        var rawData = Data(count: sampleCount * MemoryLayout<UInt16>.size)
+        let colorSpace = CGColorSpaceCreateDeviceGray()
+        let bitmapInfo = CGImageAlphaInfo.none.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
+
+        let contextCreated = rawData.withUnsafeMutableBytes { rawBytes -> Bool in
+            guard let baseAddress = rawBytes.baseAddress,
+                  let ctx = CGContext(
+                      data: baseAddress,
+                      width: width,
+                      height: height,
+                      bitsPerComponent: 16,
+                      bytesPerRow: bytesPerRow,
+                      space: colorSpace,
+                      bitmapInfo: bitmapInfo
+                  ) else {
+                return false
+            }
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard contextCreated else {
+            logger?.warning("Failed to create 16-bit grayscale context")
+            return nil
+        }
+
+        var pixels = rawData.withUnsafeBytes { rawBytes -> [UInt16] in
+            let buffer = rawBytes.bindMemory(to: UInt16.self)
+            return buffer.prefix(sampleCount).map { UInt16(littleEndian: $0) }
+        }
+
+        if pixelRepresentation == 1 {
+            pixels = pixels.map { UInt16(Int(Int16(bitPattern: $0)) - Int(Int16.min)) }
+        }
+        if photometricInterpretation == "MONOCHROME1" {
+            if pixelRepresentation == 1 {
+                invertMonochrome1SignedVectorized(buffer: &pixels, count: sampleCount)
+            } else {
+                invertMonochrome1Vectorized(buffer: &pixels, count: sampleCount)
+            }
+        }
+
+        return DCMPixelReadResult(
+            pixels8: nil,
+            pixels16: pixels,
+            pixels24: nil,
+            signedImage: pixelRepresentation == 1,
+            width: width,
+            height: height,
+            bitDepth: requestedBitDepth ?? cgImage.bitsPerComponent,
+            samplesPerPixel: 1
+        )
+    }
+
+    private static func makeResult(
+        from frame: DicomJPEGLSCodec.DecodedFrame,
+        pixelRepresentation: Int,
+        photometricInterpretation: String
+    ) -> DCMPixelReadResult? {
+        makeResult(
+            bytes: frame.bytes,
+            width: frame.width,
+            height: frame.height,
+            bitsPerSample: frame.bitsPerSample,
+            componentCount: frame.componentCount,
+            pixelRepresentation: pixelRepresentation,
+            photometricInterpretation: photometricInterpretation
+        )
+    }
+
+    private static func makeResult(
+        bytes: Data,
+        width: Int,
+        height: Int,
+        bitsPerSample: Int,
+        componentCount: Int,
+        pixelRepresentation: Int,
+        photometricInterpretation: String
+    ) -> DCMPixelReadResult? {
+        let sampleCount = width * height
+        if componentCount == 1 {
+            if bitsPerSample <= 8 {
+                guard bytes.count >= sampleCount else { return nil }
+                var pixels = [UInt8](bytes.prefix(sampleCount))
+                if pixelRepresentation == 1 {
+                    pixels = pixels.map { UInt8(Int(Int8(bitPattern: $0)) - Int(Int8.min)) }
+                }
+                if photometricInterpretation == "MONOCHROME1" {
+                    pixels = pixels.map { 255 - $0 }
+                }
+                return DCMPixelReadResult(
+                    pixels8: pixels,
+                    pixels16: nil,
+                    pixels24: nil,
+                    signedImage: pixelRepresentation == 1,
+                    width: width,
+                    height: height,
+                    bitDepth: bitsPerSample,
+                    samplesPerPixel: 1
+                )
+            }
+
+            guard bitsPerSample <= 16, bytes.count >= sampleCount * 2 else {
+                return nil
+            }
+            var pixels = [UInt16](repeating: 0, count: sampleCount)
+            for index in 0..<sampleCount {
+                let byteIndex = index * 2
+                let sample = UInt16(bytes[byteIndex]) | (UInt16(bytes[byteIndex + 1]) << 8)
+                if pixelRepresentation == 1 {
+                    pixels[index] = UInt16(Int(Int16(bitPattern: sample)) - Int(Int16.min))
+                } else {
+                    pixels[index] = sample
+                }
+            }
+            if photometricInterpretation == "MONOCHROME1" {
+                if pixelRepresentation == 1 {
+                    invertMonochrome1SignedVectorized(buffer: &pixels, count: sampleCount)
+                } else {
+                    invertMonochrome1Vectorized(buffer: &pixels, count: sampleCount)
+                }
+            }
+            return DCMPixelReadResult(
+                pixels8: nil,
+                pixels16: pixels,
+                pixels24: nil,
+                signedImage: pixelRepresentation == 1,
+                width: width,
+                height: height,
+                bitDepth: bitsPerSample,
+                samplesPerPixel: 1
+            )
+        }
+
+        if componentCount == 3 && bitsPerSample <= 8 {
+            guard bytes.count >= sampleCount * 3 else { return nil }
+            return DCMPixelReadResult(
+                pixels8: nil,
+                pixels16: nil,
+                pixels24: [UInt8](bytes.prefix(sampleCount * 3)),
+                signedImage: false,
+                width: width,
+                height: height,
+                bitDepth: bitsPerSample,
+                samplesPerPixel: 3
+            )
+        }
+
+        return nil
+    }
+
+    private static func makeGrayscaleResult(
+        pixels sourcePixels: [UInt16],
+        width: Int,
+        height: Int,
+        bitDepth: Int,
+        pixelRepresentation: Int,
+        photometricInterpretation: String
+    ) -> DCMPixelReadResult {
+        let signedImage = pixelRepresentation == 1
+        if bitDepth <= 8 {
+            var pixels = sourcePixels.map { UInt8(truncatingIfNeeded: $0) }
+            if signedImage {
+                pixels = pixels.map { UInt8(Int(Int8(bitPattern: $0)) - Int(Int8.min)) }
+            }
+            if photometricInterpretation == "MONOCHROME1" {
+                pixels = pixels.map { 255 - $0 }
+            }
+            return DCMPixelReadResult(
+                pixels8: pixels,
+                pixels16: nil,
+                pixels24: nil,
+                signedImage: signedImage,
+                width: width,
+                height: height,
+                bitDepth: bitDepth,
+                samplesPerPixel: 1
+            )
+        }
+
+        var pixels = sourcePixels
+        if signedImage {
+            pixels = pixels.map { UInt16(Int(Int16(bitPattern: $0)) - Int(Int16.min)) }
+        }
+        if photometricInterpretation == "MONOCHROME1" {
+            if signedImage {
+                invertMonochrome1SignedVectorized(buffer: &pixels, count: pixels.count)
+            } else {
+                invertMonochrome1Vectorized(buffer: &pixels, count: pixels.count)
+            }
+        }
+        return DCMPixelReadResult(
+            pixels8: nil,
+            pixels16: pixels,
+            pixels24: nil,
+            signedImage: signedImage,
+            width: width,
+            height: height,
+            bitDepth: bitDepth,
+            samplesPerPixel: 1
+        )
+    }
+
     /// Detects whether JPEG data uses the Lossless (SOF3) encoding.
     /// 
     /// Scans JPEG markers starting at byte index 2 and returns `true` if a Start Of Frame 3 (marker `0xC3`) is encountered before the Start Of Scan marker (`0xDA`); returns `false` if the scan ends or `0xDA` is reached first.
@@ -178,5 +663,9 @@ extension DCMPixelReader {
         }
 
         return false
+    }
+
+    private static func isJPEGLosslessFrame(_ data: Data) -> Bool {
+        data.count >= 2 && data[0] == 0xFF && data[1] == 0xD8 && isJPEGLossless(data: data)
     }
 }

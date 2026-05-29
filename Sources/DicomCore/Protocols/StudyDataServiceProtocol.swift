@@ -50,6 +50,16 @@ public protocol StudyDataServiceProtocol {
     /// - Returns: Validated DICOM file paths sorted by path
     func scanDICOMFiles(in directoryPath: String) async throws -> [String]
 
+    /// Load a DICOMDIR file and return its patient/study/series hierarchy.
+    /// - Parameter filePath: Path to the DICOMDIR file
+    /// - Returns: Parsed media directory hierarchy
+    func loadDICOMDirectory(at filePath: String) throws -> DicomDirectory
+
+    /// Load `DICOMDIR` from a media directory without recursively scanning every file.
+    /// - Parameter directoryPath: Path to the media directory containing DICOMDIR
+    /// - Returns: Parsed media directory hierarchy
+    func loadDICOMDirectory(in directoryPath: String) throws -> DicomDirectory
+
     /// Recursively scan a directory and return metadata for decodable DICOM files.
     /// Implementations may combine validation and metadata extraction to avoid
     /// reopening files after discovery.

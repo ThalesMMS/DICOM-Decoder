@@ -29,6 +29,7 @@ public struct PlatformInfo: Codable {
     public let osVersion: String
     public let architecture: String
     public let processorCount: Int
+    public let physicalMemoryBytes: UInt64?
     public let modelIdentifier: String
 
     /// Initialize with current system information
@@ -49,6 +50,7 @@ public struct PlatformInfo: Codable {
 
         let processInfo = ProcessInfo.processInfo
         self.osVersion = processInfo.operatingSystemVersionString
+        self.physicalMemoryBytes = processInfo.physicalMemory
 
         #if arch(x86_64)
         self.architecture = "x86_64"
@@ -91,6 +93,7 @@ struct SerializableBenchmarkResult: Codable {
     let p99TimeSeconds: Double
     let coefficientOfVariation: Double
     let throughputPixelsPerSecond: Double?
+    let peakMemoryBytes: UInt64?
 
     /// Initialize from BenchmarkResult and type
     init(type: BenchmarkType, result: BenchmarkResult, config: BenchmarkConfig) {
@@ -105,6 +108,7 @@ struct SerializableBenchmarkResult: Codable {
         self.p95TimeSeconds = result.p95Time
         self.p99TimeSeconds = result.p99Time
         self.coefficientOfVariation = result.coefficientOfVariation
+        self.peakMemoryBytes = result.peakMemoryBytes
 
         // Calculate throughput for windowing operations
         if type == .windowingVDSP || type == .windowingMetal {
@@ -134,6 +138,7 @@ struct BenchmarkReport: Codable {
         let totalPixels: Int
         let windowCenter: Double
         let windowWidth: Double
+        let buildConfiguration: String?
 
         init(config: BenchmarkConfig) {
             self.warmupIterations = config.warmupIterations
@@ -143,6 +148,11 @@ struct BenchmarkReport: Codable {
             self.totalPixels = config.totalPixels
             self.windowCenter = config.windowCenter
             self.windowWidth = config.windowWidth
+            #if DEBUG
+            self.buildConfiguration = "debug"
+            #else
+            self.buildConfiguration = "release"
+            #endif
         }
     }
 }
@@ -224,6 +234,9 @@ public final class BenchmarkReporter {
         markdown.append("- **Platform**: \(platformInfo.operatingSystem) \(platformInfo.osVersion)")
         markdown.append("- **Architecture**: \(platformInfo.architecture)")
         markdown.append("- **Processor Count**: \(platformInfo.processorCount)")
+        if let physicalMemoryBytes = platformInfo.physicalMemoryBytes {
+            markdown.append("- **Physical Memory**: \(BenchmarkResult.formatBytes(physicalMemoryBytes))")
+        }
         markdown.append("- **Model**: \(platformInfo.modelIdentifier)")
         markdown.append("")
 
@@ -235,12 +248,13 @@ public final class BenchmarkReporter {
         markdown.append("- **Image Size**: \(config.imageWidth) × \(config.imageHeight) (\(config.totalPixels) pixels)")
         markdown.append("- **Window Center**: \(config.windowCenter)")
         markdown.append("- **Window Width**: \(config.windowWidth)")
+        markdown.append("- **Build Configuration**: \(BenchmarkReport.ReportConfiguration(config: config).buildConfiguration ?? "unknown")")
         markdown.append("")
 
         // Results table
         markdown.append("## Results\n")
-        markdown.append("| Operation | Iterations | Mean | Std Dev | Min | Max | P95 | P99 | CV |")
-        markdown.append("|-----------|------------|------|---------|-----|-----|-----|-----|----|")
+        markdown.append("| Operation | Iterations | Mean | Std Dev | Min | Max | P95 | P99 | CV | Peak Memory |")
+        markdown.append("|-----------|------------|------|---------|-----|-----|-----|-----|----|-------------|")
 
         // Sort results by operation name for consistent output
         let sortedTypes = BenchmarkType.allCases.filter { suiteResult.results[$0] != nil }
@@ -257,8 +271,9 @@ public final class BenchmarkReporter {
             let p95 = BenchmarkResult.formatMilliseconds(result.p95Time)
             let p99 = BenchmarkResult.formatMilliseconds(result.p99Time)
             let cv = String(format: "%.1f%%", result.coefficientOfVariation)
+            let peakMemory = result.peakMemoryBytes.map(BenchmarkResult.formatBytes) ?? "n/a"
 
-            markdown.append("| \(operation) | \(iterations) | \(mean) | \(stdDev) | \(min) | \(max) | \(p95) | \(p99) | \(cv) |")
+            markdown.append("| \(operation) | \(iterations) | \(mean) | \(stdDev) | \(min) | \(max) | \(p95) | \(p99) | \(cv) | \(peakMemory) |")
         }
 
         markdown.append("")

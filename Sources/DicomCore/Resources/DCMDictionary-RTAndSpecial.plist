@@ -2,6 +2,44 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>00620001</key>
+	<string>CSSegmentation Type</string>
+	<key>00620002</key>
+	<string>SQSegment Sequence</string>
+	<key>00620003</key>
+	<string>SQSegmented Property Category Code Sequence</string>
+	<key>00620004</key>
+	<string>USSegment Number</string>
+	<key>00620005</key>
+	<string>LOSegment Label</string>
+	<key>00620006</key>
+	<string>STSegment Description</string>
+	<key>00620008</key>
+	<string>CSSegment Algorithm Type</string>
+	<key>00620009</key>
+	<string>LOSegment Algorithm Name</string>
+	<key>0062000A</key>
+	<string>SQSegment Identification Sequence</string>
+	<key>0062000B</key>
+	<string>USReferenced Segment Number</string>
+	<key>0062000D</key>
+	<string>USRecommended Display CIELab Value</string>
+	<key>0062000E</key>
+	<string>USMaximum Fractional Value</string>
+	<key>0062000F</key>
+	<string>SQSegmented Property Type Code Sequence</string>
+	<key>00620010</key>
+	<string>CSSegmentation Fractional Type</string>
+	<key>00620020</key>
+	<string>LOTracking ID</string>
+	<key>00620021</key>
+	<string>UITracking UID</string>
+	<key>00700080</key>
+	<string>LOContent Label</string>
+	<key>00700081</key>
+	<string>STContent Description</string>
+	<key>00700084</key>
+	<string>PNContent Creator's Name</string>
 	<key>30020002</key>
 	<string>SHRT Image Label</string>
 	<key>30020003</key>
@@ -92,6 +130,108 @@
 	<string>DSDVH Maximum Dose</string>
 	<key>30040074</key>
 	<string>DSDVH Mean Dose</string>
+	<key>30060002</key>
+	<string>SHStructure Set Label</string>
+	<key>30060004</key>
+	<string>LOStructure Set Name</string>
+	<key>30060006</key>
+	<string>STStructure Set Description</string>
+	<key>30060010</key>
+	<string>SQReferenced Frame of Reference Sequence</string>
+	<key>30060012</key>
+	<string>SQRT Referenced Study Sequence</string>
+	<key>30060014</key>
+	<string>SQRT Referenced Series Sequence</string>
+	<key>30060016</key>
+	<string>SQContour Image Sequence</string>
+	<key>30060020</key>
+	<string>SQStructure Set ROI Sequence</string>
+	<key>30060022</key>
+	<string>ISROI Number</string>
+	<key>30060024</key>
+	<string>UIReferenced Frame of Reference UID</string>
+	<key>30060026</key>
+	<string>LOROI Name</string>
+	<key>30060028</key>
+	<string>STROI Description</string>
+	<key>3006002A</key>
+	<string>ISROI Display Color</string>
+	<key>30060036</key>
+	<string>CSROI Generation Algorithm</string>
+	<key>30060039</key>
+	<string>SQROI Contour Sequence</string>
+	<key>30060040</key>
+	<string>SQContour Sequence</string>
+	<key>30060042</key>
+	<string>CSContour Geometric Type</string>
+	<key>30060046</key>
+	<string>ISNumber of Contour Points</string>
+	<key>30060048</key>
+	<string>ISContour Number</string>
+	<key>30060050</key>
+	<string>DSContour Data</string>
+	<key>30060080</key>
+	<string>SQRT ROI Observations Sequence</string>
+	<key>30060082</key>
+	<string>ISObservation Number</string>
+	<key>30060084</key>
+	<string>ISReferenced ROI Number</string>
+	<key>30060085</key>
+	<string>SHROI Observation Label</string>
+	<key>300600A4</key>
+	<string>CSRT ROI Interpreted Type</string>
+	<key>300600A6</key>
+	<string>PNROI Interpreter</string>
+	<key>300A0002</key>
+	<string>SHRT Plan Label</string>
+	<key>300A0003</key>
+	<string>LORT Plan Name</string>
+	<key>300A0004</key>
+	<string>STRT Plan Description</string>
+	<key>300A000C</key>
+	<string>CSRT Plan Geometry</string>
+	<key>300A00B0</key>
+	<string>SQBeam Sequence</string>
+	<key>300A00B2</key>
+	<string>SHTreatment Machine Name</string>
+	<key>300A00B3</key>
+	<string>CSPrimary Dosimeter Unit</string>
+	<key>300A00B4</key>
+	<string>DSSource-Axis Distance</string>
+	<key>300A00C0</key>
+	<string>ISBeam Number</string>
+	<key>300A00C2</key>
+	<string>LOBeam Name</string>
+	<key>300A00C3</key>
+	<string>STBeam Description</string>
+	<key>300A00C4</key>
+	<string>CSBeam Type</string>
+	<key>300A00C6</key>
+	<string>CSRadiation Type</string>
+	<key>300A0110</key>
+	<string>ISNumber of Control Points</string>
+	<key>300A0111</key>
+	<string>SQControl Point Sequence</string>
+	<key>300A0112</key>
+	<string>ISControl Point Index</string>
+	<key>300A0114</key>
+	<string>DSNominal Beam Energy</string>
+	<key>300A011E</key>
+	<string>DSGantry Angle</string>
+	<key>300A0120</key>
+	<string>DSBeam Limiting Device Angle</string>
+	<key>300A0122</key>
+	<string>DSPatient Support Angle</string>
+	<key>300A0125</key>
+	<string>DSTable Top Eccentric Angle</string>
+	<key>300A012C</key>
+	<string>DSIsocenter Position</string>
+	<key>300A0134</key>
+	<string>DSCumulative Meterset Weight</string>
+	<key>7FE00008</key>
+	<string>OFFloat Pixel Data</string>
+	<key>7FE00009</key>
+	<string>ODDouble Float Pixel Data</string>
 	<key>7FE00010</key>
 	<string>OXPixel Data</string>
 	<key>FFFEE000</key>

@@ -33,10 +33,10 @@ final class BenchmarkReporterTests: XCTestCase {
         var results: [BenchmarkType: BenchmarkResult] = [:]
 
         do {
-            results[.lockOverhead] = try BenchmarkResult(timings: lockTimings)
-            results[.decoderInit] = try BenchmarkResult(timings: initTimings)
-            results[.windowingVDSP] = try BenchmarkResult(timings: vdspTimings)
-            results[.windowingMetal] = try BenchmarkResult(timings: metalTimings)
+            results[.lockOverhead] = try BenchmarkResult(timings: lockTimings, peakMemoryBytes: 16_777_216)
+            results[.decoderInit] = try BenchmarkResult(timings: initTimings, peakMemoryBytes: 16_777_216)
+            results[.windowingVDSP] = try BenchmarkResult(timings: vdspTimings, peakMemoryBytes: 33_554_432)
+            results[.windowingMetal] = try BenchmarkResult(timings: metalTimings, peakMemoryBytes: 41_943_040)
         } catch {
             XCTFail("Failed to create sample results: \(error)")
         }
@@ -70,6 +70,7 @@ final class BenchmarkReporterTests: XCTestCase {
         XCTAssertTrue(jsonString.contains("results"))
         XCTAssertTrue(jsonString.contains("meanTimeSeconds"))
         XCTAssertTrue(jsonString.contains("iterations"))
+        XCTAssertTrue(jsonString.contains("peakMemoryBytes"))
     }
 
     func testJSONContainsAllResults() throws {
@@ -96,6 +97,7 @@ final class BenchmarkReporterTests: XCTestCase {
         XCTAssertTrue(jsonString.contains("osVersion"))
         XCTAssertTrue(jsonString.contains("architecture"))
         XCTAssertTrue(jsonString.contains("processorCount"))
+        XCTAssertTrue(jsonString.contains("physicalMemoryBytes"))
     }
 
     func testJSONContainsConfiguration() throws {
@@ -110,6 +112,7 @@ final class BenchmarkReporterTests: XCTestCase {
         XCTAssertTrue(jsonString.contains("imageWidth"))
         XCTAssertTrue(jsonString.contains("imageHeight"))
         XCTAssertTrue(jsonString.contains("totalPixels"))
+        XCTAssertTrue(jsonString.contains("buildConfiguration"))
     }
 
     func testJSONContainsStatistics() throws {
@@ -187,8 +190,8 @@ final class BenchmarkReporterTests: XCTestCase {
         let markdown = reporter.generateMarkdown()
 
         // Verify results table structure
-        XCTAssertTrue(markdown.contains("| Operation | Iterations | Mean | Std Dev | Min | Max | P95 | P99 | CV |"))
-        XCTAssertTrue(markdown.contains("|-----------|------------|------|---------|-----|-----|-----|-----|----|"))
+        XCTAssertTrue(markdown.contains("| Operation | Iterations | Mean | Std Dev | Min | Max | P95 | P99 | CV | Peak Memory |"))
+        XCTAssertTrue(markdown.contains("|-----------|------------|------|---------|-----|-----|-----|-----|----|-------------|"))
 
         // Verify operation names in table
         XCTAssertTrue(markdown.contains("Lock Overhead"))

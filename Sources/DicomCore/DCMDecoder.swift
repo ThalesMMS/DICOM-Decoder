@@ -6,9 +6,9 @@
 //  extracts metadata and pixel data.  The decoder handles 8‑bit
 //  and 16‑bit grayscale images as well as 24‑bit RGB images
 //  (common for ultrasound).  Compressed transfer syntaxes including
-//  JPEG Lossless, JPEG Baseline, JPEG 2000, and JPEG‑LS are
-//  supported via native decoders and ImageIO fallback.  See the
-//  original Objective‑C code for a one‑to‑one algorithmic
+//  JPEG Lossless, RLE, JPEG Baseline, JPEG 2000, and JPEG‑LS are
+//  supported via native decoders, runtime codec bridges, and ImageIO
+//  fallback.  See the original Objective‑C code for a one‑to‑one algorithmic
 //  reference; this port emphasises clarity, safety and Swift
 //  idioms while maintaining the same public API.
 //
@@ -55,8 +55,8 @@ private typealias VR = DicomVR
 /// ``DCMDecoder`` parses DICOM files encoded with little or big endian explicit or implicit VR
 /// and extracts metadata and pixel data. The decoder handles 8-bit and 16-bit grayscale images
 /// as well as 24-bit RGB images (common for ultrasound). Compressed transfer syntaxes including
-/// JPEG Lossless, JPEG Baseline, JPEG 2000, and JPEG-LS are supported via native decoders
-/// and ImageIO fallback.
+/// JPEG Lossless, RLE, JPEG Baseline, JPEG 2000, and JPEG-LS are supported via native decoders,
+/// runtime codec bridges, and ImageIO fallback.
 ///
 /// The public API mirrors the original Objective-C implementation but uses Swift properties
 /// and modern error handling. Pixel buffers are returned as optional arrays and remain `nil`
@@ -318,8 +318,11 @@ public final class DCMDecoder: DicomDecoderProtocol, @unchecked Sendable {
     /// the 16‑bit LUT values.  Clients may combine these into
     /// colour images as desired.
     var reds: [UInt8]? = nil
+    var redPaletteDescriptor: DicomLUTDescriptor? = nil
     var greens: [UInt8]? = nil
+    var greenPaletteDescriptor: DicomLUTDescriptor? = nil
     var blues: [UInt8]? = nil
+    var bluePaletteDescriptor: DicomLUTDescriptor? = nil
 
     /// Buffers for pixel data.  Only one of these will be non‑nil
     /// depending on ``samplesPerPixel`` and ``bitDepth``.  Grayscale
@@ -343,6 +346,14 @@ public final class DCMDecoder: DicomDecoderProtocol, @unchecked Sendable {
     /// ``"---"`` indicating a private tag.  Clients should use
     /// ``info(for:)`` to extract the value portion cleanly.
     var dicomInfoDict: [Int: String] = [:]
+
+    /// Active character set for textual metadata.
+    var activeCharacterSet: DicomSpecificCharacterSet = .defaultCharacterSet
+
+    /// Specific Character Set terms declared by the loaded DICOM object.
+    public var specificCharacterSet: [String] {
+        synchronized { activeCharacterSet.definedTerms }
+    }
     
     /// OPTIMIZATION: Cache for frequently accessed parsed values to avoid string processing
     var cachedInfo: [Int: String] = [:]

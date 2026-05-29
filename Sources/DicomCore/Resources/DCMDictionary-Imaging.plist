@@ -76,6 +76,8 @@
 	<string>USGreen Palette Color Lookup Table Data</string>
 	<key>00281203</key>
 	<string>USBlue Palette Color Lookup Table Data</string>
+	<key>00282000</key>
+	<string>OBICC Profile</string>
 	<key>00282110</key>
 	<string>CSLossy Image Compression</string>
 	<key>00283000</key>
@@ -90,6 +92,8 @@
 	<string>USLUT Data</string>
 	<key>00283010</key>
 	<string>SQVOI LUT Sequence</string>
+	<key>00287FE0</key>
+	<string>URPixel Data Provider URL</string>
 	<key>0032000A</key>
 	<string>CSStudy Status ID</string>
 	<key>0032000C</key>
@@ -316,8 +320,80 @@
 	<string>LTImaging Service Request Comments</string>
 	<key>00403001</key>
 	<string>LOConfidentiality Constraint on Patient Data Description</string>
+	<key>003A0004</key>
+	<string>CSWaveform Originality</string>
+	<key>003A0005</key>
+	<string>USNumber of Waveform Channels</string>
+	<key>003A0010</key>
+	<string>ULNumber of Waveform Samples</string>
+	<key>003A001A</key>
+	<string>DSSampling Frequency</string>
+	<key>003A0020</key>
+	<string>SHMultiplex Group Label</string>
+	<key>003A0200</key>
+	<string>SQChannel Definition Sequence</string>
+	<key>003A0202</key>
+	<string>ISWaveform Channel Number</string>
+	<key>003A0203</key>
+	<string>SHChannel Label</string>
+	<key>003A0205</key>
+	<string>CSChannel Status</string>
+	<key>003A0208</key>
+	<string>SQChannel Source Sequence</string>
+	<key>003A0209</key>
+	<string>SQChannel Source Modifiers Sequence</string>
+	<key>003A020A</key>
+	<string>SQSource Waveform Sequence</string>
+	<key>003A020C</key>
+	<string>LOChannel Derivation Description</string>
+	<key>003A0210</key>
+	<string>DSChannel Sensitivity</string>
+	<key>003A0211</key>
+	<string>SQChannel Sensitivity Units Sequence</string>
+	<key>003A0212</key>
+	<string>DSChannel Sensitivity Correction Factor</string>
+	<key>003A0213</key>
+	<string>DSChannel Baseline</string>
+	<key>003A0214</key>
+	<string>DSChannel Time Skew</string>
+	<key>003A0215</key>
+	<string>DSChannel Sample Skew</string>
+	<key>003A0218</key>
+	<string>DSChannel Offset</string>
+	<key>003A021A</key>
+	<string>USWaveform Bits Stored</string>
+	<key>003A0220</key>
+	<string>DSFilter Low Frequency</string>
+	<key>003A0221</key>
+	<string>DSFilter High Frequency</string>
+	<key>003A0222</key>
+	<string>DSNotch Filter Frequency</string>
+	<key>003A0230</key>
+	<string>FLWaveform Data Display Scale</string>
+	<key>003A0240</key>
+	<string>SQWaveform Presentation Group Sequence</string>
 	<key>00408302</key>
 	<string>DSEntrance Dose in mGy</string>
+	<key>00409096</key>
+	<string>SQReal World Value Mapping Sequence</string>
+	<key>00409210</key>
+	<string>SHLUT Label</string>
+	<key>00409211</key>
+	<string>USReal World Value Last Value Mapped</string>
+	<key>00409212</key>
+	<string>FDReal World Value LUT Data</string>
+	<key>00409213</key>
+	<string>FDDouble Float Real World Value Last Value Mapped</string>
+	<key>00409214</key>
+	<string>FDDouble Float Real World Value First Value Mapped</string>
+	<key>00409216</key>
+	<string>USReal World Value First Value Mapped</string>
+	<key>00409220</key>
+	<string>SQQuantity Definition Sequence</string>
+	<key>00409224</key>
+	<string>FDReal World Value Intercept</string>
+	<key>00409225</key>
+	<string>FDReal World Value Slope</string>
 	<key>0040A010</key>
 	<string>CSRelationship Type</string>
 	<key>0040A027</key>
@@ -394,6 +470,18 @@
 	<string>SQIdentical Documents Sequence</string>
 	<key>0040A730</key>
 	<string>SQContent Sequence</string>
+	<key>00420010</key>
+	<string>STDocument Title</string>
+	<key>00420011</key>
+	<string>OBEncapsulated Document</string>
+	<key>00420012</key>
+	<string>LOMIME Type of Encapsulated Document</string>
+	<key>00420013</key>
+	<string>SQSource Instance Sequence</string>
+	<key>00420014</key>
+	<string>LOList of MIME Types</string>
+	<key>00420015</key>
+	<string>ULEncapsulated Document Length</string>
 	<key>0040B020</key>
 	<string>SQAnnotation Sequence</string>
 	<key>0040DB00</key>
@@ -410,6 +498,10 @@
 	<string>UITemplate Extension Creator UID</string>
 	<key>0040DB73</key>
 	<string>ULReferenced Content Item Identifier</string>
+	<key>00700022</key>
+	<string>FLGraphic Data</string>
+	<key>00700023</key>
+	<string>CSGraphic Type</string>
 	<key>00540011</key>
 	<string>USNumber of Energy Windows</string>
 	<key>00540012</key>
@@ -520,6 +612,8 @@
 	<string>CSCounts Source</string>
 	<key>00541004</key>
 	<string>CSReprojection Method</string>
+	<key>00541006</key>
+	<string>CSSUV Type</string>
 	<key>00541100</key>
 	<string>CSRandoms Correction Method</string>
 	<key>00541101</key>
@@ -566,6 +660,16 @@
 	<string>CSCounts Included</string>
 	<key>00541401</key>
 	<string>CSDead Time Correction Flag</string>
+	<key>54000100</key>
+	<string>SQWaveform Sequence</string>
+	<key>54001004</key>
+	<string>USWaveform Bits Allocated</string>
+	<key>54001006</key>
+	<string>CSWaveform Sample Interpretation</string>
+	<key>5400100A</key>
+	<string>OWWaveform Padding Value</string>
+	<key>54001010</key>
+	<string>OWWaveform Data</string>
 	<key>20300010</key>
 	<string>USAnnotationPosition</string>
 	<key>20300020</key>

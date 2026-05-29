@@ -52,7 +52,8 @@ final class DicomSeriesLoaderTests: XCTestCase {
             rescaleIntercept: -1024.0,
             bitsAllocated: 16,
             isSignedPixel: true,
-            seriesDescription: "Test Series"
+            seriesDescription: "Test Series",
+            studyDescription: "Test Study"
         )
 
         // Verify all properties
@@ -68,6 +69,7 @@ final class DicomSeriesLoaderTests: XCTestCase {
         XCTAssertEqual(volume.bitsAllocated, 16, "Bits allocated should match")
         XCTAssertTrue(volume.isSignedPixel, "Should be signed pixel")
         XCTAssertEqual(volume.seriesDescription, "Test Series", "Series description should match")
+        XCTAssertEqual(volume.studyDescription, "Test Study", "Study description should match")
         XCTAssertEqual(volume.modality, "", "Modality should default to unknown")
     }
 

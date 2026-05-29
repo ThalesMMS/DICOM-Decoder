@@ -4,7 +4,7 @@ Learn about DicomCore's architectural design, components, and design decisions.
 
 ## Overview
 
-DicomCore is built on a protocol-based architecture that prioritizes testability, maintainability, and performance. The library uses only Apple frameworks (Foundation, CoreGraphics, ImageIO, Accelerate, Metal) with zero external dependencies.
+DicomCore is built on a protocol-based architecture that prioritizes testability, maintainability, and performance. Core parsing uses Apple frameworks (Foundation, CoreGraphics, ImageIO, Accelerate, Metal); optional codec bridges load CharLS and OpenJPEG dynamically when those runtime libraries are available.
 
 ### Design Principles
 
@@ -456,9 +456,9 @@ if !rescale.isIdentity {
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────┐
-│                  Apple Frameworks                       │
+│          Frameworks and Optional Codec Runtimes          │
 │  Foundation • CoreGraphics • ImageIO •                 │
-│  Accelerate (vDSP) • Metal                             │
+│  Accelerate (vDSP) • Metal • CharLS • OpenJPEG          │
 └─────────────────────────────────────────────────────────┘
 ```
 

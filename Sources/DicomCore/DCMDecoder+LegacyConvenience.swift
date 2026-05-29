@@ -7,9 +7,9 @@ extension DCMDecoder {
         return samplesPerPixel == 1
     }
 
-    /// Quick check if this is a color/RGB image
+    /// Quick check if this is a color image
     public var isColorImage: Bool {
-        return samplesPerPixel == 3
+        samplesPerPixel == 3 || DicomPhotometricInterpretation(photometricInterpretation) == .paletteColor
     }
 
     /// Quick check if this is a multi-frame image

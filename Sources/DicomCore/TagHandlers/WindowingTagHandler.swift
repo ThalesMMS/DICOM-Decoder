@@ -51,10 +51,10 @@ private typealias Tag = DicomTag
 ///    - If backslash exists: takes the value after the first backslash
 ///    - If no backslash: uses the entire value
 /// 4. Converts the string to a Double (defaults to 0.0 if invalid)
-/// 5. Updates the corresponding context property:
+/// 5. Updates the corresponding context property with the legacy selected value:
 ///    - Window Center → `context.windowCenter`
 ///    - Window Width → `context.windowWidth`
-/// 6. Adds the string value to the metadata dictionary for client access
+/// 6. Adds the complete raw string value to the metadata dictionary for client access
 ///
 /// **Multiple Window Settings:**
 ///
@@ -114,29 +114,31 @@ internal final class WindowingTagHandler: TagHandler {
         // Get element length from parser
         let elementLength = parser.currentElementLength
 
-        // Read raw string value from DICOM stream
-        var valueString = reader.readString(length: elementLength, location: &location)
+        // Read raw string value from DICOM stream. Keep the complete multi-value
+        // string in metadata so higher-level VOI selection can pair alternatives.
+        let rawValueString = reader.readString(length: elementLength, location: &location)
+        var selectedValueString = rawValueString
 
         // Handle multiple values separated by backslash
         // If backslash present, take the value after the first backslash
-        if let index = valueString.firstIndex(of: "\\") {
-            valueString = String(valueString[valueString.index(after: index)...])
+        if let index = selectedValueString.firstIndex(of: "\\") {
+            selectedValueString = String(selectedValueString[selectedValueString.index(after: index)...])
         }
 
         // Convert string to Double, defaulting to 0.0 on failure
-        let doubleValue = Double(valueString) ?? 0.0
+        let doubleValue = Double(selectedValueString) ?? 0.0
 
         // Process based on specific tag type
         switch tag {
         case Tag.windowCenter.rawValue:
             // Update context with window center value
             context.windowCenter = doubleValue
-            addInfo(tag, valueString)
+            addInfo(tag, rawValueString)
 
         case Tag.windowWidth.rawValue:
             // Update context with window width value
             context.windowWidth = doubleValue
-            addInfo(tag, valueString)
+            addInfo(tag, rawValueString)
 
         default:
             // Should not reach here if registry is configured correctly

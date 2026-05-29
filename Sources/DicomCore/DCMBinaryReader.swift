@@ -50,34 +50,21 @@ internal final class DCMBinaryReader {
 
     // MARK: - Reading Methods
 
-    /// Reads a string of the specified length from the current
-    /// location, advancing the cursor.  The data is interpreted as
-    /// UTF‑8.  If the bytes do not form valid UTF‑8 the result
-    /// may contain replacement characters.  In the original
-    /// implementation a zero‑terminated C string was created; here
-    /// we simply decode a slice of the Data.
-    /// DICOM strings may contain NUL padding which is removed.
     internal func readString(length: Int, location: inout Int) -> String {
+        readString(length: length, location: &location, characterSet: .defaultCharacterSet)
+    }
+
+    /// Reads a DICOM text value and decodes it through the active Specific Character Set.
+    internal func readString(length: Int,
+                             location: inout Int,
+                             characterSet: DicomSpecificCharacterSet) -> String {
         guard length > 0, location + length <= data.count else {
             location += length
             return ""
         }
         let slice = data[location..<location + length]
         location += length
-
-        // Convert to string
-        var str = String(data: slice, encoding: .utf8) ?? ""
-
-        // Remove NUL characters and trim whitespace
-        // DICOM strings are often padded with NUL (0x00) or spaces
-        if let nullIndex = str.firstIndex(of: "\0") {
-            str = String(str[..<nullIndex])
-        }
-
-        // Trim trailing spaces (common in DICOM)
-        str = str.trimmingCharacters(in: .whitespaces)
-
-        return str
+        return characterSet.decode(Data(slice))
     }
 
     /// Reads a single byte from the current location and advances

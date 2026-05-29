@@ -4,7 +4,7 @@
 //  Pixel data extraction and decoding for DICOM files.
 //  This module handles reading uncompressed pixel buffers for 8‑bit,
 //  16‑bit, and 24‑bit RGB images, as well as decoding compressed
-//  transfer syntaxes using ImageIO.  Supports signed/unsigned pixel
+//  transfer syntaxes using explicit codec backends.  Supports signed/unsigned pixel
 //  representation, MONOCHROME1/MONOCHROME2 photometric interpretation,
 //  and memory-mapped optimization for large files.
 //

@@ -30,7 +30,8 @@ let package = Package(
                 .process("Resources")
             ],
             linkerSettings: [
-                .linkedFramework("Metal", .when(platforms: [.iOS, .macOS]))
+                .linkedFramework("Metal", .when(platforms: [.iOS, .macOS])),
+                .linkedLibrary("z")
             ]
         ),
         .executableTarget(

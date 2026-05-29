@@ -264,10 +264,13 @@ for dicomImage in seriesImages {
 - Supports 8-bit, 12-bit, and 16-bit precision
 - **Performance**: ~10-20ms for typical CT/MR slices
 
-**Fallback path (ImageIO):**
-- Single-frame JPEG/JPEG2000
+**Explicit compressed codec paths:**
+- JPEG Baseline 8-bit through ImageIO
+- JPEG 2000 up to 16-bit grayscale through OpenJPEG when available
+- JPEG 2000 8-bit ImageIO fallback when OpenJPEG is unavailable
+- JPEG 2000 Part 2 multi-component volume documents through OpenJPEG when available
 - **Performance**: Varies by image size and compression
-- **Limitation**: Multi-frame not supported
+- **Limitation**: The single-frame `DCMPixelReader` path does not decode JPEG 2000 Part 2 volumes; use `DicomJP3DVolumeDocument`
 
 ### Best Practices
 
@@ -281,7 +284,11 @@ case "1.2.840.10008.1.2.4.57",  // JPEG Lossless
     break
 case "1.2.840.10008.1.2.4.90",  // JPEG 2000 Lossless
      "1.2.840.10008.1.2.4.91":  // JPEG 2000
-    // ImageIO fallback - may be slower
+    // OpenJPEG runtime path when available
+    break
+case "1.2.840.10008.1.2.4.92",  // JPEG 2000 Part 2 multi-component lossless
+     "1.2.840.10008.1.2.4.93":  // JPEG 2000 Part 2 multi-component
+    // DicomJP3DVolumeDocument OpenJPEG runtime path
     break
 default:
     // Uncompressed - fastest

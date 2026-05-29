@@ -69,7 +69,12 @@ private struct BatchProcessor {
     let preset: MedicalPreset?
     let windowCenter: Double?
     let windowWidth: Double?
-    let imageFormat: ImageFormat
+    let imageFormat: DicomImageExportFormat
+    let jpegQuality: Double
+    let frame: Int?
+    let allFrames: Bool
+    let preserve16Bit: Bool
+    let metadata: Bool
     let overwrite: Bool
 
     /// Batch inspect operation: extract metadata from multiple files.
@@ -157,45 +162,8 @@ private struct BatchProcessor {
     /// Extracts pixel data from a single file and returns the result.
     private func extractFile(url: URL) -> BatchFileResult {
         do {
-            // Load DICOM file
             let decoder = try DCMDecoder(contentsOf: url)
-
-            // Get pixel data
-            guard let pixels16 = decoder.getPixels16() else {
-                return BatchFileResult(
-                    file: url.lastPathComponent,
-                    success: false,
-                    error: "No 16-bit pixel data available"
-                )
-            }
-
-            // Determine windowing
-            let windowSettings: WindowSettings
-            if let preset = preset {
-                windowSettings = DCMWindowingProcessor.getPresetValuesV2(preset: preset)
-            } else if let center = windowCenter, let width = windowWidth {
-                windowSettings = WindowSettings(center: center, width: width)
-            } else {
-                windowSettings = DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: pixels16)
-            }
-
-            // Apply windowing
-            guard let pixels8Data = DCMWindowingProcessor.applyWindowLevel(
-                pixels16: pixels16,
-                center: windowSettings.center,
-                width: windowSettings.width,
-                processingMode: .auto
-            ) else {
-                return BatchFileResult(
-                    file: url.lastPathComponent,
-                    success: false,
-                    error: "Failed to apply windowing"
-                )
-            }
-
-            // Generate output filename
             let baseName = url.deletingPathExtension().lastPathComponent
-            let outputFileName = "\(baseName).\(imageFormat.rawValue)"
             guard let outputDir else {
                 return BatchFileResult(
                     file: url.lastPathComponent,
@@ -203,30 +171,45 @@ private struct BatchProcessor {
                     error: "Output directory is required for extract operation"
                 )
             }
-            let outputURL = URL(fileURLWithPath: outputDir)
-                .appendingPathComponent(outputFileName)
-
-            // Export to image
-            let pixels8 = [UInt8](pixels8Data)
-            let exporter = ImageExporter()
-            let exportOptions = ExportOptions(
+            let outputDirectoryURL = URL(fileURLWithPath: outputDir)
+            let exportOptions = DicomImageExportOptions(
                 format: imageFormat,
-                quality: 1.0,
-                overwrite: overwrite
+                quality: jpegQuality,
+                overwrite: overwrite,
+                pixelMode: exportPixelMode(),
+                metadataPolicy: metadata ? .nonPHISidecar : .none
             )
 
-            try exporter.export(
-                pixels: pixels8,
-                width: decoder.width,
-                height: decoder.height,
-                to: outputURL,
-                options: exportOptions
-            )
+            let message: String
+            if allFrames {
+                let results = try decoder.exportAllFrames(
+                    to: outputDirectoryURL,
+                    baseName: baseName,
+                    options: exportOptions
+                )
+                message = "→ \(results.count) frame(s)"
+            } else {
+                let frameIndex = frame ?? 0
+                let outputFileName: String
+                if frame == nil {
+                    outputFileName = "\(baseName).\(imageFormat.fileExtension)"
+                } else {
+                    outputFileName = DicomImageExporter.fileName(
+                        baseName: baseName,
+                        frameIndex: frameIndex,
+                        frameCount: max(decoder.pixelDataDescriptor?.numberOfFrames ?? 1, frameIndex + 1),
+                        format: imageFormat
+                    )
+                }
+                let outputURL = outputDirectoryURL.appendingPathComponent(outputFileName)
+                _ = try decoder.exportImage(frame: frameIndex, to: outputURL, options: exportOptions)
+                message = "→ \(outputFileName)"
+            }
 
             return BatchFileResult(
                 file: url.lastPathComponent,
                 success: true,
-                message: "→ \(outputFileName)"
+                message: message
             )
         } catch {
             return BatchFileResult(
@@ -235,6 +218,19 @@ private struct BatchProcessor {
                 error: error.localizedDescription
             )
         }
+    }
+
+    private func exportPixelMode() -> DicomImageExportPixelMode {
+        if preserve16Bit {
+            return .native16Bit
+        }
+        if let preset {
+            return .display8(selection: .preset(preset))
+        }
+        if let center = windowCenter, let width = windowWidth {
+            return .display8(selection: .customWindow(WindowSettings(center: center, width: width)))
+        }
+        return .display8(selection: nil)
     }
 
     private func processFilesConcurrently(
@@ -310,6 +306,12 @@ private struct BatchProcessor {
 /// dicomtool batch --pattern "*.dcm" --operation extract --output-dir ./exports --preset lung
 /// ```
 ///
+/// Export every frame from matching files:
+///
+/// ```bash
+/// dicomtool batch --pattern "*.dcm" --operation extract --output-dir ./frames --all-frames
+/// ```
+///
 /// Process files sequentially (no parallelism):
 ///
 /// ```bash
@@ -352,6 +354,7 @@ struct BatchCommand: AsyncParsableCommand {
               dicomtool batch --pattern "*.dcm" --operation inspect
               dicomtool batch --pattern "**/*.dcm" --operation validate --format json
               dicomtool batch --pattern "*.dcm" --operation extract --output-dir ./exports
+              dicomtool batch --pattern "*.dcm" --operation extract --output-dir ./frames --all-frames
             """
     )
 
@@ -395,9 +398,39 @@ struct BatchCommand: AsyncParsableCommand {
 
     @Option(
         name: .long,
-        help: "Image format for extract operation: png or tiff (default: png)"
+        help: "Image format for extract operation: png, jpeg, or tiff (default: png)"
     )
-    var imageFormat: ImageFormat = .png
+    var imageFormat: DicomImageExportFormat = .png
+
+    @Option(
+        name: .long,
+        help: "JPEG compression quality from 0.0 to 1.0 for extract operation (default: 1.0)"
+    )
+    var jpegQuality: Double = 1.0
+
+    @Option(
+        name: .long,
+        help: "Zero-based frame index for extract operation (default: 0)"
+    )
+    var frame: Int?
+
+    @Flag(
+        name: .long,
+        help: "Export every frame for extract operation"
+    )
+    var allFrames: Bool = false
+
+    @Flag(
+        name: .long,
+        help: "Preserve stored unsigned 16-bit samples when extracting TIFF"
+    )
+    var preserve16Bit: Bool = false
+
+    @Flag(
+        name: .long,
+        help: "Write non-PHI JSON metadata sidecars during extract operation"
+    )
+    var metadata: Bool = false
 
     @Option(
         name: .long,
@@ -455,6 +488,11 @@ struct BatchCommand: AsyncParsableCommand {
             windowCenter: windowCenter,
             windowWidth: windowWidth,
             imageFormat: imageFormat,
+            jpegQuality: jpegQuality,
+            frame: frame,
+            allFrames: allFrames,
+            preserve16Bit: preserve16Bit,
+            metadata: metadata,
             overwrite: overwrite
         )
 
@@ -511,6 +549,38 @@ struct BatchCommand: AsyncParsableCommand {
                 } catch {
                     throw CLIError.directoryNotFound(path: outputDir)
                 }
+            }
+
+            if allFrames && frame != nil {
+                throw CLIError.invalidArgument(
+                    argument: "--frame / --all-frames",
+                    value: "",
+                    reason: "Cannot use --frame with --all-frames. Choose one frame selection mode."
+                )
+            }
+
+            if let frame, frame < 0 {
+                throw CLIError.invalidArgument(
+                    argument: "--frame",
+                    value: String(frame),
+                    reason: "Frame index must be zero or greater"
+                )
+            }
+
+            if jpegQuality < 0 || jpegQuality > 1 {
+                throw CLIError.invalidArgument(
+                    argument: "--jpeg-quality",
+                    value: String(jpegQuality),
+                    reason: "JPEG quality must be between 0.0 and 1.0"
+                )
+            }
+
+            if preserve16Bit && imageFormat != .tiff {
+                throw CLIError.invalidArgument(
+                    argument: "--preserve-16-bit",
+                    value: imageFormat.rawValue,
+                    reason: "16-bit preservation is only supported for TIFF export"
+                )
             }
 
             // Validate windowing options

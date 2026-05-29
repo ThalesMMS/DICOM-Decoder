@@ -195,6 +195,7 @@ extension DCMDecoder {
                 // Regular loading for smaller files
                 dicomData = try Data(contentsOf: fileURL)
             }
+            dicomData = try DicomDeflatedDataSetCodec.inflatedPart10DataIfNeeded(dicomData)
         } catch {
             dicomFileName = ""
             dicomFileReadSuccess = false

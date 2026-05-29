@@ -82,6 +82,9 @@ internal final class DecoderContext {
     /// Flag indicating big endian byte order.  Updated by TransferSyntaxTagHandler.
     var bigEndianTransferSyntax: Bool = false
 
+    /// Character set used for textual metadata. Updated by SpecificCharacterSetTagHandler.
+    var specificCharacterSet: DicomSpecificCharacterSet = .defaultCharacterSet
+
     // MARK: - Pixel Interpretation
 
     /// Samples per pixel (1 for grayscale, 3 for RGB).  Updated by PixelInterpretationTagHandler.
@@ -136,11 +139,20 @@ internal final class DecoderContext {
     /// Red palette lookup table.  Updated by PaletteTagHandler.
     var reds: [UInt8]? = nil
 
+    /// Red palette lookup table descriptor. Updated by PaletteTagHandler.
+    var redPaletteDescriptor: DicomLUTDescriptor? = nil
+
     /// Green palette lookup table.  Updated by PaletteTagHandler.
     var greens: [UInt8]? = nil
 
+    /// Green palette lookup table descriptor. Updated by PaletteTagHandler.
+    var greenPaletteDescriptor: DicomLUTDescriptor? = nil
+
     /// Blue palette lookup table.  Updated by PaletteTagHandler.
     var blues: [UInt8]? = nil
+
+    /// Blue palette lookup table descriptor. Updated by PaletteTagHandler.
+    var bluePaletteDescriptor: DicomLUTDescriptor? = nil
 
     // MARK: - Pixel Data Location
 

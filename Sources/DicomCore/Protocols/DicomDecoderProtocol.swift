@@ -350,6 +350,112 @@ public protocol DicomDecoderProtocol: AnyObject, Sendable {
     /// - Returns: Tuple with downsampled pixels and dimensions, or nil if not available
     func getDownsampledPixels8(maxDimension: Int) -> (pixels: [UInt8], width: Int, height: Int)?
 
+    /// Descriptor for native pixel data layout and frame byte offsets.
+    var pixelDataDescriptor: DicomPixelDataDescriptor? { get }
+
+    /// Returns one native uncompressed frame without decoding the full pixel buffer.
+    /// - Parameter index: Zero-based frame index.
+    /// - Returns: Raw frame bytes and layout metadata, or nil when unavailable.
+    func getFrame(_ index: Int) -> DicomPixelFrame?
+
+    /// Returns native uncompressed frames in a zero-based half-open range.
+    /// - Parameter range: Frame range to retrieve.
+    /// - Returns: Raw frame bytes and layout metadata, or nil when unavailable.
+    func getFrames(_ range: Range<Int>) -> [DicomPixelFrame]?
+
+    /// Returns all native uncompressed frames without using the decoded pixel cache.
+    /// - Returns: Raw frame bytes and layout metadata, or nil when unavailable.
+    func getAllFrames() -> [DicomPixelFrame]?
+
+    /// Native color interpretation metadata needed by rendering layers for color images and CLUTs.
+    var nativeColorMetadata: DicomNativeColorMetadata { get }
+
+    /// Returns a display-ready interleaved 8-bit RGB buffer for one frame.
+    /// - Parameter frame: Zero-based frame index.
+    func displayRGBPixelBuffer(frame: Int) throws -> DicomDisplayPixelBuffer
+
+    /// Parsed Enhanced Multi-frame Functional Groups, when present.
+    var enhancedMultiframeFunctionalGroups: DicomEnhancedMultiframeFunctionalGroups? { get }
+
+    /// Returns resolved Enhanced Multi-frame geometry for one zero-based frame.
+    /// - Parameter index: Zero-based frame index.
+    func enhancedFrameGeometry(at index: Int) -> DicomFrameGeometry?
+
+    /// Parsed DICOM Segmentation object, when the instance is SEG.
+    var segmentation: DicomSegmentation? { get }
+
+    /// Parsed RT Structure Set object, when the instance is RTSTRUCT.
+    var rtStructureSet: DicomRTStructureSet? { get }
+
+    /// Parsed RT Dose volume, when the instance is RTDOSE.
+    var rtDose: DicomRTDoseVolume? { get }
+
+    /// Parsed RT Plan object, when the instance is RTPLAN.
+    var rtPlan: DicomRTPlan? { get }
+
+    /// Parsed Parametric Map object, when the instance is Parametric Map Storage.
+    var parametricMap: DicomParametricMap? { get }
+
+    /// Parsed Structured Report document, including Key Object Selection documents.
+    var structuredReport: DicomSRDocument? { get }
+
+    /// Parsed Key Object Selection document, when the instance is KOS.
+    var keyObjectSelection: DicomSRDocument? { get }
+
+    /// Parsed Secondary Capture image metadata and source references.
+    var secondaryCaptureImage: DicomSecondaryCaptureImage? { get }
+
+    /// Parsed Grayscale Softcopy Presentation State annotations, when present.
+    var grayscalePresentationState: DicomGrayscalePresentationState? { get }
+
+    /// Parsed Encapsulated Document object, when the instance stores PDF/CDA/STL payloads.
+    var encapsulatedDocument: DicomEncapsulatedDocument? { get }
+
+    /// Parsed Waveform object, when the instance stores ECG or related temporal signal samples.
+    var waveform: DicomWaveform? { get }
+
+    /// Parsed Video object, when the instance stores MPEG/H.264/H.265 visible-light video.
+    var video: DicomVideo? { get }
+
+    /// Centralized DICOM display transform profile for modality, VOI, and presentation mapping.
+    var displayTransformProfile: DicomDisplayTransformProfile { get }
+
+    /// Returns one stored sample value from native Pixel Data without applying modality transforms.
+    /// - Parameters:
+    ///   - pixelIndex: Zero-based pixel index within the frame.
+    ///   - frame: Zero-based frame index.
+    ///   - sample: Zero-based sample index for multi-sample pixels.
+    func storedPixelValue(at pixelIndex: Int, frame: Int, sample: Int) -> Int?
+
+    /// Returns one stored sample converted through the decoder-owned modality transform.
+    /// - Parameters:
+    ///   - pixelIndex: Zero-based pixel index within the frame.
+    ///   - frame: Zero-based frame index.
+    ///   - sample: Zero-based sample index for multi-sample pixels.
+    func modalityPixelValue(at pixelIndex: Int, frame: Int, sample: Int) -> Double?
+
+    /// Calculates an auto-window from percentile bounds after modality transformation.
+    /// - Parameters:
+    ///   - lower: Lower percentile in the inclusive range 0...1.
+    ///   - upper: Upper percentile in the inclusive range 0...1.
+    func calculatePercentileWindow(lower: Double, upper: Double) -> WindowSettings?
+
+    /// Quantitative profile for Real World Value mappings and PET SUV metadata.
+    var quantitativeValueProfile: DicomQuantitativeValueProfile { get }
+
+    /// Returns one pixel as raw stored, modality-transformed, and optional physical value.
+    /// - Parameters:
+    ///   - pixelIndex: Zero-based pixel index within the frame.
+    ///   - frame: Zero-based frame index.
+    ///   - sample: Zero-based sample index for multi-sample pixels.
+    ///   - preferredRealWorldValueMapLabel: Optional Real World Value map label to prefer.
+    ///   - suvType: Optional SUV normalization to calculate from PET activity concentration.
+    func quantitativeValue(at pixelIndex: Int,
+                           frame: Int,
+                           sample: Int,
+                           preferredRealWorldValueMapLabel: String?,
+                           suvType: DicomSUVType?) -> DicomQuantitativeValue?
+
     // MARK: - Range-Based Pixel Data Access Methods
 
     /// Returns a subset of 8-bit pixel data specified by a range of pixel indices.
@@ -509,6 +615,117 @@ public protocol DicomDecoderProtocol: AnyObject, Sendable {
 /// Protocol extension providing type-safe DicomTag overloads for metadata access.
 /// These methods delegate to the existing Int-based methods for backward compatibility.
 public extension DicomDecoderProtocol {
+    var pixelDataDescriptor: DicomPixelDataDescriptor? {
+        nil
+    }
+
+    func getFrame(_ index: Int) -> DicomPixelFrame? {
+        nil
+    }
+
+    func getFrames(_ range: Range<Int>) -> [DicomPixelFrame]? {
+        nil
+    }
+
+    func getAllFrames() -> [DicomPixelFrame]? {
+        nil
+    }
+
+    var enhancedMultiframeFunctionalGroups: DicomEnhancedMultiframeFunctionalGroups? {
+        nil
+    }
+
+    func enhancedFrameGeometry(at index: Int) -> DicomFrameGeometry? {
+        nil
+    }
+
+    var segmentation: DicomSegmentation? {
+        nil
+    }
+
+    var rtStructureSet: DicomRTStructureSet? {
+        nil
+    }
+
+    var rtDose: DicomRTDoseVolume? {
+        nil
+    }
+
+    var rtPlan: DicomRTPlan? {
+        nil
+    }
+
+    var parametricMap: DicomParametricMap? {
+        nil
+    }
+
+    var structuredReport: DicomSRDocument? {
+        nil
+    }
+
+    var keyObjectSelection: DicomSRDocument? {
+        nil
+    }
+
+    var secondaryCaptureImage: DicomSecondaryCaptureImage? {
+        nil
+    }
+
+    var grayscalePresentationState: DicomGrayscalePresentationState? {
+        nil
+    }
+
+    var encapsulatedDocument: DicomEncapsulatedDocument? {
+        nil
+    }
+
+    var waveform: DicomWaveform? {
+        nil
+    }
+
+    var video: DicomVideo? {
+        nil
+    }
+
+    var displayTransformProfile: DicomDisplayTransformProfile {
+        .identity
+    }
+
+    func storedPixelValue(at pixelIndex: Int, frame: Int, sample: Int) -> Int? {
+        nil
+    }
+
+    func storedPixelValue(at pixelIndex: Int) -> Int? {
+        storedPixelValue(at: pixelIndex, frame: 0, sample: 0)
+    }
+
+    func modalityPixelValue(at pixelIndex: Int, frame: Int, sample: Int) -> Double? {
+        nil
+    }
+
+    func modalityPixelValue(at pixelIndex: Int) -> Double? {
+        modalityPixelValue(at: pixelIndex, frame: 0, sample: 0)
+    }
+
+    func calculatePercentileWindow(lower: Double, upper: Double) -> WindowSettings? {
+        nil
+    }
+
+    func calculatePercentileWindow() -> WindowSettings? {
+        calculatePercentileWindow(lower: 0.01, upper: 0.99)
+    }
+
+    var quantitativeValueProfile: DicomQuantitativeValueProfile {
+        .empty
+    }
+
+    func quantitativeValue(at pixelIndex: Int,
+                           frame: Int = 0,
+                           sample: Int = 0,
+                           preferredRealWorldValueMapLabel: String? = nil,
+                           suvType: DicomSUVType? = nil) -> DicomQuantitativeValue? {
+        nil
+    }
 
     /// Retrieves the value of a parsed header as a string using a DicomTag enum.
     /// Returns an empty string if the tag was not found.

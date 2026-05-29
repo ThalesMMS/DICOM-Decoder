@@ -46,7 +46,9 @@ Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and res
 This project is a full DICOM decoder written in Swift, modernized from a legacy medical viewer. It provides:
 
 - Complete DICOM file parsing (metadata and pixels)
-- Pixel extraction for 8-bit, 16-bit grayscale and 24-bit RGB images
+- Pixel extraction for 8-bit, 16-bit grayscale, RGB, PALETTE COLOR, and YBR images
+- Image export API and CLI for PNG, JPEG, TIFF, 16-bit TIFF, multiframe output, and optional non-PHI metadata sidecars
+- UI-independent print/export preprocessing pipeline for windowing, resize, and explicit annotation burn-in
 - Window/level with medical presets and automatic suggestions
 - Modern async/await APIs for non-blocking operations
 - File validation before processing
@@ -61,9 +63,25 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 ### DICOM Decoding
 
 - Little/Big Endian, Explicit/Implicit VR
-- Grayscale 8/16-bit and RGB 24-bit
+- Grayscale 8/16-bit, RGB 24-bit, PALETTE COLOR, YBR_FULL/YBR_FULL_422, and ICC profile metadata
+- Real World Value Mapping for linear/LUT quantitative maps with physical units and ranges
+- Parametric Map Storage parsing for scalar layers with units, quantity definitions, RWV, geometry, and source references
+- Structured Report and Key Object Selection parsing for navigable content trees, measurements, ROI references, CAD findings, and key image references
+- Secondary Capture snapshot dataset building and parsing with patient/study/series context and source image references
+- External inference builders for SR findings, SEG masks, GSPS graphic annotations, and derived images with source references and tracking identifiers
+- Grayscale Softcopy Presentation State graphic annotation dataset building/parsing
+- Encapsulated PDF, CDA, and STL document dataset building/parsing with MIME, title, concept, payload, and source instance metadata
+- ECG and waveform dataset building/parsing with channel samples, sampling frequency, units, and waveform source references
+- Video Endoscopic/Microscopic/Photographic dataset building/parsing with MPEG-2, H.264, and H.265 stream forwarding
+- PET SUVbw/SUVlbm/SUVbsa/SUVibw helpers with required-metadata diagnostics
+- Transfer syntax registry and conservative transcode planning with codec diagnostics
+- Encapsulated Pixel Data parsing for Basic Offset Table, Extended Offset Table, fragments, and frame extraction
+- Deflated Explicit VR Little Endian dataset read/write support through zlib
 - Native JPEG Lossless decoding (Process 14, all selection values 0-7) for transfer syntaxes 1.2.840.10008.1.2.4.57 and 1.2.840.10008.1.2.4.70
-- Best-effort single-frame JPEG and JPEG2000 decoding via ImageIO
+- Native RLE Lossless decoding and JPEG-LS lossless/near-lossless decoding when the CharLS runtime is available
+- Explicit JPEG Baseline, JPEG 2000, and diagnostic unsupported-path handling when the selected backend cannot preserve pixel precision
+- JPEG 2000 Part 2 multi-component volume documents (1.2.840.10008.1.2.4.92 and .93) decoded through OpenJPEG into `DicomSeriesVolume`
+- JPIP referenced pixel data (1.2.840.10008.1.2.4.94 and deflated .95) with progressive volume update streams through caller-provided transport
 - Automatic memory mapping for large files (>10MB)
 - Downsampling for fast thumbnail generation
 
@@ -93,6 +111,7 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - **Swift-idiomatic throwing initializers** for type-safe error handling
 - **Type-safe DicomTag enum** for metadata access (preferred over raw hex values)
 - **Type-safe value types** (WindowSettings, PixelSpacing, RescaleParameters) with Codable support
+- **Quantitative pixel values** exposing stored, modality-transformed, and physical values for RWV maps and PET SUV workflows
 - **V2 APIs** returning structs instead of tuples for better type safety
 - **Async/await** support (iOS 13+, macOS 10.15+) with async throwing initializers
 - **Static factory methods** for alternative initialization patterns
@@ -494,6 +513,9 @@ dicomtool validate image.dcm
 # Extract image with lung preset
 dicomtool extract ct.dcm --output lung.png --preset lung
 
+# Export every frame to predictable files
+dicomtool extract perfusion.dcm --output ./frames --all-frames --metadata
+
 # Batch process directory
 dicomtool batch --pattern "*.dcm" --operation validate --format json
 ```
@@ -566,7 +588,7 @@ Validation Results:
 
 #### `extract` - Export Images
 
-Extract pixel data with medical windowing presets or custom parameters.
+Extract pixel data with medical windowing presets or custom parameters. Supported output formats are PNG, JPEG, and TIFF; TIFF can preserve unsigned 16-bit stored samples when requested.
 
 **Medical presets available:**
 - `lung` - Lung tissue (-600/1500 HU)
@@ -594,18 +616,26 @@ dicomtool extract ct.dcm --output custom.png \
 # Automatic optimal windowing
 dicomtool extract ct.dcm --output auto.png
 
-# TIFF format with GPU acceleration
-dicomtool extract ct.dcm --output high-quality.tiff \
-  --format tiff --processing-mode metal
+# JPEG export with explicit quality
+dicomtool extract ct.dcm --output preview.jpg \
+  --format jpeg --jpeg-quality 0.9
+
+# TIFF export preserving unsigned 16-bit stored samples
+dicomtool extract ct.dcm --output native.tiff \
+  --format tiff --preserve-16-bit
+
+# Export all frames with predictable names and non-PHI metadata sidecars
+dicomtool extract perfusion.dcm --output ./frames \
+  --all-frames --metadata
 
 # Overwrite existing file
 dicomtool extract ct.dcm --output result.png --overwrite
 ```
 
-**Processing modes:**
-- `vdsp` - CPU acceleration (best for <800×800 images)
-- `metal` - GPU acceleration (best for ≥800×800 images, 3.94× speedup)
-- `auto` - Automatic selection based on image size (default)
+**Frame and metadata options:**
+- `--frame <index>` exports one zero-based frame; default is frame 0.
+- `--all-frames` treats `--output` as a directory and writes `base_frame0001.ext`, `base_frame0002.ext`, and so on.
+- `--metadata` writes a JSON sidecar next to each image with non-PHI image attributes such as dimensions, frame number, modality, spacing, and display window.
 
 #### `batch` - Batch Processing
 
@@ -621,6 +651,10 @@ dicomtool batch --pattern "**/*.dcm" --operation validate --format json
 # Extract all files with lung preset to exports directory
 dicomtool batch --pattern "studies/*/*.dcm" --operation extract \
   --output-dir ./exports --preset lung --image-format png
+
+# Export all frames and sidecars during batch extraction
+dicomtool batch --pattern "studies/*/*.dcm" --operation extract \
+  --output-dir ./frames --all-frames --metadata --image-format jpeg
 
 # Sequential processing (no concurrency)
 dicomtool batch --pattern "*.dcm" --operation inspect --max-concurrent 1
@@ -669,7 +703,8 @@ if dicomtool validate input.dcm --format json | jq -e '.valid'; then
 fi
 
 # Generate preview images for web display
-dicomtool extract series/*.dcm --output-dir ./previews --preset softtissue
+dicomtool batch --pattern "series/*.dcm" --operation extract \
+  --output-dir ./previews --preset softtissue
 ```
 
 **CI/CD integration:**
@@ -744,7 +779,7 @@ All commands support `--format json` for programmatic parsing:
 
 - **Concurrent processing**: Default 4 concurrent operations (configurable with `--max-concurrent`)
 - **Memory efficient**: Processes files individually, no bulk loading
-- **GPU acceleration**: Optional Metal backend for extract operations (3.94× speedup on 1024×1024 images)
+- **Frame-addressable export**: Extract operations can write one frame or all frames without bulk series loading
 
 ### Requirements
 
@@ -1177,6 +1212,9 @@ DICOM-Decoder/
 |   |-- DICOMError.swift          # Typed error definitions
 |   |-- DicomConstants.swift      # DicomTag enum and constants
 |   |-- DicomSeriesLoader.swift   # Series/volume loading
+|   |-- DicomRLELosslessDecoder.swift # Native RLE Lossless decoder
+|   |-- DicomJPEGLSCodec.swift    # JPEG-LS runtime bridge
+|   |-- DicomDeflatedDataSetCodec.swift # zlib dataset deflate/inflate helper
 |   |-- JPEGLosslessDecoder.swift # Native JPEG Lossless decoder
 |   |-- PatientModel.swift        # Data model structures
 |   |-- StudyDataService.swift    # Study/series grouping
@@ -1359,18 +1397,23 @@ autoreleasepool {
 
 ### Known Limitations
 
-- Compressed transfer syntaxes: Native support for JPEG Lossless (Process 14, all selection values 0-7). Best-effort single-frame JPEG/JPEG2000 via ImageIO. RLE and multi-frame encapsulated compression are not supported - convert first if needed.
+- Compressed and referenced transfer syntaxes: Deflated Explicit VR Little Endian uses zlib for dataset-level compression. Native support for JPEG Lossless (Process 14, all selection values 0-7) and RLE Lossless. JPEG-LS lossless/near-lossless decoding uses CharLS when the runtime library is available. Encapsulated multi-frame payloads can be indexed and individual compressed frames extracted before codec decode. JPEG Baseline 8-bit uses ImageIO, and JPEG 2000 up to 16-bit grayscale uses OpenJPEG when the runtime library is available with ImageIO limited to 8-bit fallback. JPEG 2000 Part 2 multi-component volume documents use OpenJPEG and expose a decoder-owned `DicomSeriesVolume` buffer for MTK. JPIP referenced pixel data exposes `Pixel Data Provider URL` and progressive stream contracts, but the application supplies the actual transport. JPEG Extended 12-bit and HTJ2K return diagnostics when no precision-preserving backend is available. Use the transfer syntax planner to get explicit diagnostics before conversion.
 - Thread safety: `DCMDecoder` uses internal locking for public API access, and batch/series services create isolated decoder instances for concurrent work.
+- Waveform scope: ECG and related waveform objects expose temporal samples and metadata; they are not converted into image-volume slices by `DicomSeriesLoader`.
+- Video scope: MPEG-2/H.264/H.265 video objects expose the encoded stream and timing metadata for a caller/player backend; they are not decoded into volume slices by `DicomSeriesLoader`.
 - Very large files (>1GB): May consume significant memory. Process in chunks or downsample.
 - `SeriesNavigatorView` provides slice shortcut controls in its expanded layout, but image thumbnail strips are not implemented.
 
 ### Frameworks Used
 
-Native Apple frameworks only:
+Core Apple frameworks:
 - `Foundation`
 - `CoreGraphics`
 - `ImageIO`
 - `Accelerate`
+
+Deflated Explicit VR Little Endian uses system zlib. JPEG-LS can use CharLS when that runtime library is available; it is loaded dynamically rather than added as a Swift package dependency.
+JPEG 2000 and JPEG 2000 Part 2 multi-component volume decoding can use OpenJPEG when that runtime library is available; it is loaded dynamically rather than added as a Swift package dependency.
 
 ---
 

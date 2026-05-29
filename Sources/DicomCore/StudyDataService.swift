@@ -238,6 +238,18 @@ public final class StudyDataService: StudyDataServiceProtocol, @unchecked Sendab
         return metadata.map(\.filePath)
     }
 
+    /// Loads a DICOMDIR file and returns its patient/study/series hierarchy.
+    public func loadDICOMDirectory(at filePath: String) throws -> DicomDirectory {
+        try DicomDirectoryReader.read(from: URL(fileURLWithPath: filePath))
+    }
+
+    /// Loads `DICOMDIR` from a media directory without recursively scanning every file.
+    public func loadDICOMDirectory(in directoryPath: String) throws -> DicomDirectory {
+        let url = URL(fileURLWithPath: directoryPath, isDirectory: true)
+            .appendingPathComponent("DICOMDIR", isDirectory: false)
+        return try DicomDirectoryReader.read(from: url)
+    }
+
     /// Recursively scans a directory and extracts metadata for files that decode as DICOM.
     ///
     /// This combines content validation and metadata extraction in one decode pass,

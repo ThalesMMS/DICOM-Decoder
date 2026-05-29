@@ -12,6 +12,22 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 
 - Complete DICOM file parsing (metadata and pixels)
 - Support for 8-bit, 16-bit grayscale and 24-bit RGB images
+- PNG, JPEG, TIFF, 16-bit TIFF, and multiframe image export
+- UI-independent print/export preprocessing with resize and explicit annotation burn-in
+- Transfer syntax registry and conservative transcode planning
+- Encapsulated Pixel Data frame indexing before codec decode
+- Deflated Explicit VR Little Endian dataset read/write support through zlib
+- JPIP referenced pixel data and progressive volume update streams with injected transport
+- DICOM Segmentation parsing, labelmap extraction, and synthetic SEG dataset building
+- RT Structure Set, RT Dose, and RT Plan parsing for contour, dose-volume, and beam inspection
+- Parametric Map scalar layer parsing with units, quantity definitions, RWV, geometry, and source references
+- Structured Report and Key Object Selection parsing with navigable content trees, measurements, ROI references, CAD findings, and key image references
+- Secondary Capture snapshot dataset building and parsing with patient/study/series context and source image references
+- External inference builders for SR findings, SEG masks, GSPS graphic annotations, and derived images
+- Grayscale Softcopy Presentation State graphic annotation dataset building/parsing
+- Encapsulated PDF, CDA, and STL document dataset building/parsing with MIME, title, concept, payload, and source instance metadata
+- ECG and waveform dataset building/parsing with channel samples, sampling frequency, units, and waveform source references
+- Video Endoscopic/Microscopic/Photographic dataset building/parsing with MPEG-2, H.264, and H.265 stream forwarding
 - Window/level operations with medical presets and GPU acceleration
 - Modern async/await APIs for non-blocking operations
 - File validation before processing
@@ -31,6 +47,52 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - ``DCMWindowingProcessor``
 - ``MetalWindowingProcessor``
 - ``DicomSeriesLoader``
+- ``DicomJP3DVolumeDocument``
+- ``DicomJPIPClient``
+- ``DicomJPIPReferencedPixelData``
+- ``DicomDeflatedDataSetCodec``
+- ``DicomSegmentationBuilder``
+- ``DicomRTStructureSet``
+- ``DicomRTDoseVolume``
+- ``DicomRTPlan``
+- ``DicomParametricMap``
+- ``DicomSRDocument``
+- ``DicomStructuredReportBuilder``
+- ``DicomKeyObjectSelectionBuilder``
+- ``DicomSecondaryCaptureBuilder``
+- ``DicomAIInferenceBuilder``
+- ``DicomGrayscalePresentationState``
+- ``DicomGrayscalePresentationStateBuilder``
+- ``DicomSecondaryCaptureImage``
+- ``DicomSecondaryCapturePixelData``
+- ``DicomSecondaryCaptureBuildOptions``
+- ``DicomEncapsulatedDocument``
+- ``DicomEncapsulatedDocumentBuilder``
+- ``DicomEncapsulatedDocumentBuildOptions``
+- ``DicomEncapsulatedDocumentKind``
+- ``DicomEncapsulatedDocumentSourceInstance``
+- ``DicomWaveform``
+- ``DicomWaveformBuilder``
+- ``DicomWaveformBuildOptions``
+- ``DicomWaveformMultiplexGroup``
+- ``DicomWaveformChannel``
+- ``DicomWaveformStorageKind``
+- ``DicomWaveformSampleInterpretation``
+- ``DicomWaveformSourceReference``
+- ``DicomVideo``
+- ``DicomVideoBuilder``
+- ``DicomVideoBuildOptions``
+- ``DicomVideoPixelData``
+- ``DicomVideoStorageKind``
+- ``DicomVideoCodec``
+- ``DicomImageExporter``
+- ``DicomImagePreprocessor``
+- ``DicomBitmapResizer``
+- ``DicomAnnotationRenderer``
+- ``DicomTransferSyntaxRegistry``
+- ``DicomTranscodePlan``
+- ``DicomEncapsulatedPixelDataParser``
+- ``DicomEncapsulatedPixelDataDescriptor``
 
 ### Data Models
 
@@ -39,6 +101,26 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - ``SeriesModel``
 - ``ImageModel``
 - ``DicomSeriesVolume``
+- ``DicomJP3DVolumeGeometry``
+- ``DicomProgressiveLayer``
+- ``DicomProgressiveVolumeUpdate``
+- ``DicomSegmentation``
+- ``DicomSegmentationFrame``
+- ``DicomSegment``
+- ``DicomSegmentLabelmap``
+- ``DicomRTROI``
+- ``DicomRTContour``
+- ``DicomRTROIContour``
+- ``DicomRTBeam``
+- ``DicomRTControlPoint``
+- ``DicomParametricMapFrame``
+- ``DicomParametricMapScalarVolume``
+- ``DicomQuantityDefinition``
+- ``DicomSRContentItem``
+- ``DicomSRMeasurement``
+- ``DicomSRGraphicRegion``
+- ``DicomSRCADFinding``
+- ``DicomKeyObjectReference``
 - ``DicomDecodedSeries``
 - ``DicomSeriesSource``
 
@@ -48,6 +130,9 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - ``PixelSpacing``
 - ``RescaleParameters``
 - ``DicomTag``
+- ``DicomTransferSyntax``
+- ``DicomSegmentationType``
+- ``DicomSegmentationFractionalType``
 
 ### Services
 
@@ -57,6 +142,7 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 ### Error Handling
 
 - ``DICOMError``
+- ``DicomDeflatedDataSetError``
 
 ### Image Processing
 

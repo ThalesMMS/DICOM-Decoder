@@ -132,6 +132,9 @@ public struct DicomSeriesVolume: Sendable {
     /// Human-readable series description
     public let seriesDescription: String
 
+    /// Human-readable study description, when present
+    public let studyDescription: String?
+
     /// Imaging modality from DICOM metadata, when present
     public let modality: String
 
@@ -150,6 +153,12 @@ public struct DicomSeriesVolume: Sendable {
     /// Frame of Reference UID (0020,0052), when present.
     public let frameOfReferenceUID: String?
 
+    /// Decoder-owned quantitative value profile for RWV and PET SUV metadata.
+    public let quantitativeValueProfile: DicomQuantitativeValueProfile
+
+    /// Image SOP instances that were loaded into the volume, in slice order.
+    public let imageInstances: [DicomSeriesImageInstance]
+
     public init(voxels: Data,
                 width: Int,
                 height: Int,
@@ -163,12 +172,15 @@ public struct DicomSeriesVolume: Sendable {
                 isSignedPixel: Bool,
                 patientName: String = "",
                 seriesDescription: String,
+                studyDescription: String? = nil,
                 modality: String = "",
                 windowCenter: Double? = nil,
                 windowWidth: Double? = nil,
                 studyInstanceUID: String? = nil,
                 seriesInstanceUID: String? = nil,
-                frameOfReferenceUID: String? = nil) {
+                frameOfReferenceUID: String? = nil,
+                quantitativeValueProfile: DicomQuantitativeValueProfile = .empty,
+                imageInstances: [DicomSeriesImageInstance] = []) {
         self.voxels = voxels
         self.width = width
         self.height = height
@@ -182,12 +194,38 @@ public struct DicomSeriesVolume: Sendable {
         self.isSignedPixel = isSignedPixel
         self.patientName = patientName
         self.seriesDescription = seriesDescription
+        self.studyDescription = studyDescription
         self.modality = modality
         self.windowCenter = windowCenter
         self.windowWidth = windowWidth
         self.studyInstanceUID = studyInstanceUID
         self.seriesInstanceUID = seriesInstanceUID
         self.frameOfReferenceUID = frameOfReferenceUID
+        self.quantitativeValueProfile = quantitativeValueProfile
+        self.imageInstances = imageInstances
+    }
+}
+
+public struct DicomSeriesImageInstance: Equatable, Hashable, Sendable {
+    public let studyInstanceUID: String?
+    public let seriesInstanceUID: String?
+    public let sopClassUID: String?
+    public let sopInstanceUID: String
+    public let sliceIndex: Int
+    public let instanceNumber: Int?
+
+    public init(studyInstanceUID: String?,
+                seriesInstanceUID: String?,
+                sopClassUID: String?,
+                sopInstanceUID: String,
+                sliceIndex: Int,
+                instanceNumber: Int? = nil) {
+        self.studyInstanceUID = studyInstanceUID
+        self.seriesInstanceUID = seriesInstanceUID
+        self.sopClassUID = sopClassUID
+        self.sopInstanceUID = sopInstanceUID
+        self.sliceIndex = max(sliceIndex, 0)
+        self.instanceNumber = instanceNumber
     }
 }
 
@@ -198,19 +236,31 @@ struct SliceMeta {
     let projection: Double?
     let windowCenter: Double?
     let windowWidth: Double?
+    let studyInstanceUID: String?
+    let seriesInstanceUID: String?
+    let sopClassUID: String?
+    let sopInstanceUID: String?
 
     init(url: URL,
          position: SIMD3<Double>?,
          instanceNumber: Int?,
          projection: Double?,
          windowCenter: Double? = nil,
-         windowWidth: Double? = nil) {
+         windowWidth: Double? = nil,
+         studyInstanceUID: String? = nil,
+         seriesInstanceUID: String? = nil,
+         sopClassUID: String? = nil,
+         sopInstanceUID: String? = nil) {
         self.url = url
         self.position = position
         self.instanceNumber = instanceNumber
         self.projection = projection
         self.windowCenter = windowCenter
         self.windowWidth = windowWidth
+        self.studyInstanceUID = studyInstanceUID
+        self.seriesInstanceUID = seriesInstanceUID
+        self.sopClassUID = sopClassUID
+        self.sopInstanceUID = sopInstanceUID
     }
 }
 
@@ -446,6 +496,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         var rescaleIntercept: Double = 0.0
         var pixelRepresentation: Int = 0
         var seriesDescription = directory.lastPathComponent
+        var studyDescription: String?
         var patientName = ""
         var modality = ""
         var windowCenter: Double?
@@ -453,6 +504,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         var studyInstanceUID: String?
         var seriesInstanceUID: String?
         var frameOfReferenceUID: String?
+        var quantitativeValueProfile: DicomQuantitativeValueProfile = .empty
 
         var width = 0
         var height = 0
@@ -472,6 +524,26 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                 decoder = try decoderFactory(url.path)
             } catch {
                 // Skip files that fail to load
+                continue
+            }
+
+            // Non-image clinical objects are valid DICOM instances, but they are not image-volume slices.
+            let sopClassUID = decoder.info(for: .sopClassUID)
+                .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\0")))
+            let decoderModality = decoder.info(for: .modality)
+                .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\0")))
+            let hasWaveformSequence: Bool
+            if let concreteDecoder = decoder as? DCMDecoder {
+                hasWaveformSequence = concreteDecoder.dataSet.contains(.waveformSequence)
+            } else {
+                hasWaveformSequence = false
+            }
+            if DicomSRDocument.structuredReportSOPClassUIDs.contains(sopClassUID) ||
+                DicomEncapsulatedDocument.supportedStorageSOPClassUIDs.contains(sopClassUID) ||
+                DicomWaveform.supportedStorageSOPClassUIDs.contains(sopClassUID) ||
+                DicomVideo.supportedStorageSOPClassUIDs.contains(sopClassUID) ||
+                decoderModality == "DOC" ||
+                hasWaveformSequence {
                 continue
             }
 
@@ -518,11 +590,13 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                 if !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     seriesDescription = description
                 }
+                studyDescription = nonEmpty(decoder.info(for: .studyDescription))
                 patientName = decoder.info(for: .patientName)
                 modality = decoder.info(for: .modality)
                 studyInstanceUID = nonEmpty(decoder.info(for: DicomTag.studyInstanceUID.rawValue))
                 seriesInstanceUID = nonEmpty(decoder.info(for: DicomTag.seriesInstanceUID.rawValue))
                 frameOfReferenceUID = nonEmpty(decoder.info(for: 0x0020_0052))
+                quantitativeValueProfile = decoder.quantitativeValueProfile
             } else {
                 // Check consistency across slices.
                 guard decoder.width == width, decoder.height == height else {
@@ -559,7 +633,11 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                     instanceNumber: instance,
                                     projection: projection,
                                     windowCenter: window?.center,
-                                    windowWidth: window?.width))
+                                    windowWidth: window?.width,
+                                    studyInstanceUID: nonEmpty(decoder.info(for: .studyInstanceUID)) ?? studyInstanceUID,
+                                    seriesInstanceUID: nonEmpty(decoder.info(for: .seriesInstanceUID)) ?? seriesInstanceUID,
+                                    sopClassUID: nonEmpty(decoder.info(for: .sopClassUID)),
+                                    sopInstanceUID: nonEmpty(decoder.info(for: .sopInstanceUID))))
         }
 
         guard !slices.isEmpty, firstDecoder != nil else {
@@ -604,6 +682,18 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
             windowWidth = windowedSlice.windowWidth
         }
 
+        let imageInstances = slices.enumerated().compactMap { index, slice -> DicomSeriesImageInstance? in
+            guard let sopInstanceUID = slice.sopInstanceUID else { return nil }
+            return DicomSeriesImageInstance(
+                studyInstanceUID: slice.studyInstanceUID,
+                seriesInstanceUID: slice.seriesInstanceUID,
+                sopClassUID: slice.sopClassUID,
+                sopInstanceUID: sopInstanceUID,
+                sliceIndex: index,
+                instanceNumber: slice.instanceNumber
+            )
+        }
+
         // Compute Z spacing from IPP deltas when available. For volume reconstruction,
         // ImagePositionPatient gives the actual center-to-center slice distance in patient space.
         // Tag-derived Z spacing may come from SliceThickness or SpacingBetweenSlices and can be
@@ -638,12 +728,15 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                                isSignedPixel: pixelRepresentation == 1,
                                                patientName: patientName,
                                                seriesDescription: seriesDescription,
+                                               studyDescription: studyDescription,
                                                modality: modality,
                                                windowCenter: windowCenter,
                                                windowWidth: windowWidth,
                                                studyInstanceUID: studyInstanceUID,
                                                seriesInstanceUID: seriesInstanceUID,
-                                               frameOfReferenceUID: frameOfReferenceUID)
+                                               frameOfReferenceUID: frameOfReferenceUID,
+                                               quantitativeValueProfile: quantitativeValueProfile,
+                                               imageInstances: imageInstances)
 
         var loadError: Error?
 
@@ -712,12 +805,15 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                        isSignedPixel: pixelRepresentation == 1,
                                        patientName: patientName,
                                        seriesDescription: seriesDescription,
+                                       studyDescription: studyDescription,
                                        modality: modality,
                                        windowCenter: windowCenter,
                                        windowWidth: windowWidth,
                                        studyInstanceUID: studyInstanceUID,
                                        seriesInstanceUID: seriesInstanceUID,
-                                       frameOfReferenceUID: frameOfReferenceUID)
+                                       frameOfReferenceUID: frameOfReferenceUID,
+                                       quantitativeValueProfile: quantitativeValueProfile,
+                                       imageInstances: imageInstances)
 
         return volume
     }

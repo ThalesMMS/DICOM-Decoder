@@ -30,6 +30,7 @@ extension DCMDecoder {
 
         var value: String?
         var offset = metadata.offset
+        let characterSet = activeCharacterSet
 
         // Read value based on VR type (mirroring headerInfo logic)
         switch metadata.vr {
@@ -37,8 +38,8 @@ extension DCMDecoder {
             // Skip numeric values not needed in text form
             break
 
-        case .AE, .AS, .AT, .CS, .DA, .DS, .DT, .IS, .LO, .LT, .PN, .SH, .ST, .TM, .UI:
-            value = reader.readString(length: metadata.elementLength, location: &offset)
+        case .AE, .AS, .AT, .CS, .DA, .DS, .DT, .IS, .LO, .LT, .PN, .SH, .ST, .TM, .UI, .UR, .UT:
+            value = reader.readString(length: metadata.elementLength, location: &offset, characterSet: characterSet)
 
         case .US:
             if metadata.elementLength == 2 {
@@ -56,7 +57,7 @@ extension DCMDecoder {
 
         case .implicitRaw:
             // Interpret as a string unless extremely long
-            let s = reader.readString(length: metadata.elementLength, location: &offset)
+            let s = reader.readString(length: metadata.elementLength, location: &offset, characterSet: characterSet)
             if metadata.elementLength <= 44 {
                 value = s
             } else {

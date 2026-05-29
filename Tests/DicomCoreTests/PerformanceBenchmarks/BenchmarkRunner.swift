@@ -111,7 +111,7 @@ public final class BenchmarkRunner {
 
         _ = baselineCounter
         _ = counter
-        return try BenchmarkResult(timings: timings)
+        return try BenchmarkResult(timings: timings, peakMemoryBytes: BenchmarkMemorySampler.currentPeakResidentMemoryBytes())
     }
 
     /// Benchmark decoder initialization performance
@@ -132,7 +132,7 @@ public final class BenchmarkRunner {
             timings.append(elapsed)
         }
 
-        return try BenchmarkResult(timings: timings)
+        return try BenchmarkResult(timings: timings, peakMemoryBytes: BenchmarkMemorySampler.currentPeakResidentMemoryBytes())
     }
 
     /// Benchmark decoder validation status check performance
@@ -154,7 +154,7 @@ public final class BenchmarkRunner {
             timings.append(elapsed)
         }
 
-        return try BenchmarkResult(timings: timings)
+        return try BenchmarkResult(timings: timings, peakMemoryBytes: BenchmarkMemorySampler.currentPeakResidentMemoryBytes())
     }
 
     /// Benchmark metadata access performance
@@ -179,7 +179,7 @@ public final class BenchmarkRunner {
             timings.append(elapsed)
         }
 
-        return try BenchmarkResult(timings: timings)
+        return try BenchmarkResult(timings: timings, peakMemoryBytes: BenchmarkMemorySampler.currentPeakResidentMemoryBytes())
     }
 
     // MARK: - Windowing Benchmarks
@@ -223,7 +223,7 @@ public final class BenchmarkRunner {
             }
         }
 
-        return try BenchmarkResult(timings: timings)
+        return try BenchmarkResult(timings: timings, peakMemoryBytes: BenchmarkMemorySampler.currentPeakResidentMemoryBytes())
     }
 
     /// Benchmark Metal GPU windowing performance
@@ -269,7 +269,7 @@ public final class BenchmarkRunner {
             }
         }
 
-        return try BenchmarkResult(timings: timings)
+        return try BenchmarkResult(timings: timings, peakMemoryBytes: BenchmarkMemorySampler.currentPeakResidentMemoryBytes())
     }
 
     // MARK: - Test Data Generation

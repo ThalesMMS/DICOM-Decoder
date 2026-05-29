@@ -50,7 +50,7 @@ import Accelerate
 /// in the Objective‑C NS_ENUM.  Each case describes a typical
 /// anatomy or modality and can be mapped to a pair of centre and
 /// width values via ``getPresetValuesV2(preset:)``.
-public enum MedicalPreset: Int, CaseIterable {
+public enum MedicalPreset: Int, CaseIterable, Sendable {
     // Original CT presets (raw values preserved for backward compatibility)
     case lung       = 0
     case bone       = 1

@@ -108,17 +108,43 @@ extension DCMDecoder {
     /// On failure, sets `dicomFileReadSuccess = false`.
     /// - Note: Must be called from within a synchronized block.
     private func decodeCompressedPixelDataUnsafe() {
+        if let frame = getEncapsulatedFrame(0),
+           let result = DCMPixelReader.decodeCompressedFrameData(
+               data: frame.data,
+               transferSyntax: DicomTransferSyntax(uid: transferSyntaxUID),
+               width: width,
+               height: height,
+               bitDepth: bitDepth,
+               samplesPerPixel: samplesPerPixel,
+               pixelRepresentation: pixelRepresentationTagValue,
+               photometricInterpretation: photometricInterpretation,
+               logger: logger
+           ) {
+            applyCompressedPixelReadResult(result)
+            return
+        }
+
         // Use DCMPixelReader to decode compressed pixel data
         guard let result = DCMPixelReader.decodeCompressedPixelData(
             data: dicomData,
             offset: offset,
+            transferSyntax: DicomTransferSyntax(uid: transferSyntaxUID),
+            width: width,
+            height: height,
+            bitDepth: bitDepth,
+            samplesPerPixel: samplesPerPixel,
             pixelRepresentation: pixelRepresentationTagValue,
+            photometricInterpretation: photometricInterpretation,
             logger: logger
         ) else {
             dicomFileReadSuccess = false
             return
         }
 
+        applyCompressedPixelReadResult(result)
+    }
+
+    private func applyCompressedPixelReadResult(_ result: DCMPixelReadResult) {
         // Update decoder state with decoded image properties
         width = result.width
         height = result.height

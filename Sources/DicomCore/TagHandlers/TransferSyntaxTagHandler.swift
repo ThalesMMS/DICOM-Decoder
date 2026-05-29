@@ -99,7 +99,7 @@ internal final class TransferSyntaxTagHandler: TagHandler {
 
         // Detect compressed syntaxes and byte ordering using DicomTransferSyntax enum
         if let syntax = DicomTransferSyntax(uid: uid) {
-            context.compressedImage = syntax.isCompressed
+            context.compressedImage = syntax.isCompressed && !syntax.usesDataSetDeflate
             context.bigEndianTransferSyntax = syntax.isBigEndian
         } else {
             // Unknown transfer syntax - assume uncompressed and little endian

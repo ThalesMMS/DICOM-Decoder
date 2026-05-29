@@ -17,6 +17,7 @@ Comprehensive benchmark results and methodology for the Swift DICOM Decoder libr
 - [Reproducing Benchmarks](#reproducing-benchmarks)
 - [Interpreting Results](#interpreting-results)
 - [Regression Detection](#regression-detection)
+- [Clinical Performance Budgets](#clinical-performance-budgets)
 - [Historical Trends](#historical-trends)
 
 ---
@@ -455,6 +456,31 @@ BENCHMARK_BASELINE_PATH=Tests/DicomCoreTests/PerformanceBenchmarks/Baselines/bas
 BENCHMARK_FAIL_ON_REGRESSION=true \
 swift test --filter PerformanceBenchmarkSuite
 ```
+
+---
+
+## Clinical Performance Budgets
+
+The cross-component budget contract for decoder import, volume assembly, GPU
+upload, MPR, volume rendering, snapshot, and memory is tracked in
+`../Roadmap/ClinicalPerformanceBudgetManifest.json` and summarized in
+`../Roadmap/ClinicalPerformanceBudgets.md`.
+
+Budget reports must include enough environment context for fair comparison:
+device name, OS version, architecture, model identifier, build configuration,
+benchmark mode, and fixture identifier. DICOM benchmark JSON now records build
+configuration, physical memory, and per-result peak resident memory when the
+platform exposes it.
+
+Run the fast budget gate with:
+
+```bash
+swift test --filter PerformanceBudgetTests
+```
+
+Budget failures are visible even without a historical baseline. Values at or
+above 90% of a configured budget are warnings; values above the budget are
+failures. Baseline comparison remains the review gate for relative regressions.
 
 ---
 

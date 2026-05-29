@@ -13,6 +13,9 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
         let explicitLE = DicomTransferSyntax(uid: "1.2.840.10008.1.2.1")
         XCTAssertEqual(explicitLE, .explicitVRLittleEndian, "Should initialize Explicit VR Little Endian")
 
+        let deflatedExplicitLE = DicomTransferSyntax(uid: "1.2.840.10008.1.2.1.99")
+        XCTAssertEqual(deflatedExplicitLE, .deflatedExplicitVRLittleEndian, "Should initialize Deflated Explicit VR Little Endian")
+
         let explicitBE = DicomTransferSyntax(uid: "1.2.840.10008.1.2.2")
         XCTAssertEqual(explicitBE, .explicitVRBigEndian, "Should initialize Explicit VR Big Endian")
     }
@@ -79,6 +82,17 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
         XCTAssertTrue(syntax.matches("1.2.840.10008.1.2.1  "), "Should match UID with trailing spaces")
         XCTAssertFalse(syntax.matches("1.2.840.10008.1.2"), "Should not match different UID")
         XCTAssertFalse(syntax.matches("1.2.840.10008.1.2.2"), "Should not match big endian UID")
+    }
+
+    func testDeflatedExplicitVRLittleEndianProperties() {
+        let syntax = DicomTransferSyntax.deflatedExplicitVRLittleEndian
+
+        XCTAssertTrue(syntax.isCompressed, "Deflated Explicit VR LE should be compressed at dataset level")
+        XCTAssertTrue(syntax.usesDataSetDeflate)
+        XCTAssertFalse(syntax.usesPixelDataProviderURL)
+        XCTAssertFalse(syntax.isBigEndian, "Deflated Explicit VR LE should be little endian")
+        XCTAssertTrue(syntax.isExplicitVR, "Deflated Explicit VR LE should be explicit VR")
+        XCTAssertEqual(syntax.rawValue, "1.2.840.10008.1.2.1.99", "Should have correct UID")
     }
 
     // MARK: - Big Endian Explicit VR Tests
@@ -192,6 +206,35 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
         XCTAssertEqual(syntax.rawValue, "1.2.840.10008.1.2.4.91", "Should have correct UID")
     }
 
+    func testJPEG2000Part2MulticomponentProperties() {
+        let syntaxes: [(DicomTransferSyntax, String)] = [
+            (.jpeg2000Part2MulticomponentLossless, "1.2.840.10008.1.2.4.92"),
+            (.jpeg2000Part2Multicomponent, "1.2.840.10008.1.2.4.93")
+        ]
+
+        for (syntax, uid) in syntaxes {
+            XCTAssertTrue(syntax.isCompressed, "\(syntax) should be compressed")
+            XCTAssertFalse(syntax.isBigEndian, "\(syntax) should be little endian")
+            XCTAssertTrue(syntax.isExplicitVR, "\(syntax) should be explicit VR")
+            XCTAssertEqual(syntax.rawValue, uid, "\(syntax) should have correct UID")
+        }
+    }
+
+    func testHTJ2KProperties() {
+        let syntaxes: [(DicomTransferSyntax, String)] = [
+            (.htj2kLossless, "1.2.840.10008.1.2.4.201"),
+            (.htj2kLosslessRPCL, "1.2.840.10008.1.2.4.202"),
+            (.htj2k, "1.2.840.10008.1.2.4.203")
+        ]
+
+        for (syntax, uid) in syntaxes {
+            XCTAssertTrue(syntax.isCompressed, "\(syntax) should be compressed")
+            XCTAssertFalse(syntax.isBigEndian, "\(syntax) should be little endian")
+            XCTAssertTrue(syntax.isExplicitVR, "\(syntax) should be explicit VR")
+            XCTAssertEqual(syntax.rawValue, uid, "\(syntax) should have correct UID")
+        }
+    }
+
     func testRLELosslessProperties() {
         let syntax = DicomTransferSyntax.rleLossless
 
@@ -268,6 +311,19 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
         XCTAssertFalse(syntax.matches("1.2.840.10008.1.2.4.90"), "Should not match lossless UID")
     }
 
+    func testJPEG2000Part2MulticomponentMatching() {
+        XCTAssertTrue(DicomTransferSyntax.jpeg2000Part2MulticomponentLossless.matches("1.2.840.10008.1.2.4.92"))
+        XCTAssertTrue(DicomTransferSyntax.jpeg2000Part2Multicomponent.matches("1.2.840.10008.1.2.4.93  "))
+        XCTAssertFalse(DicomTransferSyntax.jpeg2000Part2Multicomponent.matches("1.2.840.10008.1.2.4.92"))
+    }
+
+    func testHTJ2KMatching() {
+        XCTAssertTrue(DicomTransferSyntax.htj2kLossless.matches("1.2.840.10008.1.2.4.201"))
+        XCTAssertTrue(DicomTransferSyntax.htj2kLosslessRPCL.matches("1.2.840.10008.1.2.4.202  "))
+        XCTAssertTrue(DicomTransferSyntax.htj2k.matches("1.2.840.10008.1.2.4.203\n"))
+        XCTAssertFalse(DicomTransferSyntax.htj2k.matches("1.2.840.10008.1.2.4.201"))
+    }
+
     func testRLELosslessMatching() {
         let syntax = DicomTransferSyntax.rleLossless
 
@@ -307,6 +363,22 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
         let jpeg2000 = DicomTransferSyntax(uid: "1.2.840.10008.1.2.4.91")
         XCTAssertEqual(jpeg2000, .jpeg2000, "Should initialize JPEG 2000")
 
+        let jpeg2000Part2Lossless = DicomTransferSyntax(uid: "1.2.840.10008.1.2.4.92")
+        XCTAssertEqual(jpeg2000Part2Lossless, .jpeg2000Part2MulticomponentLossless, "Should initialize JPEG 2000 Part 2 lossless")
+
+        let jpeg2000Part2 = DicomTransferSyntax(uid: "1.2.840.10008.1.2.4.93")
+        XCTAssertEqual(jpeg2000Part2, .jpeg2000Part2Multicomponent, "Should initialize JPEG 2000 Part 2")
+
+        // Test HTJ2K variants
+        let htj2kLossless = DicomTransferSyntax(uid: "1.2.840.10008.1.2.4.201")
+        XCTAssertEqual(htj2kLossless, .htj2kLossless, "Should initialize HTJ2K Lossless")
+
+        let htj2kLosslessRPCL = DicomTransferSyntax(uid: "1.2.840.10008.1.2.4.202")
+        XCTAssertEqual(htj2kLosslessRPCL, .htj2kLosslessRPCL, "Should initialize HTJ2K Lossless RPCL")
+
+        let htj2k = DicomTransferSyntax(uid: "1.2.840.10008.1.2.4.203")
+        XCTAssertEqual(htj2k, .htj2k, "Should initialize HTJ2K")
+
         // Test RLE
         let rleLossless = DicomTransferSyntax(uid: "1.2.840.10008.1.2.5")
         XCTAssertEqual(rleLossless, .rleLossless, "Should initialize RLE Lossless")
@@ -343,6 +415,7 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
 
     func testCompressedTransferSyntaxes() {
         let compressedSyntaxes: [DicomTransferSyntax] = [
+            .deflatedExplicitVRLittleEndian,
             .jpegBaseline,
             .jpegExtended,
             .jpegLossless,
@@ -351,6 +424,11 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
             .jpegLSNearLossless,
             .jpeg2000Lossless,
             .jpeg2000,
+            .jpeg2000Part2MulticomponentLossless,
+            .jpeg2000Part2Multicomponent,
+            .htj2kLossless,
+            .htj2kLosslessRPCL,
+            .htj2k,
             .rleLossless
         ]
 
@@ -367,6 +445,7 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
         let littleEndianSyntaxes: [DicomTransferSyntax] = [
             .implicitVRLittleEndian,
             .explicitVRLittleEndian,
+            .deflatedExplicitVRLittleEndian,
             .jpegBaseline,
             .jpegExtended,
             .jpegLossless,
@@ -375,6 +454,11 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
             .jpegLSNearLossless,
             .jpeg2000Lossless,
             .jpeg2000,
+            .jpeg2000Part2MulticomponentLossless,
+            .jpeg2000Part2Multicomponent,
+            .htj2kLossless,
+            .htj2kLosslessRPCL,
+            .htj2k,
             .rleLossless
         ]
 
@@ -390,6 +474,7 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
         // All others should be explicit VR
         let explicitVRSyntaxes: [DicomTransferSyntax] = [
             .explicitVRLittleEndian,
+            .deflatedExplicitVRLittleEndian,
             .explicitVRBigEndian,
             .jpegBaseline,
             .jpegExtended,
@@ -399,6 +484,11 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
             .jpegLSNearLossless,
             .jpeg2000Lossless,
             .jpeg2000,
+            .jpeg2000Part2MulticomponentLossless,
+            .jpeg2000Part2Multicomponent,
+            .htj2kLossless,
+            .htj2kLosslessRPCL,
+            .htj2k,
             .rleLossless
         ]
 
@@ -449,6 +539,7 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
             .implicitVRLittleEndian,
             .explicitVRLittleEndian,
             .explicitVRBigEndian,
+            .deflatedExplicitVRLittleEndian,
             .jpegBaseline,
             .jpegExtended,
             .jpegLossless,
@@ -457,6 +548,11 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
             .jpegLSNearLossless,
             .jpeg2000Lossless,
             .jpeg2000,
+            .jpeg2000Part2MulticomponentLossless,
+            .jpeg2000Part2Multicomponent,
+            .htj2kLossless,
+            .htj2kLosslessRPCL,
+            .htj2k,
             .rleLossless
         ]
 
@@ -471,6 +567,7 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
             .implicitVRLittleEndian,
             .explicitVRLittleEndian,
             .explicitVRBigEndian,
+            .deflatedExplicitVRLittleEndian,
             .jpegBaseline,
             .jpegExtended,
             .jpegLossless,
@@ -479,6 +576,11 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
             .jpegLSNearLossless,
             .jpeg2000Lossless,
             .jpeg2000,
+            .jpeg2000Part2MulticomponentLossless,
+            .jpeg2000Part2Multicomponent,
+            .htj2kLossless,
+            .htj2kLosslessRPCL,
+            .htj2k,
             .rleLossless
         ]
 
@@ -518,6 +620,7 @@ final class DCMDecoderTransferSyntaxTests: XCTestCase {
             .implicitVRLittleEndian,
             .explicitVRLittleEndian,
             .explicitVRBigEndian,
+            .deflatedExplicitVRLittleEndian,
             .jpegBaseline,
             .jpeg2000
         ]

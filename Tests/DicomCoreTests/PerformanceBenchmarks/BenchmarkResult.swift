@@ -28,17 +28,21 @@ public struct BenchmarkResult {
     /// Number of iterations performed
     public let iterationCount: Int
 
+    /// Peak resident memory observed for the process during or after the benchmark.
+    public let peakMemoryBytes: UInt64?
+
     /// Initialize benchmark result with timing measurements
     ///
     /// - Parameter timings: Array of timing measurements in seconds
     /// - Throws: BenchmarkError.insufficientData if timings array is empty
-    public init(timings: [Double]) throws {
+    public init(timings: [Double], peakMemoryBytes: UInt64? = nil) throws {
         guard !timings.isEmpty else {
             throw BenchmarkError.insufficientData("Cannot create BenchmarkResult with empty timings array")
         }
 
         self.timings = timings
         self.iterationCount = timings.count
+        self.peakMemoryBytes = peakMemoryBytes
 
         // Calculate mean
         let sum = timings.reduce(0.0, +)
@@ -61,11 +65,16 @@ public struct BenchmarkResult {
     ///   - stdDevTime: Standard deviation of execution time
     ///   - timings: Array of timing measurements
     ///   - iterationCount: Number of iterations performed
-    public init(meanTime: Double, stdDevTime: Double, timings: [Double], iterationCount: Int) {
+    public init(meanTime: Double,
+                stdDevTime: Double,
+                timings: [Double],
+                iterationCount: Int,
+                peakMemoryBytes: UInt64? = nil) {
         self.meanTime = meanTime
         self.stdDevTime = stdDevTime
         self.timings = timings
         self.iterationCount = iterationCount
+        self.peakMemoryBytes = peakMemoryBytes
     }
 
     // MARK: - Statistical Metrics
@@ -143,6 +152,23 @@ public struct BenchmarkResult {
         return String(format: "%.1f µs", time * 1_000_000.0)
     }
 
+    /// Format a byte count with binary units.
+    ///
+    /// - Parameter bytes: Byte count to format
+    /// - Returns: Formatted string with B/KiB/MiB/GiB suffix
+    public static func formatBytes(_ bytes: UInt64) -> String {
+        let units = ["B", "KiB", "MiB", "GiB"]
+        var value = Double(bytes)
+        var unitIndex = 0
+        while value >= 1024.0 && unitIndex < units.count - 1 {
+            value /= 1024.0
+            unitIndex += 1
+        }
+        return unitIndex == 0
+            ? "\(bytes) \(units[unitIndex])"
+            : String(format: "%.2f %@", value, units[unitIndex])
+    }
+
     /// Generate summary statistics string
     ///
     /// - Returns: Multi-line string with statistical summary
@@ -157,6 +183,9 @@ public struct BenchmarkResult {
         lines.append("P95: \(Self.formatMilliseconds(p95Time))")
         lines.append("P99: \(Self.formatMilliseconds(p99Time))")
         lines.append("CV: \(String(format: "%.2f%%", coefficientOfVariation))")
+        if let peakMemoryBytes {
+            lines.append("Peak Memory: \(Self.formatBytes(peakMemoryBytes))")
+        }
         return lines.joined(separator: "\n")
     }
 
@@ -188,6 +217,7 @@ extension BenchmarkResult: Codable {
         case stdDevTime
         case timings
         case iterationCount
+        case peakMemoryBytes
     }
 }
 

@@ -488,6 +488,14 @@ public final class MockDicomDecoderForPreviews: DicomDecoderProtocol, @unchecked
         return RescaleParameters(intercept: 0.0, slope: 1.0)
     }
 
+    public var waveform: DicomWaveform? {
+        nil
+    }
+
+    public var video: DicomVideo? {
+        nil
+    }
+
     // MARK: - Utility Methods
 
     public func applyRescale(to pixelValue: Double) -> Double {

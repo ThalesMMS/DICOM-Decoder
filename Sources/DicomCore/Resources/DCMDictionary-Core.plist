@@ -28,6 +28,8 @@
 	<string>UIInstance Creator UID</string>
 	<key>00080016</key>
 	<string>UISOP Class UID</string>
+	<key>00080105</key>
+	<string>SHMapping Resource</string>
 	<key>00080018</key>
 	<string>UISOP Instance UID</string>
 	<key>00080020</key>
@@ -126,6 +128,8 @@
 	<string>SQReferenced Study Component Sequence</string>
 	<key>00081115</key>
 	<string>SQReferenced Series Sequence</string>
+	<key>00081199</key>
+	<string>SQReferenced SOP Sequence</string>
 	<key>00081120</key>
 	<string>SQReferenced Patient Sequence</string>
 	<key>00081125</key>
@@ -350,6 +354,12 @@
 	<string>DSFrame Time Vector</string>
 	<key>00181066</key>
 	<string>DSFrame Delay</string>
+	<key>00181068</key>
+	<string>DSMultiplex Group Time Offset</string>
+	<key>00181069</key>
+	<string>DSTrigger Time Offset</string>
+	<key>0018106E</key>
+	<string>ULTrigger Sample Position</string>
 	<key>00181070</key>
 	<string>LORadionuclide Route</string>
 	<key>00181071</key>
@@ -364,6 +374,8 @@
 	<string>DSRadionuclide Half Life</string>
 	<key>00181076</key>
 	<string>DSRadionuclide Positron Fraction</string>
+	<key>00181078</key>
+	<string>DTRadiopharmaceutical Start DateTime</string>
 	<key>00181080</key>
 	<string>CSBeat Rejection Flag</string>
 	<key>00181081</key>

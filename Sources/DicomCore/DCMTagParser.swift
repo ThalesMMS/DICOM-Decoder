@@ -97,7 +97,7 @@ internal final class DCMTagParser {
         var retValue: Int = 0
 
         switch vr {
-        case .OB, .OW, .SQ, .UN, .UT:
+        case .OB, .OD, .OF, .OW, .OV, .SQ, .UN, .UR, .UT:
             // Explicit VRs with 32‑bit lengths have two reserved
             // bytes (b2 and b3).  If those bytes are zero we
             // interpret the following 4 bytes as the length.
@@ -269,11 +269,11 @@ internal final class DCMTagParser {
         var privateTag = false
 
         switch vr {
-        case .FD:
+        case .FD, .OD:
             // Skip elementLength bytes (8 bytes per double)
             location += elementLength
 
-        case .FL:
+        case .FL, .OF:
             // Skip elementLength bytes (4 bytes per float)
             location += elementLength
 

@@ -1,0 +1,153 @@
+import XCTest
+@testable import DicomCore
+
+final class DicomCharacterSetTests: XCTestCase {
+    private let sopClassUIDTag = 0x00080016
+
+    func testDefaultCharacterSetReadsAsciiText() throws {
+        let decoder = try writeAndOpen(makeTextDataSet(characterSet: nil,
+                                                       patientName: "Doe^Jane",
+                                                       studyDescription: "Head CT"))
+
+        XCTAssertEqual(decoder.specificCharacterSet, ["ISO_IR 6"])
+        XCTAssertEqual(decoder.dataSet.personName(for: .patientName)?.familyName, "Doe")
+        XCTAssertEqual(decoder.dataSet.personName(for: .patientName)?.givenName, "Jane")
+        XCTAssertEqual(decoder.dataSet.string(for: .studyDescription), "Head CT")
+    }
+
+    func testLatin1SpecificCharacterSetDecodesAccents() throws {
+        let dataSet = makeTextDataSet(characterSet: "ISO_IR 100",
+                                      patientName: "García^José",
+                                      studyDescription: "Crânio")
+        let data = try DicomDataSetWriter.part10Data(from: dataSet)
+        XCTAssertTrue(data.contains(0xED), "Latin-1 encoded patient name should contain í as a single byte")
+
+        let decoder = try open(data)
+        let personName = decoder.dataSet.personName(for: .patientName)
+
+        XCTAssertEqual(decoder.specificCharacterSet, ["ISO_IR 100"])
+        XCTAssertEqual(personName?.familyName, "García")
+        XCTAssertEqual(personName?.givenName, "José")
+        XCTAssertEqual(decoder.dataSet.string(for: .studyDescription), "Crânio")
+    }
+
+    func testUTF8SpecificCharacterSetDecodesPersonNameGroups() throws {
+        let decoder = try writeAndOpen(makeTextDataSet(
+            characterSet: "ISO_IR 192",
+            patientName: "Yamada^Taro=山田^太郎=ヤマダ^タロウ",
+            studyDescription: "国際化"
+        ))
+        let personName = decoder.dataSet.personName(for: .patientName)
+
+        XCTAssertEqual(decoder.specificCharacterSet, ["ISO_IR 192"])
+        XCTAssertEqual(personName?.alphabetic, "Yamada^Taro")
+        XCTAssertEqual(personName?.familyName, "Yamada")
+        XCTAssertEqual(personName?.givenName, "Taro")
+        XCTAssertEqual(personName?.ideographic, "山田^太郎")
+        XCTAssertEqual(personName?.phonetic, "ヤマダ^タロウ")
+        XCTAssertEqual(decoder.dataSet.string(for: .studyDescription), "国際化")
+    }
+
+    func testISO2022JapaneseSpecificCharacterSetDecodesCommonEscapes() throws {
+        let dataSet = makeTextDataSet(characterSet: "ISO 2022 IR 87",
+                                      patientName: "Yamada^Taro=山田^太郎",
+                                      studyDescription: "検査")
+        let data = try DicomDataSetWriter.part10Data(from: dataSet)
+        XCTAssertTrue(data.contains(0x1B), "ISO-2022 encoded values should include escape bytes")
+
+        let decoder = try open(data)
+        let personName = decoder.dataSet.personName(for: .patientName)
+
+        XCTAssertEqual(decoder.specificCharacterSet, ["ISO 2022 IR 87"])
+        XCTAssertEqual(personName?.familyName, "Yamada")
+        XCTAssertEqual(personName?.givenName, "Taro")
+        XCTAssertEqual(personName?.ideographic, "山田^太郎")
+        XCTAssertEqual(decoder.dataSet.string(for: .studyDescription), "検査")
+    }
+
+    func testSanitizedDisplayTextRemovesControlsWithoutRedactingContent() {
+        let element = DicomDataElement(tag: DicomTag.patientName.rawValue,
+                                       vr: .PN,
+                                       value: .strings(["Jane\u{0007}\nDoe"]))
+        let dataSet = DicomDataSet(elements: [element])
+
+        XCTAssertEqual(DicomTextSanitizer.sanitizedForDisplay("Jane\u{0007}\nDoe"), "Jane Doe")
+        XCTAssertEqual(element.sanitizedStringValue, "Jane Doe")
+        XCTAssertEqual(dataSet.sanitizedString(for: .patientName), "Jane Doe")
+    }
+
+    private func writeAndOpen(_ dataSet: DicomDataSet) throws -> DCMDecoder {
+        try open(DicomDataSetWriter.part10Data(from: dataSet))
+    }
+
+    private func open(_ data: Data) throws -> DCMDecoder {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("dcm")
+        try data.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        return try DCMDecoder(contentsOf: url)
+    }
+
+    private func makeTextDataSet(characterSet: String?,
+                                 patientName: String,
+                                 studyDescription: String) -> DicomDataSet {
+        var elements: [DicomDataElement] = [
+            DicomDataElement(tag: sopClassUIDTag,
+                             vr: .UI,
+                             value: .strings([DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID])),
+            DicomDataElement(tag: DicomTag.sopInstanceUID.rawValue,
+                             vr: .UI,
+                             value: .strings(["2.25.2171"])),
+            DicomDataElement(tag: DicomTag.studyInstanceUID.rawValue,
+                             vr: .UI,
+                             value: .strings(["2.25.2172"])),
+            DicomDataElement(tag: DicomTag.seriesInstanceUID.rawValue,
+                             vr: .UI,
+                             value: .strings(["2.25.2173"])),
+            DicomDataElement(tag: DicomTag.patientName.rawValue,
+                             vr: .PN,
+                             value: .strings([patientName])),
+            DicomDataElement(tag: DicomTag.studyDescription.rawValue,
+                             vr: .LO,
+                             value: .strings([studyDescription])),
+            DicomDataElement(tag: DicomTag.modality.rawValue,
+                             vr: .CS,
+                             value: .strings(["CT"])),
+            DicomDataElement(tag: DicomTag.samplesPerPixel.rawValue,
+                             vr: .US,
+                             value: .unsignedIntegers([1])),
+            DicomDataElement(tag: DicomTag.photometricInterpretation.rawValue,
+                             vr: .CS,
+                             value: .strings(["MONOCHROME2"])),
+            DicomDataElement(tag: DicomTag.rows.rawValue,
+                             vr: .US,
+                             value: .unsignedIntegers([1])),
+            DicomDataElement(tag: DicomTag.columns.rawValue,
+                             vr: .US,
+                             value: .unsignedIntegers([1])),
+            DicomDataElement(tag: DicomTag.bitsAllocated.rawValue,
+                             vr: .US,
+                             value: .unsignedIntegers([16])),
+            DicomDataElement(tag: DicomTag.bitsStored.rawValue,
+                             vr: .US,
+                             value: .unsignedIntegers([16])),
+            DicomDataElement(tag: DicomTag.highBit.rawValue,
+                             vr: .US,
+                             value: .unsignedIntegers([15])),
+            DicomDataElement(tag: DicomTag.pixelRepresentation.rawValue,
+                             vr: .US,
+                             value: .unsignedIntegers([0])),
+            DicomDataElement(tag: DicomTag.pixelData.rawValue,
+                             vr: .OW,
+                             value: .bytes(Data([0x01, 0x00])))
+        ]
+
+        if let characterSet {
+            elements.append(DicomDataElement(tag: DicomTag.specificCharacterSet.rawValue,
+                                             vr: .CS,
+                                             value: .strings([characterSet])))
+        }
+        return DicomDataSet(elements: elements)
+    }
+}

@@ -1,0 +1,182 @@
+import XCTest
+@testable import DicomCore
+
+final class DicomDisplayTransformTests: XCTestCase {
+    func testRawAndModalityValuesUseDecoderDisplayProfile() throws {
+        let url = try makeTemporaryDICOM(
+            pixelValues: [0, 100, 1024, 2048],
+            extraElements: [
+                ds(.rescaleIntercept, ["-1024"]),
+                ds(.rescaleSlope, ["1"]),
+                string(.rescaleType, vr: .LO, "HU")
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let decoder = try DCMDecoder(contentsOf: url)
+        let profile = decoder.displayTransformProfile
+
+        XCTAssertEqual(decoder.storedPixelValue(at: 0), 0)
+        XCTAssertEqual(decoder.storedPixelValue(at: 2), 1024)
+        XCTAssertEqual(decoder.modalityPixelValue(at: 2), 0)
+        XCTAssertEqual(profile.rescaleParameters, RescaleParameters(intercept: -1024, slope: 1))
+        XCTAssertEqual(profile.rescaleType, "HU")
+        XCTAssertEqual(
+            decoder.calculatePercentileWindow(lower: 0, upper: 1),
+            WindowSettings(center: 0, width: 2048)
+        )
+        XCTAssertTrue(decoder.pixelsNotLoaded)
+    }
+
+    func testMultipleWindowsArePairedWithExplanations() throws {
+        let url = try makeTemporaryDICOM(
+            pixelValues: [0],
+            extraElements: [
+                ds(.windowCenter, ["40", "80"]),
+                ds(.windowWidth, ["400", "2000"]),
+                string(.windowCenterWidthExplanation, vr: .LO, ["Soft Tissue", "Lung"])
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let decoder = try DCMDecoder(contentsOf: url)
+        let profile = decoder.displayTransformProfile
+
+        XCTAssertEqual(decoder.windowSettingsV2, WindowSettings(center: 80, width: 2000))
+        XCTAssertEqual(decoder.info(for: .windowCenter), "40\\80")
+        XCTAssertEqual(profile.windows.count, 2)
+        XCTAssertEqual(profile.windows[0].settings, WindowSettings(center: 40, width: 400))
+        XCTAssertEqual(profile.windows[0].explanation, "Soft Tissue")
+        XCTAssertEqual(profile.windows[1].settings, WindowSettings(center: 80, width: 2000))
+        XCTAssertEqual(profile.windows[1].explanation, "Lung")
+    }
+
+    func testVOILUTSequenceAppliesDisplaySelection() throws {
+        let url = try makeTemporaryDICOM(
+            pixelValues: [0, 1, 2, 3],
+            extraElements: [
+                sequence(.voiLUTSequence, [
+                    DicomDataSet(elements: [
+                        us(.lutDescriptor, [4, 0, 8]),
+                        string(.lutExplanation, vr: .LO, "VOI ramp"),
+                        us(.lutData, [0, 64, 128, 255])
+                    ])
+                ])
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let decoder = try DCMDecoder(contentsOf: url)
+        let profile = decoder.displayTransformProfile
+
+        XCTAssertEqual(profile.voiLUTs.count, 1)
+        XCTAssertEqual(profile.voiLUTs[0].explanation, "VOI ramp")
+        XCTAssertEqual(profile.displayValue(forStoredPixelValue: 0, selection: .voiLUT(index: 0)), 0)
+        XCTAssertEqual(profile.displayValue(forStoredPixelValue: 2, selection: .voiLUT(index: 0)), 128)
+        XCTAssertEqual(profile.displayValue(forStoredPixelValue: 3, selection: .voiLUT(index: 0)), 255)
+    }
+
+    func testMonochromeAndPresentationShapeInvertDisplayValue() throws {
+        let monochromeURL = try makeTemporaryDICOM(
+            pixelValues: [0, 50, 100],
+            photometricInterpretation: "MONOCHROME1",
+            extraElements: [
+                ds(.windowCenter, ["50"]),
+                ds(.windowWidth, ["100"]),
+                string(.presentationLUTShape, vr: .CS, "IDENTITY")
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: monochromeURL) }
+
+        let monochromeProfile = try DCMDecoder(contentsOf: monochromeURL).displayTransformProfile
+        XCTAssertTrue(monochromeProfile.isMonochrome1)
+        XCTAssertTrue(monochromeProfile.isPresentationInverted)
+        XCTAssertEqual(monochromeProfile.presentationLUTShape, .identity)
+        XCTAssertEqual(monochromeProfile.displayValue(forStoredPixelValue: 0, selection: .window(index: 0)), 255)
+        XCTAssertEqual(monochromeProfile.displayValue(forStoredPixelValue: 100, selection: .window(index: 0)), 0)
+
+        let inverseURL = try makeTemporaryDICOM(
+            pixelValues: [0, 100],
+            extraElements: [
+                ds(.windowCenter, ["50"]),
+                ds(.windowWidth, ["100"]),
+                string(.presentationLUTShape, vr: .CS, "INVERSE")
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: inverseURL) }
+
+        let inverseProfile = try DCMDecoder(contentsOf: inverseURL).displayTransformProfile
+        XCTAssertEqual(inverseProfile.presentationLUTShape, .inverse)
+        XCTAssertTrue(inverseProfile.isPresentationInverted)
+        XCTAssertEqual(inverseProfile.displayValue(forStoredPixelValue: 0, selection: .window(index: 0)), 255)
+    }
+
+    private func makeTemporaryDICOM(
+        pixelValues: [UInt16],
+        photometricInterpretation: String = "MONOCHROME2",
+        extraElements: [DicomDataElement] = []
+    ) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("display_transform_\(UUID().uuidString).dcm")
+        let dataSet = DicomDataSet(elements: [
+            string(0x00080016, vr: .UI, DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID),
+            string(.sopInstanceUID, vr: .UI, "1.2.826.0.1.3680043.10.222.\(Int.random(in: 1...999999))"),
+            string(.modality, vr: .CS, "CT"),
+            us(.samplesPerPixel, 1),
+            string(.photometricInterpretation, vr: .CS, photometricInterpretation),
+            us(.rows, 1),
+            us(.columns, pixelValues.count),
+            us(.bitsAllocated, 16),
+            us(.bitsStored, 16),
+            us(.highBit, 15),
+            us(.pixelRepresentation, 0),
+            bytes(.pixelData, vr: .OW, Data(littleEndianBytes(values: pixelValues)))
+        ] + extraElements)
+
+        let data = try DicomDataSetWriter.part10Data(from: dataSet)
+        try data.write(to: url)
+        return url
+    }
+
+    private func sequence(_ tag: DicomTag, _ dataSets: [DicomDataSet]) -> DicomDataElement {
+        DicomDataElement(
+            tag: tag.rawValue,
+            vr: .SQ,
+            value: .sequence(dataSets.map { DicomSequenceItem(dataSet: $0) })
+        )
+    }
+
+    private func string(_ tag: DicomTag, vr: DicomVR, _ value: String) -> DicomDataElement {
+        string(tag.rawValue, vr: vr, value)
+    }
+
+    private func string(_ tag: DicomTag, vr: DicomVR, _ values: [String]) -> DicomDataElement {
+        DicomDataElement(tag: tag.rawValue, vr: vr, value: .strings(values))
+    }
+
+    private func string(_ tag: Int, vr: DicomVR, _ value: String) -> DicomDataElement {
+        DicomDataElement(tag: tag, vr: vr, value: .strings([value]))
+    }
+
+    private func ds(_ tag: DicomTag, _ values: [String]) -> DicomDataElement {
+        DicomDataElement(tag: tag.rawValue, vr: .DS, value: .strings(values))
+    }
+
+    private func us(_ tag: DicomTag, _ value: Int) -> DicomDataElement {
+        us(tag, [value])
+    }
+
+    private func us(_ tag: DicomTag, _ values: [Int]) -> DicomDataElement {
+        DicomDataElement(tag: tag.rawValue, vr: .US, value: .unsignedIntegers(values.map(UInt.init)))
+    }
+
+    private func bytes(_ tag: DicomTag, vr: DicomVR, _ value: Data) -> DicomDataElement {
+        DicomDataElement(tag: tag.rawValue, vr: vr, value: .bytes(value))
+    }
+
+    private func littleEndianBytes(values: [UInt16]) -> [UInt8] {
+        values.flatMap { value in
+            withUnsafeBytes(of: value.littleEndian) { Array($0) }
+        }
+    }
+}

@@ -104,10 +104,17 @@ extension DCMDecoder {
         var reader = initialReader
         // Reset some state to sane defaults
         tagMetadataCache.removeAll()
+        activeCharacterSet = .defaultCharacterSet
         bitDepth = 16
         compressedImage = false
         imageOrientation = nil
         imagePosition = nil
+        reds = nil
+        greens = nil
+        blues = nil
+        redPaletteDescriptor = nil
+        greenPaletteDescriptor = nil
+        bluePaletteDescriptor = nil
         // Move to offset 128 where "DICM" marker resides
         location = 128
         // Read the four magic bytes
@@ -120,6 +127,7 @@ extension DCMDecoder {
         samplesPerPixel = 1
         // Create decoder context for tag handlers
         let context = DecoderContext()
+        context.specificCharacterSet = activeCharacterSet
         // Create info adder helper for tag handlers
         guard tagParser != nil else { return false }
         let infoAdder = InfoAdder()
@@ -152,7 +160,7 @@ extension DCMDecoder {
                 }
                 break
             }
-            if tagParser?.isInSequence == true {
+            if tagParser?.isInSequence == true && tag != DicomTag.pixelData.rawValue {
                 // Sequence content is handled inside headerInfo
                 addInfo(tag: tag, stringValue: nil)
                 rebuildParserIfNeeded(afterEndiannessChange: parsedTag.endiannessChanged)
@@ -182,6 +190,9 @@ extension DCMDecoder {
                     transferSyntaxUID = context.transferSyntaxUID
                     compressedImage = context.compressedImage
                     bigEndianTransferSyntax = context.bigEndianTransferSyntax
+                } else if tag == DicomTag.specificCharacterSet.rawValue {
+                    activeCharacterSet = context.specificCharacterSet
+                    cachedInfo.removeAll()
                 }
 
                 // Check if handler signaled to stop decoding (e.g., PixelDataTagHandler)
@@ -213,6 +224,7 @@ extension DCMDecoder {
         transferSyntaxUID = context.transferSyntaxUID
         compressedImage = context.compressedImage
         bigEndianTransferSyntax = context.bigEndianTransferSyntax
+        activeCharacterSet = context.specificCharacterSet
         samplesPerPixel = context.samplesPerPixel
         photometricInterpretation = context.photometricInterpretation
         pixelRepresentation = context.pixelRepresentation
@@ -228,6 +240,9 @@ extension DCMDecoder {
         reds = context.reds
         greens = context.greens
         blues = context.blues
+        redPaletteDescriptor = context.redPaletteDescriptor
+        greenPaletteDescriptor = context.greenPaletteDescriptor
+        bluePaletteDescriptor = context.bluePaletteDescriptor
         offset = context.offset
         nImages = context.nImages
         // Note: modality and planarConfiguration are stored in context but not
@@ -263,6 +278,35 @@ extension DCMDecoder {
 
         // Ensure we have a valid pixel data offset.
         if offset == 0 {
+            let sopClassUID = info(for: .sopClassUID)
+                .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\0")))
+            let modality = info(for: .modality)
+                .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\0")))
+            if sopClassUID == DicomRTStructureSet.storageSOPClassUID ||
+                sopClassUID == DicomRTPlan.storageSOPClassUID ||
+                DicomSRDocument.structuredReportSOPClassUIDs.contains(sopClassUID) ||
+                sopClassUID == DicomGrayscalePresentationState.storageSOPClassUID ||
+                DicomEncapsulatedDocument.supportedStorageSOPClassUIDs.contains(sopClassUID) ||
+                DicomWaveform.supportedStorageSOPClassUIDs.contains(sopClassUID) ||
+                modality == "RTSTRUCT" ||
+                modality == "RTPLAN" ||
+                modality == "SR" ||
+                modality == "KO" ||
+                modality == "PR" ||
+                modality == "DOC" ||
+                tagMetadataCache[DicomTag.waveformSequence.rawValue] != nil {
+                return true
+            }
+            if tagMetadataCache[DicomTag.floatPixelData.rawValue] != nil ||
+                tagMetadataCache[DicomTag.doubleFloatPixelData.rawValue] != nil {
+                return true
+            }
+            if let syntax = DicomTransferSyntax(uid: transferSyntaxUID),
+               syntax.usesPixelDataProviderURL,
+               tagMetadataCache[DicomTag.pixelDataProviderURL.rawValue] != nil ||
+               dicomInfoDict[DicomTag.pixelDataProviderURL.rawValue] != nil {
+                return true
+            }
             if compressedImage {
                 logger.warning("Could not determine pixel data location: Pixel Data tag missing for compressed transfer syntax \(transferSyntaxUID)")
             } else if nImages > 1 {
