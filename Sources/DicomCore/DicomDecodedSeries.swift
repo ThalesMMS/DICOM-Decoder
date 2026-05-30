@@ -316,10 +316,13 @@ extension DicomDecodedSeries {
         let representation: DicomPixelRepresentation = volume.isSignedPixel ? .signedInt16 : .unsignedInt16
         let conversion = try Self.makeModalityVoxels(
             rawVoxels: volume.voxels,
-            voxelCount: volume.width * volume.height * volume.depth,
+            width: volume.width,
+            height: volume.height,
+            depth: volume.depth,
             representation: representation,
-            slope: volume.rescaleSlope,
-            intercept: volume.rescaleIntercept,
+            defaultSlope: volume.rescaleSlope,
+            defaultIntercept: volume.rescaleIntercept,
+            sliceRescaleParameters: volume.sliceRescaleParameters,
             sourceURL: sourceURL
         )
         let window = Self.recommendedWindow(
@@ -360,16 +363,22 @@ extension DicomDecodedSeries {
     }
 
     private static func makeModalityVoxels(rawVoxels: Data,
-                                           voxelCount: Int,
+                                           width: Int,
+                                           height: Int,
+                                           depth: Int,
                                            representation: DicomPixelRepresentation,
-                                           slope: Double,
-                                           intercept: Double,
+                                           defaultSlope: Double,
+                                           defaultIntercept: Double,
+                                           sliceRescaleParameters: [DicomSliceRescaleParameters],
                                            sourceURL: URL) throws -> (data: Data, range: ClosedRange<Int32>) {
+        let voxelCount = width * height * depth
         let expectedBytes = voxelCount * MemoryLayout<Int16>.size
         guard rawVoxels.count == expectedBytes else {
             throw DicomSeriesLoaderError.failedToDecode(sourceURL)
         }
 
+        let sliceVoxelCount = width * height
+        let useSliceRescaleParameters = sliceRescaleParameters.count == depth
         var converted = Data(count: expectedBytes)
         var minimum = Int32.max
         var maximum = Int32.min
@@ -380,23 +389,37 @@ extension DicomDecodedSeries {
                 switch representation {
                 case .signedInt16:
                     let source = sourceBuffer.bindMemory(to: Int16.self)
-                    for index in 0..<voxelCount {
-                        let value = convertedModalityValue(raw: Double(source[index]),
-                                                           slope: slope,
-                                                           intercept: intercept)
-                        minimum = min(minimum, value.int32)
-                        maximum = max(maximum, value.int32)
-                        destination[index] = value.int16
+                    for slice in 0..<depth {
+                        let parameters = useSliceRescaleParameters
+                            ? sliceRescaleParameters[slice]
+                            : DicomSliceRescaleParameters(slope: defaultSlope, intercept: defaultIntercept)
+                        let base = slice * sliceVoxelCount
+                        for localIndex in 0..<sliceVoxelCount {
+                            let index = base + localIndex
+                            let value = convertedModalityValue(raw: Double(source[index]),
+                                                               slope: parameters.slope,
+                                                               intercept: parameters.intercept)
+                            minimum = min(minimum, value.int32)
+                            maximum = max(maximum, value.int32)
+                            destination[index] = value.int16
+                        }
                     }
                 case .unsignedInt16:
                     let source = sourceBuffer.bindMemory(to: UInt16.self)
-                    for index in 0..<voxelCount {
-                        let value = convertedModalityValue(raw: Double(source[index]),
-                                                           slope: slope,
-                                                           intercept: intercept)
-                        minimum = min(minimum, value.int32)
-                        maximum = max(maximum, value.int32)
-                        destination[index] = value.int16
+                    for slice in 0..<depth {
+                        let parameters = useSliceRescaleParameters
+                            ? sliceRescaleParameters[slice]
+                            : DicomSliceRescaleParameters(slope: defaultSlope, intercept: defaultIntercept)
+                        let base = slice * sliceVoxelCount
+                        for localIndex in 0..<sliceVoxelCount {
+                            let index = base + localIndex
+                            let value = convertedModalityValue(raw: Double(source[index]),
+                                                               slope: parameters.slope,
+                                                               intercept: parameters.intercept)
+                            minimum = min(minimum, value.int32)
+                            maximum = max(maximum, value.int32)
+                            destination[index] = value.int16
+                        }
                     }
                 }
             }

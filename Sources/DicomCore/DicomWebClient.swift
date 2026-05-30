@@ -108,6 +108,11 @@ public struct DicomWebClientConfiguration: Equatable, Sendable {
 public struct DicomWebQuery: Equatable, Sendable {
     public var patientName: String?
     public var patientID: String?
+    public var accessionNumber: String?
+    public var studyDate: String?
+    public var studyDescription: String?
+    public var referringPhysicianName: String?
+    public var institutionName: String?
     public var studyInstanceUID: String?
     public var modality: String?
     public var limit: Int?
@@ -116,6 +121,11 @@ public struct DicomWebQuery: Equatable, Sendable {
 
     public init(patientName: String? = nil,
                 patientID: String? = nil,
+                accessionNumber: String? = nil,
+                studyDate: String? = nil,
+                studyDescription: String? = nil,
+                referringPhysicianName: String? = nil,
+                institutionName: String? = nil,
                 studyInstanceUID: String? = nil,
                 modality: String? = nil,
                 limit: Int? = nil,
@@ -123,6 +133,11 @@ public struct DicomWebQuery: Equatable, Sendable {
                 includeAllFields: Bool = true) {
         self.patientName = patientName
         self.patientID = patientID
+        self.accessionNumber = accessionNumber
+        self.studyDate = studyDate
+        self.studyDescription = studyDescription
+        self.referringPhysicianName = referringPhysicianName
+        self.institutionName = institutionName
         self.studyInstanceUID = studyInstanceUID
         self.modality = modality
         self.limit = limit
@@ -431,8 +446,13 @@ public struct DicomWebClient: Sendable {
         var items: [URLQueryItem] = []
         appendQueryItem("PatientName", value: query.patientName, to: &items)
         appendQueryItem("PatientID", value: query.patientID, to: &items)
+        appendQueryItem("AccessionNumber", value: query.accessionNumber, to: &items)
+        appendQueryItem("StudyDate", value: query.studyDate, to: &items)
+        appendQueryItem("StudyDescription", value: query.studyDescription, to: &items)
+        appendQueryItem("ReferringPhysicianName", value: query.referringPhysicianName, to: &items)
+        appendQueryItem("InstitutionName", value: query.institutionName, to: &items)
         appendQueryItem("StudyInstanceUID", value: query.studyInstanceUID, to: &items)
-        appendQueryItem("Modality", value: query.modality, to: &items)
+        appendQueryItem("ModalitiesInStudy", value: query.modality, to: &items)
         if let limit = query.limit {
             items.append(URLQueryItem(name: "limit", value: String(limit)))
         }

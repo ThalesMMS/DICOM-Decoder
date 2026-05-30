@@ -122,7 +122,43 @@ final class DicomSeriesLoaderTests: XCTestCase {
         XCTAssertEqual(volume.windowWidth, 400)
     }
 
-    func testLoadSeriesUsesFirstPairedMultiValueWindowing() throws {
+    func testLoadDecodedSeriesAppliesRescalePerSortedSlice() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_PerSliceRescale")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data().write(to: directory.appendingPathComponent("a_late.dcm"))
+        try Data().write(to: directory.appendingPathComponent("z_early.dcm"))
+
+        let loader = DicomSeriesLoader(
+            decoderFactory: { path in
+                let isEarlySlice = path.contains("z_early")
+                let decoder = MockDecoderBuilder.makeDecoder(
+                    width: 2,
+                    height: 1,
+                    pixelValue: isEarlySlice ? 3000 : 2600,
+                    position: isEarlySlice ? .zero : SIMD3<Double>(0, 0, 1)
+                )
+                decoder.setTag(DicomTag.rescaleSlope.rawValue, value: "1")
+                decoder.setTag(DicomTag.rescaleIntercept.rawValue, value: isEarlySlice ? "-3000" : "-2600")
+                return decoder
+            }
+        )
+
+        let volume = try loader.loadSeries(in: directory)
+        XCTAssertEqual(volume.sliceRescaleParameters, [
+            DicomSliceRescaleParameters(slope: 1, intercept: -3000),
+            DicomSliceRescaleParameters(slope: 1, intercept: -2600)
+        ])
+
+        let decoded = try DicomDecodedSeries(volume: volume, sourceURL: directory)
+        let modalityValues: [Int16] = decoded.modalityVoxels.withUnsafeBytes { buffer in
+            Array(buffer.bindMemory(to: Int16.self))
+        }
+
+        XCTAssertEqual(modalityValues, [0, 0, 0, 0])
+        XCTAssertEqual(decoded.modalityIntensityRange, 0...0)
+    }
+
+    func testLoadSeriesUsesPreferredPairedMultiValueWindowing() throws {
         let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_MultiValueWindowing")
         defer { try? FileManager.default.removeItem(at: directory) }
         try createFiles(in: directory, count: 2)
@@ -142,8 +178,8 @@ final class DicomSeriesLoaderTests: XCTestCase {
         )
 
         let volume = try loader.loadSeries(in: directory)
-        XCTAssertEqual(volume.windowCenter, 40)
-        XCTAssertEqual(volume.windowWidth, 400)
+        XCTAssertEqual(volume.windowCenter, 80)
+        XCTAssertEqual(volume.windowWidth, 2000)
     }
 
     func testLoadSeriesRejectsDuplicateProjectedPositionsSeparatedByNilProjection() throws {

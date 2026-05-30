@@ -77,6 +77,17 @@ public enum DicomSeriesLoaderError: Error {
 
 // MARK: - Volume Data Structure
 
+/// Rescale parameters for a single decoded slice in sorted volume order.
+public struct DicomSliceRescaleParameters: Sendable, Equatable {
+    public let slope: Double
+    public let intercept: Double
+
+    public init(slope: Double, intercept: Double) {
+        self.slope = slope
+        self.intercept = intercept
+    }
+}
+
 /// Represents a loaded DICOM volume assembled from a directory of slices.
 ///
 /// Contains the assembled voxel data buffer along with geometric metadata required
@@ -159,6 +170,9 @@ public struct DicomSeriesVolume: Sendable {
     /// Image SOP instances that were loaded into the volume, in slice order.
     public let imageInstances: [DicomSeriesImageInstance]
 
+    /// Per-slice rescale parameters in the same order as the assembled voxel buffer.
+    public let sliceRescaleParameters: [DicomSliceRescaleParameters]
+
     public init(voxels: Data,
                 width: Int,
                 height: Int,
@@ -180,7 +194,8 @@ public struct DicomSeriesVolume: Sendable {
                 seriesInstanceUID: String? = nil,
                 frameOfReferenceUID: String? = nil,
                 quantitativeValueProfile: DicomQuantitativeValueProfile = .empty,
-                imageInstances: [DicomSeriesImageInstance] = []) {
+                imageInstances: [DicomSeriesImageInstance] = [],
+                sliceRescaleParameters: [DicomSliceRescaleParameters] = []) {
         self.voxels = voxels
         self.width = width
         self.height = height
@@ -203,6 +218,7 @@ public struct DicomSeriesVolume: Sendable {
         self.frameOfReferenceUID = frameOfReferenceUID
         self.quantitativeValueProfile = quantitativeValueProfile
         self.imageInstances = imageInstances
+        self.sliceRescaleParameters = sliceRescaleParameters
     }
 }
 
@@ -240,6 +256,8 @@ struct SliceMeta {
     let seriesInstanceUID: String?
     let sopClassUID: String?
     let sopInstanceUID: String?
+    let rescaleSlope: Double
+    let rescaleIntercept: Double
 
     init(url: URL,
          position: SIMD3<Double>?,
@@ -250,7 +268,9 @@ struct SliceMeta {
          studyInstanceUID: String? = nil,
          seriesInstanceUID: String? = nil,
          sopClassUID: String? = nil,
-         sopInstanceUID: String? = nil) {
+         sopInstanceUID: String? = nil,
+         rescaleSlope: Double = 1,
+         rescaleIntercept: Double = 0) {
         self.url = url
         self.position = position
         self.instanceNumber = instanceNumber
@@ -261,6 +281,8 @@ struct SliceMeta {
         self.seriesInstanceUID = seriesInstanceUID
         self.sopClassUID = sopClassUID
         self.sopInstanceUID = sopInstanceUID
+        self.rescaleSlope = rescaleSlope
+        self.rescaleIntercept = rescaleIntercept
     }
 }
 
@@ -628,6 +650,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
             let instance = decoder.intValue(for: .instanceNumber)
 
             let window = windowCenterWidth(from: decoder)
+            let sliceRescale = decoder.rescaleParametersV2
             slices.append(SliceMeta(url: url,
                                     position: decoder.imagePosition,
                                     instanceNumber: instance,
@@ -637,7 +660,9 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                     studyInstanceUID: nonEmpty(decoder.info(for: .studyInstanceUID)) ?? studyInstanceUID,
                                     seriesInstanceUID: nonEmpty(decoder.info(for: .seriesInstanceUID)) ?? seriesInstanceUID,
                                     sopClassUID: nonEmpty(decoder.info(for: .sopClassUID)),
-                                    sopInstanceUID: nonEmpty(decoder.info(for: .sopInstanceUID))))
+                                    sopInstanceUID: nonEmpty(decoder.info(for: .sopInstanceUID)),
+                                    rescaleSlope: sliceRescale.slope,
+                                    rescaleIntercept: sliceRescale.intercept))
         }
 
         guard !slices.isEmpty, firstDecoder != nil else {
@@ -680,6 +705,15 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         if let windowedSlice = slices.first(where: { $0.windowCenter != nil && $0.windowWidth != nil }) {
             windowCenter = windowedSlice.windowCenter
             windowWidth = windowedSlice.windowWidth
+        }
+        if let firstSlice = slices.first {
+            rescaleSlope = firstSlice.rescaleSlope
+            rescaleIntercept = firstSlice.rescaleIntercept
+        }
+
+        let sliceRescaleParameters = slices.map {
+            DicomSliceRescaleParameters(slope: $0.rescaleSlope,
+                                        intercept: $0.rescaleIntercept)
         }
 
         let imageInstances = slices.enumerated().compactMap { index, slice -> DicomSeriesImageInstance? in
@@ -736,7 +770,8 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                                seriesInstanceUID: seriesInstanceUID,
                                                frameOfReferenceUID: frameOfReferenceUID,
                                                quantitativeValueProfile: quantitativeValueProfile,
-                                               imageInstances: imageInstances)
+                                               imageInstances: imageInstances,
+                                               sliceRescaleParameters: sliceRescaleParameters)
 
         var loadError: Error?
 
@@ -813,7 +848,8 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                        seriesInstanceUID: seriesInstanceUID,
                                        frameOfReferenceUID: frameOfReferenceUID,
                                        quantitativeValueProfile: quantitativeValueProfile,
-                                       imageInstances: imageInstances)
+                                       imageInstances: imageInstances,
+                                       sliceRescaleParameters: sliceRescaleParameters)
 
         return volume
     }

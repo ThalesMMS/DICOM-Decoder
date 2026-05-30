@@ -4,19 +4,38 @@ import simd
 // MARK: - Helpers
 
 extension DicomSeriesLoader {
-    /// Extract the first paired Window Center / Window Width values from DICOM metadata.
+    /// Extract the preferred paired Window Center / Window Width values from DICOM metadata.
     ///
     /// WC/WW may be multi-valued DS fields (for example, `40\80` and `400\2000`).
-    /// Pair by component index so a malformed component in one field does not accidentally
-    /// combine values from different VOI alternatives.
+    /// DCMDecoder preserves its legacy selected values in `windowCenter` / `windowWidth`;
+    /// otherwise prefer the second paired component when present, then fall back to the
+    /// first valid paired component without combining alternatives from different indexes.
     func windowCenterWidth(from decoder: any DicomDecoderProtocol) -> (center: Double, width: Double)? {
+        if decoder.windowCenter.isFinite, decoder.windowWidth.isFinite, decoder.windowWidth > 0 {
+            return (decoder.windowCenter, decoder.windowWidth)
+        }
+
         let centers = decimalValues(from: decoder.info(for: .windowCenter))
         let widths = decimalValues(from: decoder.info(for: .windowWidth))
         let pairCount = min(centers.count, widths.count)
 
         guard pairCount > 0 else { return nil }
+
+        let preferredIndex = pairCount > 1 ? 1 : 0
+        if let center = centers[preferredIndex],
+           let width = widths[preferredIndex],
+           center.isFinite,
+           width.isFinite,
+           width > 0 {
+            return (center, width)
+        }
+
         for index in 0..<pairCount {
-            if let center = centers[index], let width = widths[index] {
+            if let center = centers[index],
+               let width = widths[index],
+               center.isFinite,
+               width.isFinite,
+               width > 0 {
                 return (center, width)
             }
         }

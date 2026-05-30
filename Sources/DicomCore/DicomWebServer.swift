@@ -325,11 +325,17 @@ public final class DicomWebServer: DicomWebHTTPTransport, @unchecked Sendable {
 
     private func qidoStudies(_ request: DicomWebHTTPRequest) -> DicomWebHTTPResponse {
         let filters = queryItems(for: request.url)
+        let modalityFilter = filters["ModalitiesInStudy"] ?? filters["Modality"]
         let studies = uniqueStudies().filter { dataSet in
             matches(dataSet: dataSet, tag: .patientName, filter: filters["PatientName"]) &&
             matches(dataSet: dataSet, tag: .patientID, filter: filters["PatientID"]) &&
+            matches(dataSet: dataSet, tag: 0x0008_0050, filter: filters["AccessionNumber"]) &&
+            matches(dataSet: dataSet, tag: .studyDate, filter: filters["StudyDate"]) &&
+            matches(dataSet: dataSet, tag: .studyDescription, filter: filters["StudyDescription"]) &&
+            matches(dataSet: dataSet, tag: .referringPhysicianName, filter: filters["ReferringPhysicianName"]) &&
+            matches(dataSet: dataSet, tag: .institutionName, filter: filters["InstitutionName"]) &&
             matches(dataSet: dataSet, tag: .studyInstanceUID, filter: filters["StudyInstanceUID"]) &&
-            matches(dataSet: dataSet, tag: .modality, filter: filters["Modality"])
+            matches(dataSet: dataSet, tag: .modalitiesInStudy, fallbackTag: .modality, filter: modalityFilter)
         }
         return encodedDataSets(studies, request: request)
     }
@@ -447,13 +453,21 @@ public final class DicomWebServer: DicomWebHTTPTransport, @unchecked Sendable {
         }
     }
 
-    private func matches(dataSet: DicomDataSet, tag: DicomTag, filter: String?) -> Bool {
+    private func matches(dataSet: DicomDataSet,
+                         tag: DicomTag,
+                         fallbackTag: DicomTag? = nil,
+                         filter: String?) -> Bool {
         guard let filter = filter?.dicomWebNonEmpty else { return true }
-        let value = dataSet.string(for: tag) ?? ""
+        let value = dataSet.string(for: tag) ?? fallbackTag.flatMap { dataSet.string(for: $0) } ?? ""
         if tag == .patientName {
             return value.localizedCaseInsensitiveContains(filter)
         }
         return value == filter
+    }
+
+    private func matches(dataSet: DicomDataSet, tag: Int, filter: String?) -> Bool {
+        guard let filter = filter?.dicomWebNonEmpty else { return true }
+        return dataSet.string(for: tag) == filter
     }
 
     private func multipartResponse(contentType: String, payload: Data) -> DicomWebHTTPResponse {

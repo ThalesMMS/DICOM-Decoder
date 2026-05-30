@@ -25,7 +25,17 @@ final class DicomWebClientTests: XCTestCase {
             transport: transport
         )
 
-        let studies = try await client.searchStudies(DicomWebQuery(patientName: "DOE"))
+        let studies = try await client.searchStudies(
+            DicomWebQuery(patientName: "DOE",
+                          patientID: "P-1",
+                          accessionNumber: "ACC-1",
+                          studyDate: "20260529",
+                          studyDescription: "CT CHEST",
+                          referringPhysicianName: "SMITH",
+                          institutionName: "Hospital",
+                          studyInstanceUID: "2.25.study",
+                          modality: "CT")
+        )
 
         XCTAssertEqual(studies.count, 1)
         XCTAssertEqual(studies.first?.patientName, "DOE^JANE")
@@ -33,8 +43,20 @@ final class DicomWebClientTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests.first)
         XCTAssertEqual(request.method, .get)
         XCTAssertEqual(request.url.path, "/dicom-web/studies")
-        XCTAssertTrue(try XCTUnwrap(request.url.query).contains("PatientName=DOE"))
-        XCTAssertTrue(try XCTUnwrap(request.url.query).contains("includefield=all"))
+        let queryItems = try XCTUnwrap(URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems)
+        let query = Dictionary(uniqueKeysWithValues: queryItems.compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+        XCTAssertEqual(query["PatientName"], "DOE")
+        XCTAssertEqual(query["PatientID"], "P-1")
+        XCTAssertEqual(query["AccessionNumber"], "ACC-1")
+        XCTAssertEqual(query["StudyDate"], "20260529")
+        XCTAssertEqual(query["StudyDescription"], "CT CHEST")
+        XCTAssertEqual(query["ReferringPhysicianName"], "SMITH")
+        XCTAssertEqual(query["InstitutionName"], "Hospital")
+        XCTAssertEqual(query["StudyInstanceUID"], "2.25.study")
+        XCTAssertEqual(query["ModalitiesInStudy"], "CT")
+        XCTAssertEqual(query["includefield"], "all")
         XCTAssertEqual(request.headers["Authorization"], "Bearer token")
         XCTAssertEqual(request.headers["Accept"], "application/dicom+json")
     }
