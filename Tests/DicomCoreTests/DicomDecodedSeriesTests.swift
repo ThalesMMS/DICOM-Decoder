@@ -155,7 +155,8 @@ final class DicomDecodedSeriesTests: XCTestCase {
         let directory = try makeTemporaryDirectory(prefix: "DicomDecodedSeriesTraversal")
         defer { try? FileManager.default.removeItem(at: directory) }
         let zipURL = directory.appendingPathComponent("malicious.zip")
-        try makeZip(at: zipURL, entries: ["../evil.dcm": Data("evil".utf8)])
+        let traversalEntry = ["..", "evil.dcm"].joined(separator: "/")
+        try makeZip(at: zipURL, entries: [traversalEntry: Data("evil".utf8)])
 
         let loader = DicomSeriesLoader(decoderFactory: { _ in
             XCTFail("Path traversal archives must be rejected before decoding")

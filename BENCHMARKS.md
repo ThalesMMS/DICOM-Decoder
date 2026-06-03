@@ -462,9 +462,9 @@ swift test --filter PerformanceBenchmarkSuite
 ## Clinical Performance Budgets
 
 The cross-component budget contract for decoder import, volume assembly, GPU
-upload, MPR, volume rendering, snapshot, and memory is tracked in
-`../Roadmap/ClinicalPerformanceBudgetManifest.json` and summarized in
-`../Roadmap/ClinicalPerformanceBudgets.md`.
+upload, MPR, volume rendering, snapshot, and memory is tracked in the public
+MTK repository's `Roadmap/ClinicalPerformanceBudgetManifest.json` and
+summarized in `Roadmap/ClinicalPerformanceBudgets.md`.
 
 Budget reports must include enough environment context for fair comparison:
 device name, OS version, architecture, model identifier, build configuration,

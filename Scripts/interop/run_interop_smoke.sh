@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PACKAGE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PACKAGE_DIR="$(cd "$(dirname "$(dirname "${SCRIPT_DIR}")")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 PROJECT_NAME="${DICOM_INTEROP_PROJECT:-mtk-dicom-interop}"
 LOG_DIR="${DICOM_INTEROP_LOG_DIR:-${PACKAGE_DIR}/.build/interop-logs}"

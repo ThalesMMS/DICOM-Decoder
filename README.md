@@ -19,7 +19,7 @@ Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and res
 - Stable release line: [`ThalesMMS/DICOM-Decoder` releases](https://github.com/ThalesMMS/DICOM-Decoder/releases)
 - Guides: [Getting Started](GETTING_STARTED.md) | [Usage Examples](USAGE_EXAMPLES.md) | [Glossary](DICOM_GLOSSARY.md) | [Troubleshooting](TROUBLESHOOTING.md)
 - API docs: Generate locally with `swift package generate-documentation --target DicomCore`
-- Related projects: [simple-dicom-mcp](https://github.com/ThalesMMS/simple-dicom-mcp) | [dicom-viewer-mcp-app](https://github.com/ThalesMMS/dicom-viewer-mcp-app) | [orthanc-tools](https://github.com/ThalesMMS/orthanc-tools)
+- Related projects: [MTK](https://github.com/ThalesMMS/MTK) | [MTKDicomBridge](https://github.com/ThalesMMS/MTKDicomBridge) | [MTK-Demo](https://github.com/ThalesMMS/MTK-Demo)
 
 ## Table of Contents
 
