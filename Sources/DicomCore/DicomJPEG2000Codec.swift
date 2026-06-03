@@ -281,6 +281,8 @@ private final class OpenJPEGLibrary {
     typealias ImageDestroy = @convention(c) (UnsafeMutableRawPointer?) -> Void
 
     let handle: UnsafeMutableRawPointer?
+    let runtimeStatus: DicomCodecRuntimeStatus
+    let missingSymbols: [String]
     let createDecompress: CreateDecompress
     let destroyCodec: DestroyCodec
     let setDefaultDecoderParameters: SetDefaultDecoderParameters
@@ -293,21 +295,86 @@ private final class OpenJPEGLibrary {
     let imageDestroy: ImageDestroy
 
     var isAvailable: Bool {
-        handle != nil
+        runtimeStatus.isAvailable && missingSymbols.isEmpty
     }
 
     private init() {
-        handle = Self.openLibrary()
-        createDecompress = Self.load("opj_create_decompress", from: handle, as: CreateDecompress.self)
-        destroyCodec = Self.load("opj_destroy_codec", from: handle, as: DestroyCodec.self)
-        setDefaultDecoderParameters = Self.load("opj_set_default_decoder_parameters", from: handle, as: SetDefaultDecoderParameters.self)
-        setupDecoder = Self.load("opj_setup_decoder", from: handle, as: SetupDecoder.self)
-        streamCreateDefaultFile = Self.load("opj_stream_create_default_file_stream", from: handle, as: StreamCreateDefaultFile.self)
-        streamDestroy = Self.load("opj_stream_destroy", from: handle, as: StreamDestroy.self)
-        readHeader = Self.load("opj_read_header", from: handle, as: ReadHeader.self)
-        decode = Self.load("opj_decode", from: handle, as: Decode.self)
-        endDecompress = Self.load("opj_end_decompress", from: handle, as: EndDecompress.self)
-        imageDestroy = Self.load("opj_image_destroy", from: handle, as: ImageDestroy.self)
+        let resolution = DicomCodecRuntimePreflight.resolve(for: .openJPEG, retainHandle: true)
+        handle = resolution.handle
+        runtimeStatus = resolution.status
+        var unresolvedSymbols: [String] = []
+
+        createDecompress = Self.load(
+            "opj_create_decompress",
+            from: handle,
+            as: CreateDecompress.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableCreateDecompress
+        )
+        destroyCodec = Self.load(
+            "opj_destroy_codec",
+            from: handle,
+            as: DestroyCodec.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableDestroyCodec
+        )
+        setDefaultDecoderParameters = Self.load(
+            "opj_set_default_decoder_parameters",
+            from: handle,
+            as: SetDefaultDecoderParameters.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableSetDefaultDecoderParameters
+        )
+        setupDecoder = Self.load(
+            "opj_setup_decoder",
+            from: handle,
+            as: SetupDecoder.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableSetupDecoder
+        )
+        streamCreateDefaultFile = Self.load(
+            "opj_stream_create_default_file_stream",
+            from: handle,
+            as: StreamCreateDefaultFile.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableStreamCreateDefaultFile
+        )
+        streamDestroy = Self.load(
+            "opj_stream_destroy",
+            from: handle,
+            as: StreamDestroy.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableStreamDestroy
+        )
+        readHeader = Self.load(
+            "opj_read_header",
+            from: handle,
+            as: ReadHeader.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableReadHeader
+        )
+        decode = Self.load(
+            "opj_decode",
+            from: handle,
+            as: Decode.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableDecode
+        )
+        endDecompress = Self.load(
+            "opj_end_decompress",
+            from: handle,
+            as: EndDecompress.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableEndDecompress
+        )
+        imageDestroy = Self.load(
+            "opj_image_destroy",
+            from: handle,
+            as: ImageDestroy.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableImageDestroy
+        )
+        missingSymbols = Array(Set(runtimeStatus.missingSymbols + unresolvedSymbols)).sorted()
     }
 
     deinit {
@@ -317,8 +384,13 @@ private final class OpenJPEGLibrary {
     }
 
     func require() throws -> OpenJPEGLibrary {
-        guard isAvailable else {
-            throw DICOMError.unsupportedTransferSyntax(syntax: "JPEG 2000 requires the OpenJPEG runtime library")
+        guard handle != nil else {
+            throw DICOMError.unsupportedTransferSyntax(syntax: runtimeStatus.message)
+        }
+        guard missingSymbols.isEmpty else {
+            throw DICOMError.unsupportedTransferSyntax(
+                syntax: "JPEG 2000 OpenJPEG runtime is missing required symbols: \(missingSymbols.joined(separator: ", "))"
+            )
         }
         return self
     }
@@ -329,31 +401,31 @@ private final class OpenJPEGLibrary {
         }
     }
 
-    private static func openLibrary() -> UnsafeMutableRawPointer? {
-        let candidates = [
-            "/opt/homebrew/lib/libopenjp2.7.dylib",
-            "/opt/homebrew/lib/libopenjp2.dylib",
-            "/usr/local/lib/libopenjp2.7.dylib",
-            "/usr/local/lib/libopenjp2.dylib",
-            "libopenjp2.7.dylib",
-            "libopenjp2.dylib"
-        ]
-        for candidate in candidates {
-            if let handle = dlopen(candidate, RTLD_NOW | RTLD_LOCAL) {
-                return handle
-            }
+    private static func load<T>(
+        _ name: String,
+        from handle: UnsafeMutableRawPointer?,
+        as type: T.Type,
+        missingSymbols: inout [String],
+        fallback: T
+    ) -> T {
+        guard let handle else {
+            return fallback
         }
-        return nil
-    }
-
-    private static func load<T>(_ name: String, from handle: UnsafeMutableRawPointer?, as type: T.Type) -> T {
-        guard let handle, let symbol = dlsym(handle, name) else {
-            return unsafeBitCast(Self.missingSymbol, to: type)
+        guard let symbol = dlsym(handle, name) else {
+            missingSymbols.append(name)
+            return fallback
         }
         return unsafeBitCast(symbol, to: type)
     }
 
-    private static let missingSymbol: @convention(c) () -> Void = {
-        fatalError("Required OpenJPEG symbol is unavailable")
-    }
+    private static let unavailableCreateDecompress: CreateDecompress = { _ in nil }
+    private static let unavailableDestroyCodec: DestroyCodec = { _ in }
+    private static let unavailableSetDefaultDecoderParameters: SetDefaultDecoderParameters = { _ in }
+    private static let unavailableSetupDecoder: SetupDecoder = { _, _ in 0 }
+    private static let unavailableStreamCreateDefaultFile: StreamCreateDefaultFile = { _, _ in nil }
+    private static let unavailableStreamDestroy: StreamDestroy = { _ in }
+    private static let unavailableReadHeader: ReadHeader = { _, _, _ in 0 }
+    private static let unavailableDecode: Decode = { _, _, _ in 0 }
+    private static let unavailableEndDecompress: EndDecompress = { _, _ in 0 }
+    private static let unavailableImageDestroy: ImageDestroy = { _ in }
 }

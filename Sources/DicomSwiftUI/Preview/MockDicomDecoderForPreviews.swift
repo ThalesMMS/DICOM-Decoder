@@ -1,9 +1,10 @@
 //
 //  MockDicomDecoderForPreviews.swift
 //
-//  Preview-optimized mock implementation of DicomDecoderProtocol.
+//  Preview-only mock implementation of DicomDecoderProtocol.
 //  Provides pre-configured sample data for instant Xcode Preview rendering
 //  without requiring actual DICOM files or complex configuration.
+//  This is supported public preview API only, not a clinical or runtime decoder.
 //
 //  Thread Safety:
 //
@@ -25,11 +26,16 @@ import Foundation
 import simd
 import DicomCore
 
-/// Preview-optimized mock DICOM decoder with pre-configured sample data.
+/// Preview-only mock DICOM decoder with pre-configured sample data.
 ///
 /// This mock provides instant initialization with reasonable defaults for
 /// Xcode Previews. Unlike the test mock (MockDicomDecoder), this version
 /// prioritizes simplicity and performance for UI preview rendering.
+///
+/// Do not use this type for clinical workflows, runtime decoding, validation,
+/// or conformance decisions. Production code should use ``DCMDecoder`` or a
+/// caller-owned ``DicomDecoderProtocol`` implementation backed by real DICOM
+/// data.
 ///
 /// ## Sample Data Factories
 ///

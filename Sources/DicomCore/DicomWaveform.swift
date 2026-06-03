@@ -29,7 +29,7 @@ public enum DicomWaveformError: Error, Equatable, LocalizedError, Sendable {
     }
 }
 
-public enum DicomWaveformStorageKind: Equatable, Hashable, Sendable {
+public enum DicomWaveformStorageKind: CaseIterable, Equatable, Hashable, Sendable {
     case twelveLeadECG
     case generalECG
     case ambulatoryECG
@@ -97,7 +97,7 @@ public enum DicomWaveformStorageKind: Equatable, Hashable, Sendable {
     }
 }
 
-public enum DicomWaveformSampleInterpretation: String, Equatable, Hashable, Sendable {
+public enum DicomWaveformSampleInterpretation: String, CaseIterable, Equatable, Hashable, Sendable {
     case signed8 = "SB"
     case unsigned8 = "UB"
     case signed16 = "SS"

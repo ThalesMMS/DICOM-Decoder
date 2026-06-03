@@ -66,6 +66,7 @@ final class DicomVideoTests: XCTestCase {
         XCTAssertEqual(video.streamData, firstFrame + secondFrame)
         XCTAssertEqual(video.framePayload(at: 0), firstFrame)
         XCTAssertEqual(video.framePayload(at: 1), secondFrame)
+        XCTAssertEqual(try video.encodedFramePayload(at: 0), firstFrame)
         XCTAssertEqual(video.sourceImageReferences, [sourceReference])
         XCTAssertEqual(video.lossyImageCompression, "01")
         XCTAssertEqual(video.lossyImageCompressionMethod, "ISO_14496_10")
@@ -104,6 +105,42 @@ final class DicomVideoTests: XCTestCase {
         ) { error in
             XCTAssertEqual(error as? DicomVideoError, .unsupportedTransferSyntax(DicomTransferSyntax.jpegBaseline.rawValue))
         }
+    }
+
+    func testVideoScopeDistinguishesStreamForwardingDecodeTranscodeAndRenderedFrames() throws {
+        let stream = Data([0x00, 0x00, 0x01, 0x65])
+        let pixelData = try DicomVideoPixelData(
+            streamData: stream,
+            transferSyntax: .mpeg4AVCH264HighProfileLevel41,
+            columns: 640,
+            rows: 480,
+            numberOfFrames: 1,
+            recommendedDisplayFrameRate: 30
+        )
+        let video = try XCTUnwrap(open(video: pixelData, options: DicomVideoBuildOptions(kind: .endoscopic)).video)
+
+        XCTAssertEqual(video.streamData, stream)
+        XCTAssertEqual(try video.transcodeStream(to: .mpeg4AVCH264HighProfileLevel41), stream)
+        XCTAssertThrowsError(try video.decodedFrame(at: 0)) { error in
+            XCTAssertEqual(error as? DicomVideoError, .nativeFrameDecodeUnsupported(codec: "H.264"))
+        }
+        XCTAssertThrowsError(try video.encodedFramePayload(at: 3)) { error in
+            XCTAssertEqual(error as? DicomVideoError, .invalidFrameIndex(index: 3, frameCount: 1))
+        }
+        XCTAssertThrowsError(try video.transcodeStream(to: .hevcH265MainProfileLevel51)) { error in
+            XCTAssertEqual(
+                error as? DicomVideoError,
+                .transcodingUnsupported(
+                    source: DicomTransferSyntax.mpeg4AVCH264HighProfileLevel41.rawValue,
+                    destination: DicomTransferSyntax.hevcH265MainProfileLevel51.rawValue
+                )
+            )
+        }
+
+        let row = try XCTUnwrap(DicomExportSupportMatrix.packageDefault.row(feature: "Video"))
+        XCTAssertTrue(row.payloadRules.contains("player handoff"))
+        XCTAssertTrue(row.unsupportedCases.contains("server-side DICOMweb rendered frames"))
+        XCTAssertTrue(row.typedFailure.contains("DICOMWEB_RENDERED_FRAME_UNSUPPORTED"))
     }
 
     func testVideoWriterUsesUndefinedLengthEncapsulatedPixelData() throws {

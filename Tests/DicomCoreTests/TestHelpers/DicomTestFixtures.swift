@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import DicomTestSupport
 
 /// Computes the URL for the `Fixtures` directory used by tests, located relative to this source file.
 /// - Returns: A `URL` pointing to the `Fixtures` directory.
@@ -12,28 +13,28 @@ func getFixturesPath() -> URL {
 
 /// Locate the CT synthetic DICOM fixture and return its file URL.
 /// - Returns: The `URL` of the CT synthetic DICOM fixture file (`CT/ct_synthetic.dcm`).
-/// - Throws: `XCTSkip` if the fixtures directory or the CT synthetic fixture is missing.
+/// - Throws: `DicomRuntimeRequirementError` if the required bundled fixture is missing.
 func getCTSyntheticFixtureURL() throws -> URL {
     try requireFixtureURL(relativePath: "CT/ct_synthetic.dcm")
 }
 
 /// Locate the MR synthetic DICOM fixture URL.
 /// - Returns: The file URL for "MR/mr_synthetic.dcm" inside the test Fixtures directory.
-/// - Throws: `XCTSkip` when the fixture file or the Fixtures directory is missing.
+/// - Throws: `DicomRuntimeRequirementError` when the required bundled fixture is missing.
 func getMRSyntheticFixtureURL() throws -> URL {
     try requireFixtureURL(relativePath: "MR/mr_synthetic.dcm")
 }
 
 /// Locate and return the file URL for the US synthetic DICOM fixture.
 /// - Returns: The file URL for "US/us_synthetic.dcm".
-/// - Throws: `XCTSkip` if the fixtures directory or the specified fixture file is missing.
+/// - Throws: `DicomRuntimeRequirementError` if the required bundled fixture is missing.
 func getUSSyntheticFixtureURL() throws -> URL {
     try requireFixtureURL(relativePath: "US/us_synthetic.dcm")
 }
 
 /// Locate the XR synthetic DICOM fixture.
 /// - Returns: The filesystem URL to the "XR/xr_synthetic.dcm" file inside the Fixtures directory.
-/// - Throws: `XCTSkip` if the Fixtures directory or the specified XR fixture file is missing.
+/// - Throws: `DicomRuntimeRequirementError` if the required bundled fixture is missing.
 func getXRSyntheticFixtureURL() throws -> URL {
     try requireFixtureURL(relativePath: "XR/xr_synthetic.dcm")
 }
@@ -42,12 +43,17 @@ func getXRSyntheticFixtureURL() throws -> URL {
 /// 
 /// Searches the Fixtures directory for a file whose extension is `dcm` or `dicom` and returns its URL.
 /// - Returns: The file URL of the first DICOM file found.
-/// - Throws: `XCTSkip` if the Fixtures directory does not exist or if no DICOM files are found.
+/// - Throws: `DicomRuntimeRequirementError` if required bundled fixtures are missing.
 func getAnyFixtureDICOMURL() throws -> URL {
+    try DicomTestRuntimePreflight.require(.bundledSyntheticFixtures)
     let fixturesPath = getFixturesPath()
 
     guard FileManager.default.fileExists(atPath: fixturesPath.path) else {
-        throw XCTSkip("Fixtures directory not found. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+        throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+            capability: .bundledSyntheticFixtures,
+            kind: .regression,
+            message: "Fixtures directory not found at \(fixturesPath.path)."
+        ))
     }
 
     let enumerator = FileManager.default.enumerator(at: fixturesPath, includingPropertiesForKeys: nil)
@@ -63,18 +69,27 @@ func getAnyFixtureDICOMURL() throws -> URL {
         return first
     }
 
-    throw XCTSkip("No DICOM files found in Fixtures. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+    throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+        capability: .bundledSyntheticFixtures,
+        kind: .regression,
+        message: "No DICOM files found in required bundled Fixtures directory."
+    ))
 }
 
 /// Resolve the URL for a file located under the test Fixtures directory or skip the test if it is missing.
 /// - Parameters:
 ///   - relativePath: Path to the fixture file relative to the Fixtures directory (e.g. "CT/ct_synthetic.dcm").
 /// - Returns: The file `URL` for the requested fixture.
-/// - Throws: `XCTSkip` when the fixture file cannot be found; message includes setup instructions.
+/// - Throws: `DicomRuntimeRequirementError` when the required bundled fixture is missing.
 private func requireFixtureURL(relativePath: String) throws -> URL {
+    try DicomTestRuntimePreflight.require(.bundledSyntheticFixtures)
     let url = getFixturesPath().appendingPathComponent(relativePath)
     guard FileManager.default.fileExists(atPath: url.path) else {
-        throw XCTSkip("Fixture '\(relativePath)' not found. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+        throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+            capability: .bundledSyntheticFixtures,
+            kind: .regression,
+            message: "Required fixture '\(relativePath)' not found."
+        ))
     }
     return url
 }

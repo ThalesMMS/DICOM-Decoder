@@ -18,24 +18,7 @@ final class DCMDecoderLazyParsingTests: XCTestCase {
 
     /// Get any available DICOM file from fixtures
     private func getAnyDICOMFile() throws -> URL {
-        let fixturesPath = getFixturesPath()
-
-        // Skip if fixtures directory doesn't exist
-        guard FileManager.default.fileExists(atPath: fixturesPath.path) else {
-            throw XCTSkip("Fixtures directory not found. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
-        }
-
-        // Search recursively for any .dcm or .dicom file
-        let enumerator = FileManager.default.enumerator(at: fixturesPath, includingPropertiesForKeys: nil)
-
-        while let fileURL = enumerator?.nextObject() as? URL {
-            let ext = fileURL.pathExtension.lowercased()
-            if ext == "dcm" || ext == "dicom" {
-                return fileURL
-            }
-        }
-
-        throw XCTSkip("No DICOM files found in Fixtures. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+        try getAnyFixtureDICOMURL()
     }
 
     // MARK: - Memory Allocation Benchmarks

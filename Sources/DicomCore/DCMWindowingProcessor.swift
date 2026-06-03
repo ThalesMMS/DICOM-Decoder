@@ -399,7 +399,7 @@ public struct DCMWindowingProcessor {
         case .metal:
             return try? metalProcessor?.applyWindowLevel(pixels16: pixels16, center: center, width: width)
         case .auto:
-            fatalError("Should have been resolved to .vdsp or .metal")
+            return applyWindowLevelVDSP(pixels16: pixels16, center: center, width: width)
         }
     }
 

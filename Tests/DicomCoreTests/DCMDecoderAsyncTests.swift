@@ -1,4 +1,5 @@
 import XCTest
+import DicomTestSupport
 @testable import DicomCore
 
 @available(macOS 10.15, iOS 13.0, *)
@@ -14,19 +15,25 @@ final class DCMDecoderAsyncTests: XCTestCase {
     }
 
     /// Helper to get a single test file URL
-    private func getSingleTestFileURL() -> URL? {
+    private func getSingleTestFileURL() throws -> URL {
+        try DicomTestRuntimePreflight.require(.bundledSyntheticFixtures)
         let fixturesPath = getFixturesPath()
         let ctPath = fixturesPath.appendingPathComponent("CT/ct_synthetic.dcm")
 
         guard FileManager.default.fileExists(atPath: ctPath.path) else {
-            return nil
+            throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+                capability: .bundledSyntheticFixtures,
+                kind: .regression,
+                message: "Required fixture CT/ct_synthetic.dcm is missing."
+            ))
         }
 
         return ctPath
     }
 
     /// Helper to get multiple test file URLs
-    private func getTestFileURLs() -> [URL] {
+    private func getTestFileURLs(minimumCount: Int, purpose: String) throws -> [URL] {
+        try DicomTestRuntimePreflight.require(.bundledSyntheticFixtures)
         let fixturesPath = getFixturesPath()
 
         let paths = [
@@ -35,17 +42,16 @@ final class DCMDecoderAsyncTests: XCTestCase {
             fixturesPath.appendingPathComponent("US/us_synthetic.dcm")
         ]
 
-        return paths.filter { url in
+        return try paths.filter { url in
             FileManager.default.fileExists(atPath: url.path)
         }
+        .ifCount(atLeast: minimumCount, capability: .bundledSyntheticFixtures, purpose: purpose)
     }
 
     // MARK: - Async Initializer Tests
 
     func testAsyncInitWithURL() async throws {
-        guard let url = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let url = try getSingleTestFileURL()
 
         let decoder = try await DCMDecoder(contentsOf: url)
 
@@ -56,9 +62,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     }
 
     func testAsyncInitWithPath() async throws {
-        guard let url = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let url = try getSingleTestFileURL()
         let path = url.path
 
         let decoder = try await DCMDecoder(contentsOfFile: path)
@@ -85,9 +89,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     // MARK: - Static Factory Method Tests
 
     func testAsyncLoadFromURL() async throws {
-        guard let url = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let url = try getSingleTestFileURL()
 
         let decoder = try await DCMDecoder.load(from: url)
 
@@ -96,9 +98,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     }
 
     func testAsyncLoadFromPath() async throws {
-        guard let url = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let url = try getSingleTestFileURL()
         let path = url.path
 
         let decoder = try await DCMDecoder.load(fromFile: path)
@@ -110,9 +110,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     // MARK: - Async Pixel Retrieval Tests
 
     func testGetPixels16Async() async throws {
-        guard let url = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let url = try getSingleTestFileURL()
         let decoder = try await DCMDecoder(contentsOf: url)
 
         let pixels = await decoder.getPixels16Async()
@@ -125,9 +123,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     }
 
     func testGetPixels8Async() async throws {
-        guard let url = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let url = try getSingleTestFileURL()
         let decoder = try await DCMDecoder(contentsOf: url)
 
         let pixels = await decoder.getPixels8Async()
@@ -142,10 +138,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     // MARK: - Batch Loading Tests
 
     func testLoadBatchBasic() async throws {
-        let urls = getTestFileURLs()
-        guard urls.count >= 2 else {
-            throw XCTSkip("Need at least 2 test files for batch loading test")
-        }
+        let urls = try getTestFileURLs(minimumCount: 2, purpose: "batch loading")
 
         let results = await DCMDecoder.loadBatch(urls: urls)
 
@@ -171,9 +164,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     }
 
     func testLoadBatchWithErrors() async throws {
-        guard let validURL = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let validURL = try getSingleTestFileURL()
         let invalidURL = URL(fileURLWithPath: "/nonexistent/file.dcm")
 
         let urls = [validURL, invalidURL]
@@ -197,10 +188,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     }
 
     func testLoadBatchConcurrencyLimit() async throws {
-        let urls = getTestFileURLs()
-        guard urls.count >= 2 else {
-            throw XCTSkip("Need at least 2 test files for concurrency test")
-        }
+        let urls = try getTestFileURLs(minimumCount: 2, purpose: "concurrency")
 
         // Test with different concurrency limits
         let results1 = await DCMDecoder.loadBatch(urls: urls, maxConcurrency: 1)
@@ -218,10 +206,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     }
 
     func testLoadBatchOrdering() async throws {
-        let urls = getTestFileURLs()
-        guard urls.count >= 3 else {
-            throw XCTSkip("Need at least 3 test files for ordering test")
-        }
+        let urls = try getTestFileURLs(minimumCount: 3, purpose: "ordering")
 
         let results = await DCMDecoder.loadBatch(urls: urls)
 
@@ -232,9 +217,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     }
 
     func testBatchResultProperties() async throws {
-        guard let validURL = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let validURL = try getSingleTestFileURL()
         let invalidURL = URL(fileURLWithPath: "/nonexistent/file.dcm")
 
         let urls = [validURL, invalidURL]
@@ -258,9 +241,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     // MARK: - Legacy Async Methods Tests
 
     func testLoadDICOMFileAsync() async throws {
-        guard let url = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let url = try getSingleTestFileURL()
         let decoder = DCMDecoder()
 
         let success = await decoder.loadDICOMFileAsync(url.path)
@@ -270,9 +251,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     }
 
     func testGetDownsampledPixels16Async() async throws {
-        guard let url = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let url = try getSingleTestFileURL()
         let decoder = try await DCMDecoder(contentsOf: url)
 
         let result = await decoder.getDownsampledPixels16Async(maxDimension: 150)
@@ -287,9 +266,7 @@ final class DCMDecoderAsyncTests: XCTestCase {
     }
 
     func testGetDownsampledPixels8Async() async throws {
-        guard let url = getSingleTestFileURL() else {
-            throw XCTSkip("Test file not available")
-        }
+        let url = try getSingleTestFileURL()
         let decoder = try await DCMDecoder(contentsOf: url)
 
         let result = await decoder.getDownsampledPixels8Async(maxDimension: 150)
@@ -301,5 +278,18 @@ final class DCMDecoderAsyncTests: XCTestCase {
             XCTAssertLessThanOrEqual(height, 150, "Height should respect max dimension")
             XCTAssertEqual(pixels.count, width * height, "Pixel count should match dimensions")
         }
+    }
+}
+
+private extension Array where Element == URL {
+    func ifCount(atLeast minimumCount: Int, capability: DicomRuntimeCapability, purpose: String) throws -> [URL] {
+        guard count >= minimumCount else {
+            throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+                capability: capability,
+                kind: .regression,
+                message: "Need at least \(minimumCount) bundled synthetic fixture files for \(purpose); found \(count)."
+            ))
+        }
+        return self
     }
 }

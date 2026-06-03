@@ -23,8 +23,10 @@ func loadBasicSeries() {
         print("No DICOM files found in directory")
     } catch DicomSeriesLoaderError.inconsistentDimensions {
         print("Slices have inconsistent dimensions")
-    } catch DicomSeriesLoaderError.unsupportedBitDepth(let depth) {
-        print("Unsupported bit depth: \(depth)")
+    } catch DicomSeriesLoaderError.unsupportedPixelFormat(let format) {
+        print("Unsupported pixel format: \(format)")
+    } catch DicomSeriesLoaderError.unsupportedTransferSyntaxForVolume(let format) {
+        print("Unsupported transfer syntax for volume assembly: \(format.transferSyntaxUID)")
     } catch {
         print("Loading failed: \(error)")
     }

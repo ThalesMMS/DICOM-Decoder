@@ -43,6 +43,7 @@ public enum DicomPrintManagementError: Error, Equatable, LocalizedError, Sendabl
     case emptyImageList
     case invalidImagePosition(Int)
     case unsupportedSnapshotData
+    case unsupportedService(String)
 
     public var errorDescription: String? {
         switch self {
@@ -52,7 +53,33 @@ public enum DicomPrintManagementError: Error, Equatable, LocalizedError, Sendabl
             return "Invalid image box position \(position)."
         case .unsupportedSnapshotData:
             return "Snapshot data could not be decoded into an RGB bitmap."
+        case .unsupportedService(let service):
+            return "Unsupported DICOM print management service: \(service)."
         }
+    }
+}
+
+public enum DicomPrintManagementUnsupportedService: String, CaseIterable, Sendable {
+    case colorPrintManagement = "Color Print Management"
+    case presentationLUT = "Presentation LUT"
+    case annotationBox = "Annotation Box"
+    case printerConfiguration = "Printer Configuration"
+    case printerStatus = "Printer Status"
+    case storageCommitment = "Storage Commitment"
+}
+
+public enum DicomPrintManagementSupport {
+    public static let supportedSOPClassUIDs: Set<String> = [
+        DicomNetworkUID.basicGrayscalePrintManagementMetaSOPClass,
+        DicomNetworkUID.basicFilmSessionSOPClass,
+        DicomNetworkUID.basicFilmBoxSOPClass,
+        DicomNetworkUID.basicGrayscaleImageBoxSOPClass
+    ]
+
+    public static let unsupportedServices = Set(DicomPrintManagementUnsupportedService.allCases)
+
+    public static func rejectUnsupported(_ service: DicomPrintManagementUnsupportedService) throws {
+        throw DicomPrintManagementError.unsupportedService(service.rawValue)
     }
 }
 

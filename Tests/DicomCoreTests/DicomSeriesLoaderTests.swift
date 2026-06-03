@@ -1,5 +1,6 @@
 import XCTest
 @testable import DicomCore
+import DicomTestSupport
 import simd
 
 final class DicomSeriesLoaderTests: XCTestCase {
@@ -16,6 +17,22 @@ final class DicomSeriesLoaderTests: XCTestCase {
 
         let unsupportedBitDepthError = DicomSeriesLoaderError.unsupportedBitDepth(8)
         XCTAssertNotNil(unsupportedBitDepthError, "Should create unsupportedBitDepth error")
+
+        let pixelFormat = DicomSeriesLoaderPixelFormat(
+            bitsAllocated: 8,
+            bitsStored: 8,
+            highBit: 7,
+            pixelRepresentation: 0,
+            samplesPerPixel: 3,
+            photometricInterpretation: "RGB",
+            planarConfiguration: 0,
+            numberOfFrames: 1,
+            transferSyntaxUID: DicomTransferSyntax.explicitVRLittleEndian.rawValue,
+            isCompressed: false
+        )
+        XCTAssertNotNil(DicomSeriesLoaderError.unsupportedPixelFormat(pixelFormat))
+        XCTAssertNotNil(DicomSeriesLoaderError.unsupportedMultiframe(pixelFormat))
+        XCTAssertNotNil(DicomSeriesLoaderError.unsupportedTransferSyntaxForVolume(pixelFormat))
 
         let inconsistentDimensionsError = DicomSeriesLoaderError.inconsistentDimensions
         XCTAssertNotNil(inconsistentDimensionsError, "Should create inconsistentDimensions error")
@@ -71,6 +88,195 @@ final class DicomSeriesLoaderTests: XCTestCase {
         XCTAssertEqual(volume.seriesDescription, "Test Series", "Series description should match")
         XCTAssertEqual(volume.studyDescription, "Test Study", "Study description should match")
         XCTAssertEqual(volume.modality, "", "Modality should default to unknown")
+    }
+
+    func testSeriesLoaderSupportMatrixDeclaresVolumeAssemblyScope() {
+        let matrix = DicomSeriesLoaderSupportMatrix.standard
+
+        XCTAssertEqual(matrix.supportedBitsAllocated, [8, 16, 32])
+        XCTAssertEqual(matrix.supportedBitsStored, [8, 16, 32])
+        XCTAssertEqual(matrix.supportedPixelRepresentations, [0, 1])
+        XCTAssertEqual(matrix.supportedSamplesPerPixel, [1])
+        XCTAssertEqual(matrix.supportedPhotometricInterpretations, ["MONOCHROME1", "MONOCHROME2"])
+        XCTAssertEqual(matrix.supportedPlanarConfigurations, [])
+        XCTAssertTrue(matrix.supportsAbsentPlanarConfiguration)
+        XCTAssertFalse(matrix.supportsMultiframe)
+        XCTAssertFalse(matrix.supportsCompressedTransferSyntaxes)
+        XCTAssertEqual(matrix.outputVoxelScalarType, "Int16")
+        XCTAssertFalse(matrix.rescaleBehavior.isEmpty)
+        XCTAssertFalse(matrix.spacingBehavior.isEmpty)
+        XCTAssertFalse(matrix.orientationBehavior.isEmpty)
+        XCTAssertEqual(matrix.sliceOrderingBehavior.count, 3)
+    }
+
+    func testLoadSeriesSupportsUnsigned8BitGrayscaleVolume() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_Unsigned8")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try createFiles(in: directory, count: 2)
+
+        let loader = DicomSeriesLoader(decoderFactory: { path in
+            let isLateSlice = path.contains("slice_1")
+            return MockDecoderBuilder.makeDecoder(
+                width: 2,
+                height: 2,
+                bitDepth: 8,
+                pixelValue: isLateSlice ? 9 : 7,
+                position: isLateSlice ? SIMD3<Double>(0, 0, 1) : .zero
+            )
+        })
+
+        let volume = try loader.loadSeries(in: directory)
+
+        XCTAssertEqual(volume.bitsAllocated, 8)
+        XCTAssertFalse(volume.isSignedPixel)
+        XCTAssertEqual(volume.width, 2)
+        XCTAssertEqual(volume.height, 2)
+        XCTAssertEqual(volume.depth, 2)
+        XCTAssertEqual(int16Values(in: volume.voxels), [7, 7, 7, 7, 9, 9, 9, 9])
+    }
+
+    func testLoadSeriesSupportsSigned8BitGrayscaleVolume() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_Signed8")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try createFiles(in: directory, count: 1)
+
+        let loader = DicomSeriesLoader(decoderFactory: { _ in
+            let decoder = MockDecoderBuilder.makeDecoder(width: 2, height: 2, bitDepth: 8, pixelValue: 0)
+            decoder.setPixels8([0, 127, 128, 255])
+            decoder.pixelRepresentationTagValue = 1
+            decoder.signedImage = true
+            decoder.setTag(DicomTag.pixelRepresentation.rawValue, value: "1")
+            return decoder
+        })
+
+        let volume = try loader.loadSeries(in: directory)
+
+        XCTAssertEqual(volume.bitsAllocated, 8)
+        XCTAssertTrue(volume.isSignedPixel)
+        XCTAssertEqual(int16Values(in: volume.voxels), [0, 127, -128, -1])
+    }
+
+    func testLoadSeriesSupportsUnsigned32BitGrayscaleWithSaturation() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_Unsigned32")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try createFiles(in: directory, count: 1)
+        let logger = MockLogger()
+
+        let loader = DicomSeriesLoader(decoderFactory: { _ in
+            let decoder = MockDecoderBuilder.makeDecoder(width: 2, height: 2, bitDepth: 32, pixelValue: 0)
+            decoder.setStoredPixelValues([0, 32_767, 32_768, 100_000])
+            return decoder
+        }, logger: logger)
+
+        let volume = try loader.loadSeries(in: directory)
+
+        XCTAssertEqual(volume.bitsAllocated, 32)
+        XCTAssertFalse(volume.isSignedPixel)
+        XCTAssertEqual(int16Values(in: volume.voxels), [0, 32_767, 32_767, 32_767])
+        XCTAssertEqual(logger.warningMessages.count, 1)
+        XCTAssertTrue(logger.warningMessages[0].contains("32-bit"))
+        XCTAssertTrue(logger.warningMessages[0].contains("Int16"))
+    }
+
+    func testLoadSeriesSupportsSigned32BitGrayscaleWithSaturation() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_Signed32")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try createFiles(in: directory, count: 1)
+
+        let loader = DicomSeriesLoader(decoderFactory: { _ in
+            let decoder = MockDecoderBuilder.makeDecoder(width: 2, height: 2, bitDepth: 32, pixelValue: 0)
+            decoder.setStoredPixelValues([-40_000, -1, 0, 40_000])
+            decoder.pixelRepresentationTagValue = 1
+            decoder.signedImage = true
+            decoder.setTag(DicomTag.pixelRepresentation.rawValue, value: "1")
+            return decoder
+        })
+
+        let volume = try loader.loadSeries(in: directory)
+
+        XCTAssertEqual(volume.bitsAllocated, 32)
+        XCTAssertTrue(volume.isSignedPixel)
+        XCTAssertEqual(int16Values(in: volume.voxels), [-32_768, -1, 0, 32_767])
+    }
+
+    func testLoadSeriesRejectsCompressedInputWithPixelContext() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_Compressed")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try createFiles(in: directory, count: 1)
+
+        let loader = DicomSeriesLoader(decoderFactory: { _ in
+            let decoder = MockDecoderBuilder.makeDecoder(width: 2, height: 2, bitDepth: 16, pixelValue: 10)
+            decoder.setTag(DicomTag.transferSyntaxUID.rawValue, value: DicomTransferSyntax.jpegBaseline.rawValue)
+            return decoder
+        })
+
+        XCTAssertThrowsError(try loader.loadSeries(in: directory)) { error in
+            guard case DicomSeriesLoaderError.unsupportedTransferSyntaxForVolume(let context) = error else {
+                XCTFail("Expected unsupportedTransferSyntaxForVolume, got \(error)")
+                return
+            }
+            XCTAssertEqual(context.transferSyntaxUID, DicomTransferSyntax.jpegBaseline.rawValue)
+            XCTAssertEqual(context.bitsAllocated, 16)
+            XCTAssertEqual(context.samplesPerPixel, 1)
+            XCTAssertEqual(context.photometricInterpretation, "MONOCHROME2")
+            XCTAssertTrue(context.isCompressed)
+        }
+    }
+
+    func testLoadSeriesRejectsMultiframeInputWithPixelContext() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_Multiframe")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try createFiles(in: directory, count: 1)
+
+        let loader = DicomSeriesLoader(decoderFactory: { _ in
+            let decoder = MockDecoderBuilder.makeDecoder(width: 2, height: 2, bitDepth: 16, pixelValue: 10)
+            decoder.nImages = 2
+            decoder.setTag(DicomTag.numberOfFrames.rawValue, value: "2")
+            return decoder
+        })
+
+        XCTAssertThrowsError(try loader.loadSeries(in: directory)) { error in
+            guard case DicomSeriesLoaderError.unsupportedMultiframe(let context) = error else {
+                XCTFail("Expected unsupportedMultiframe, got \(error)")
+                return
+            }
+            XCTAssertEqual(context.numberOfFrames, 2)
+            XCTAssertEqual(context.bitsAllocated, 16)
+            XCTAssertEqual(context.samplesPerPixel, 1)
+            XCTAssertEqual(context.transferSyntaxUID, "<unknown>")
+        }
+    }
+
+    func testLoadSeriesRejectsColorInputWithPixelContext() throws {
+        let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_Color")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try createFiles(in: directory, count: 1)
+
+        let loader = DicomSeriesLoader(decoderFactory: { _ in
+            let decoder = MockDecoderBuilder.makeDecoder(
+                width: 2,
+                height: 2,
+                bitDepth: 8,
+                samplesPerPixel: 3,
+                pixelValue: 10
+            )
+            decoder.photometricInterpretation = "RGB"
+            decoder.setTag(DicomTag.photometricInterpretation.rawValue, value: "RGB")
+            decoder.setTag(DicomTag.planarConfiguration.rawValue, value: "0")
+            return decoder
+        })
+
+        XCTAssertThrowsError(try loader.loadSeries(in: directory)) { error in
+            guard case DicomSeriesLoaderError.unsupportedPixelFormat(let context) = error else {
+                XCTFail("Expected unsupportedPixelFormat, got \(error)")
+                return
+            }
+            XCTAssertEqual(context.bitsAllocated, 8)
+            XCTAssertEqual(context.samplesPerPixel, 3)
+            XCTAssertEqual(context.photometricInterpretation, "RGB")
+            XCTAssertEqual(context.planarConfiguration, 0)
+            XCTAssertEqual(context.transferSyntaxUID, "<unknown>")
+        }
     }
 
     func testLoadSeriesPreservesModalityMetadata() throws {
@@ -658,6 +864,12 @@ final class DicomSeriesLoaderTests: XCTestCase {
         for index in 0..<count {
             let url = directory.appendingPathComponent("slice_\(index).dcm")
             try Data().write(to: url)
+        }
+    }
+
+    private func int16Values(in data: Data) -> [Int16] {
+        data.withUnsafeBytes { buffer in
+            Array(buffer.bindMemory(to: Int16.self))
         }
     }
 

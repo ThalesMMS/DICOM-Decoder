@@ -28,6 +28,9 @@ final class DicomDataSetWriterTests: XCTestCase {
         XCTAssertEqual(decodedDataSet.personName(for: .patientName)?.familyName, "Roe")
         XCTAssertEqual(decodedDataSet.personName(for: .patientName)?.givenName, "Richard")
         XCTAssertEqual(decodedDataSet.string(for: .modality), "CT")
+        XCTAssertEqual(decodedDataSet.string(for: .sopInstanceUID), "2.25.123456789")
+        XCTAssertEqual(decodedDataSet.string(for: .studyInstanceUID), "2.25.123456790")
+        XCTAssertEqual(decodedDataSet.string(for: .seriesInstanceUID), "2.25.123456791")
         XCTAssertEqual(decodedDataSet.int(for: .rows), 1)
         XCTAssertEqual(decodedDataSet.int(for: .columns), 1)
         XCTAssertEqual(decodedDataSet.decimalStrings(for: .pixelSpacing), [0.5, 0.75])
@@ -115,7 +118,13 @@ final class DicomDataSetWriterTests: XCTestCase {
                 options: DicomPart10WriterOptions(transferSyntax: .jpegBaseline)
             )
         ) { error in
-            XCTAssertEqual(error as? DicomDataSetWriterError, .compressedTransferSyntaxUnsupported(DicomTransferSyntax.jpegBaseline.rawValue))
+            guard case let .pixelRecompressionUnsupported(source, destination, reason) =
+                    error as? DicomDataSetWriterError else {
+                return XCTFail("Expected pixel recompression error, got \(error)")
+            }
+            XCTAssertEqual(source, "native Pixel Data")
+            XCTAssertEqual(destination, DicomTransferSyntax.jpegBaseline.rawValue)
+            XCTAssertTrue(reason.contains("does not encode compressed frames"))
         }
     }
 
@@ -135,6 +144,70 @@ final class DicomDataSetWriterTests: XCTestCase {
         XCTAssertTrue(DicomTransferSyntax.deflatedExplicitVRLittleEndian.matches(decoder.info(for: .transferSyntaxUID)))
         XCTAssertFalse(decoder.compressedImage)
         XCTAssertEqual(try XCTUnwrap(decoder.getPixels16()), [47])
+    }
+
+    func testWriterPreservesEncapsulatedPixelDataForCompressedPassThrough() throws {
+        let firstFrame = Data([0x91, 0x92])
+        let secondFrame = Data([0xA1, 0xA2])
+        let dataSet = makeEncapsulatedDataSet(fragments: [firstFrame, secondFrame])
+        let url = temporaryDICOMURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try DicomDataSetWriter.write(
+            dataSet,
+            to: url,
+            options: DicomPart10WriterOptions(transferSyntax: .jpegBaseline)
+        )
+
+        let decoder = try DCMDecoder(contentsOf: url)
+        let descriptor = try XCTUnwrap(decoder.encapsulatedPixelDataDescriptor)
+        let frame = try XCTUnwrap(decoder.getEncapsulatedFrame(1))
+
+        XCTAssertTrue(DicomTransferSyntax.jpegBaseline.matches(decoder.info(for: .transferSyntaxUID)))
+        XCTAssertTrue(decoder.compressedImage)
+        XCTAssertEqual(decoder.dataSet.string(for: .sopInstanceUID), "2.25.123456789")
+        XCTAssertEqual(descriptor.frameFragmentIndexes, [[0], [1]])
+        XCTAssertEqual(frame.data, secondFrame)
+    }
+
+    func testWriterRejectsEncapsulatedPixelDataWhenWritingNativeSyntax() throws {
+        XCTAssertThrowsError(
+            try DicomDataSetWriter.part10Data(from: makeEncapsulatedDataSet(fragments: [Data([0x01])]))
+        ) { error in
+            guard case let .pixelRecompressionUnsupported(source, destination, reason) =
+                    error as? DicomDataSetWriterError else {
+                return XCTFail("Expected pixel recompression error, got \(error)")
+            }
+            XCTAssertEqual(source, "encapsulated Pixel Data")
+            XCTAssertEqual(destination, DicomTransferSyntax.explicitVRLittleEndian.rawValue)
+            XCTAssertTrue(reason.contains("decode the compressed frames"))
+        }
+    }
+
+    func testWriterRejectsReferencedSyntaxWithLocalPixelData() throws {
+        XCTAssertThrowsError(
+            try DicomDataSetWriter.part10Data(
+                from: makeBaseDataSet(pixelBytes: Data([0x30, 0x00])),
+                options: DicomPart10WriterOptions(transferSyntax: .jpipReferenced)
+            )
+        ) { error in
+            guard case let .transferSyntaxWriteUnsupported(uid, reason) = error as? DicomDataSetWriterError else {
+                return XCTFail("Expected transfer syntax write error, got \(error)")
+            }
+            XCTAssertEqual(uid, DicomTransferSyntax.jpipReferenced.rawValue)
+            XCTAssertTrue(reason.contains("local Pixel Data is not rewritten"))
+        }
+    }
+
+    func testWriterPreservesReferencedPixelDataProviderURL() throws {
+        let providerURL = "https://example.test/jpip/volume"
+        let data = try DicomDataSetWriter.part10Data(
+            from: makeReferencedDataSet(providerURL: providerURL),
+            options: DicomPart10WriterOptions(transferSyntax: .jpipReferenced)
+        )
+
+        XCTAssertNotNil(data.range(of: Data(DicomTransferSyntax.jpipReferenced.rawValue.utf8)))
+        XCTAssertNotNil(data.range(of: Data(providerURL.utf8)))
     }
 
     func testGeneratedUIDUsesDicomUIDSyntaxEnvelope() {
@@ -202,10 +275,87 @@ final class DicomDataSetWriterTests: XCTestCase {
         ])
     }
 
+    private func makeEncapsulatedDataSet(fragments: [Data]) -> DicomDataSet {
+        var dataSet = makeBaseDataSet(pixelBytes: Data())
+        dataSet.set(DicomDataElement(tag: DicomTag.numberOfFrames.rawValue,
+                                     vr: .IS,
+                                     value: .strings(["\(fragments.count)"])))
+        dataSet.set(DicomDataElement(tag: DicomTag.bitsAllocated.rawValue,
+                                     vr: .US,
+                                     value: .unsignedIntegers([8])))
+        dataSet.set(DicomDataElement(tag: DicomTag.bitsStored.rawValue,
+                                     vr: .US,
+                                     value: .unsignedIntegers([8])))
+        dataSet.set(DicomDataElement(tag: DicomTag.highBit.rawValue,
+                                     vr: .US,
+                                     value: .unsignedIntegers([7])))
+        dataSet.set(DicomDataElement(tag: DicomTag.pixelData.rawValue,
+                                     vr: .OB,
+                                     value: .bytes(makeEncapsulatedPixelData(fragments: fragments))))
+        return dataSet
+    }
+
+    private func makeReferencedDataSet(providerURL: String) -> DicomDataSet {
+        var dataSet = makeBaseDataSet(pixelBytes: Data())
+        dataSet.remove(.pixelData)
+        dataSet.set(DicomDataElement(tag: DicomTag.pixelDataProviderURL.rawValue,
+                                     vr: .UR,
+                                     value: .strings([providerURL])))
+        return dataSet
+    }
+
+    private func makeEncapsulatedPixelData(fragments: [Data]) -> Data {
+        var data = Data()
+        appendItem(uint32Data(basicOffsetTableOffsets(for: fragments)), to: &data)
+        for fragment in fragments {
+            appendItem(fragment, to: &data)
+        }
+        appendTag(0xFFFEE0DD, to: &data)
+        appendUInt32(0, to: &data)
+        return data
+    }
+
+    private func basicOffsetTableOffsets(for fragments: [Data]) -> [UInt32] {
+        var offset = 0
+        return fragments.map { fragment in
+            defer { offset += 8 + fragment.count }
+            return UInt32(offset)
+        }
+    }
+
     private func temporaryDICOMURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("dcm")
+    }
+
+    private func appendItem(_ value: Data, to data: inout Data) {
+        appendTag(0xFFFEE000, to: &data)
+        appendUInt32(UInt32(value.count), to: &data)
+        data.append(value)
+    }
+
+    private func appendTag(_ tag: Int, to data: inout Data) {
+        appendUInt16(UInt16((tag >> 16) & 0xFFFF), to: &data)
+        appendUInt16(UInt16(tag & 0xFFFF), to: &data)
+    }
+
+    private func appendUInt16(_ value: UInt16, to data: inout Data) {
+        data.append(UInt8(value & 0xFF))
+        data.append(UInt8((value >> 8) & 0xFF))
+    }
+
+    private func appendUInt32(_ value: UInt32, to data: inout Data) {
+        data.append(UInt8(value & 0xFF))
+        data.append(UInt8((value >> 8) & 0xFF))
+        data.append(UInt8((value >> 16) & 0xFF))
+        data.append(UInt8((value >> 24) & 0xFF))
+    }
+
+    private func uint32Data(_ values: [UInt32]) -> Data {
+        values.reduce(into: Data()) { data, value in
+            appendUInt32(value, to: &data)
+        }
     }
 
     private func readUInt32LittleEndian(_ data: Data, at offset: Int) -> UInt32 {

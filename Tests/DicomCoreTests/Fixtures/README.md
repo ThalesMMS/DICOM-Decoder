@@ -1,6 +1,8 @@
 # DICOM Test Fixtures
 
-This directory contains DICOM sample files for integration testing. Due to file size, DICOM files are not included in the repository. Follow the instructions below to obtain public DICOM samples for testing.
+This directory contains DICOM sample files for integration testing. Small synthetic non-PHI fixtures are committed for
+deterministic default CI. Larger public or locally generated optional fixtures can be added locally for extended
+conformance testing.
 
 ## Purpose
 
@@ -12,9 +14,10 @@ Integration tests use these fixtures to verify:
 
 ## Quick Start
 
-1. Download DICOM samples from sources below
-2. Place files in this directory: `Tests/DicomCoreTests/Fixtures/`
-3. Run integration tests: `swift test --filter Integration`
+1. Use the committed synthetic fixtures for default tests.
+2. Download optional public DICOM samples from sources below when running extended conformance tests.
+3. Place optional files in this directory: `Tests/DicomCoreTests/Fixtures/`
+4. Run integration tests: `swift test --filter Integration`
 
 ## Where to Obtain DICOM Samples
 
@@ -122,7 +125,9 @@ func testLoadRealCTImage() throws {
 
 ## File Size and Privacy
 
-- **Do not commit** DICOM files to the repository (`.gitignore` excludes `*.dcm`)
+- **Do not commit** large or clinical DICOM files to the repository.
+- Small synthetic fixtures listed in `Roadmap/OptionalRuntimeFixtureManifest.json` and
+  `Roadmap/ClinicalParityFixtureManifest.json` are intentionally versioned.
 - **Never use real patient data** without proper de-identification
 - **Verify license terms** for public datasets
 - Use anonymization tools if handling clinical data (DICOM Anonymizer, dcm4che deid, CTP)
@@ -144,4 +149,5 @@ func testLoadRealCTImage() throws {
 
 ---
 
-**Note:** This directory should remain empty in version control. DICOM test files must be downloaded locally by developers.
+**Note:** The committed fixtures are synthetic and non-PHI. Optional downloaded fixtures must remain local unless a
+manifest explicitly approves them for version control.

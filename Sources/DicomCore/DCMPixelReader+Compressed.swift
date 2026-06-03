@@ -29,18 +29,34 @@ internal enum DicomCompressedPixelBackendResolver {
     static func resolve(
         transferSyntax: DicomTransferSyntax?,
         requestedBitDepth: Int?,
-        samplesPerPixel: Int?
+        samplesPerPixel: Int?,
+        photometricInterpretation: String? = nil
     ) -> DicomCompressedPixelBackendDecision {
         guard let transferSyntax else {
             return DicomCompressedPixelBackendDecision(backend: .legacyImageIO, diagnostics: [])
         }
 
+        let componentContext = multiComponentContext(
+            photometricInterpretation: photometricInterpretation,
+            samplesPerPixel: samplesPerPixel
+        )
+
         switch transferSyntax {
         case .rleLossless:
             return DicomCompressedPixelBackendDecision(backend: .nativeRLELossless, diagnostics: [])
         case .jpegLSLossless, .jpegLSNearLossless:
+            if let samplesPerPixel, samplesPerPixel > 1, let requestedBitDepth, requestedBitDepth > 8 {
+                return unsupported(
+                    "JPEG-LS multi-component output above 8 bits per component is unsupported (\(componentContext))."
+                )
+            }
             return DicomCompressedPixelBackendDecision(backend: .nativeJPEGLS, diagnostics: [])
         case .jpegLossless, .jpegLosslessFirstOrder:
+            if let samplesPerPixel, samplesPerPixel > 1 {
+                return unsupported(
+                    "\(transferSyntax.registryEntry.name) multi-component decode is unsupported (\(componentContext))."
+                )
+            }
             return DicomCompressedPixelBackendDecision(backend: .nativeJPEGLossless, diagnostics: [])
         case .jpegBaseline:
             if let requestedBitDepth, requestedBitDepth > 8 {
@@ -69,7 +85,8 @@ internal enum DicomCompressedPixelBackendResolver {
             }
             if let samplesPerPixel, samplesPerPixel > 1, let requestedBitDepth, requestedBitDepth > 8 {
                 return unsupported(
-                    "JPEG 2000 color output above 8 bits per component has no precision-preserving backend path."
+                    "JPEG 2000 color output above 8 bits per component has no precision-preserving backend path "
+                        + "(\(componentContext))."
                 )
             }
             if DicomJPEG2000Codec.isAvailable {
@@ -83,7 +100,8 @@ internal enum DicomCompressedPixelBackendResolver {
             return DicomCompressedPixelBackendDecision(backend: .imageIOJPEG2000, diagnostics: [])
         case .jpeg2000Part2MulticomponentLossless, .jpeg2000Part2Multicomponent:
             return unsupported(
-                "\(transferSyntax.registryEntry.name) stores frames as a multi-component volume; use DicomJP3DVolumeDocument to decode the volume buffer."
+                "\(transferSyntax.registryEntry.name) stores frames as a multi-component volume "
+                    + "(\(componentContext)); use DicomJP3DVolumeDocument to decode the volume buffer."
             )
         case .jpipReferenced, .jpipReferencedDeflate:
             return unsupported(
@@ -119,6 +137,22 @@ internal enum DicomCompressedPixelBackendResolver {
 
     private static func unsupported(_ diagnostic: String) -> DicomCompressedPixelBackendDecision {
         DicomCompressedPixelBackendDecision(backend: .unsupported, diagnostics: [diagnostic])
+    }
+
+    private static func multiComponentContext(
+        photometricInterpretation: String?,
+        samplesPerPixel: Int?
+    ) -> String {
+        let photometric = photometricInterpretation?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let photometricValue: String
+        if let photometric, !photometric.isEmpty {
+            photometricValue = photometric
+        } else {
+            photometricValue = "unknown"
+        }
+        let samplesValue = samplesPerPixel.map(String.init) ?? "unknown"
+        return "Photometric Interpretation=\(photometricValue), Samples Per Pixel=\(samplesValue)"
     }
 }
 
@@ -178,7 +212,8 @@ extension DCMPixelReader {
         let backendDecision = DicomCompressedPixelBackendResolver.resolve(
             transferSyntax: transferSyntax,
             requestedBitDepth: bitDepth,
-            samplesPerPixel: samplesPerPixel
+            samplesPerPixel: samplesPerPixel,
+            photometricInterpretation: photometricInterpretation
         )
 
         switch backendDecision.backend {

@@ -104,6 +104,72 @@ final class DicomSecondaryCaptureTests: XCTestCase {
         XCTAssertEqual(decoder.getPixels24(), [255, 0, 0, 0, 255, 0])
     }
 
+    func testClinicalExportValidationRequiresPatientStudySeriesAndInstanceMetadata() throws {
+        let pixelData = try DicomSecondaryCapturePixelData.monochrome8(
+            columns: 1,
+            rows: 1,
+            data: Data([7])
+        )
+
+        XCTAssertThrowsError(
+            try DicomSecondaryCaptureBuilder.validatedDataSet(
+                pixelData: pixelData,
+                options: DicomSecondaryCaptureBuildOptions(patientName: "Only^Name"),
+                validationScope: .clinicalExport
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? DicomSecondaryCaptureError,
+                .missingRequiredMetadata([
+                    "SOP Instance UID",
+                    "Study Instance UID",
+                    "Series Instance UID",
+                    "Patient ID",
+                    "Study ID",
+                    "Study Date",
+                    "Series Number",
+                    "Instance Number"
+                ])
+            )
+        }
+    }
+
+    func testClinicalExportValidationAcceptsCompleteSecondaryCaptureContext() throws {
+        let pixelData = try DicomSecondaryCapturePixelData.monochrome8(
+            columns: 1,
+            rows: 1,
+            data: Data([42])
+        )
+        let options = DicomSecondaryCaptureBuildOptions(
+            sopInstanceUID: "2.25.9200",
+            studyInstanceUID: "2.25.9201",
+            seriesInstanceUID: "2.25.9202",
+            patientName: "Complete^Context",
+            patientID: "SC-COMPLETE",
+            studyID: "SC-STUDY",
+            studyDate: "20260603",
+            seriesNumber: 1,
+            instanceNumber: 1,
+            contentDate: "20260603",
+            contentTime: "101010"
+        )
+
+        let data = try DicomSecondaryCaptureBuilder.part10Data(
+            pixelData: pixelData,
+            options: options,
+            validationScope: .clinicalExport
+        )
+        let decoder = try open(data: data)
+        let secondaryCapture = try XCTUnwrap(decoder.secondaryCaptureImage)
+
+        XCTAssertEqual(secondaryCapture.sopInstanceUID, "2.25.9200")
+        XCTAssertEqual(secondaryCapture.studyInstanceUID, "2.25.9201")
+        XCTAssertEqual(secondaryCapture.seriesInstanceUID, "2.25.9202")
+        XCTAssertEqual(secondaryCapture.patientName?.familyName, "Complete")
+        XCTAssertEqual(secondaryCapture.patientID, "SC-COMPLETE")
+        XCTAssertEqual(secondaryCapture.pixelDataDescriptor?.samplesPerPixel, 1)
+    }
+
     private func open(dataSet: DicomDataSet) throws -> DCMDecoder {
         let data = try DicomDataSetWriter.part10Data(
             from: dataSet,
@@ -114,6 +180,14 @@ final class DicomSecondaryCaptureTests: XCTestCase {
         )
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("secondary_capture_\(UUID().uuidString).dcm")
+        try data.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        return try DCMDecoder(contentsOf: url)
+    }
+
+    private func open(data: Data) throws -> DCMDecoder {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("secondary_capture_data_\(UUID().uuidString).dcm")
         try data.write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
         return try DCMDecoder(contentsOf: url)

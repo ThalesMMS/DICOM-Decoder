@@ -347,6 +347,10 @@ extension DICOMError {
 
 @objc public class DICOMErrorObjC: NSError, @unchecked Sendable {
     private let swiftError: DICOMError
+
+    public override class var supportsSecureCoding: Bool {
+        true
+    }
     
     public init(from swiftError: DICOMError) {
         self.swiftError = swiftError
@@ -361,6 +365,7 @@ extension DICOMError {
     }
     
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        swiftError = .unknown(underlyingError: "DICOMErrorObjC decoding is unsupported")
+        super.init(coder: coder)
     }
 }

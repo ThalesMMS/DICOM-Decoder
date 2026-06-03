@@ -1,4 +1,5 @@
 import XCTest
+import DicomTestSupport
 @testable import DicomCore
 
 final class DicomLosslessCodecTests: XCTestCase {
@@ -91,7 +92,7 @@ final class DicomLosslessCodecTests: XCTestCase {
     }
 
     func testJPEGLSLosslessDecodes16BitFrame() throws {
-        try XCTSkipIf(!DicomJPEGLSCodec.isAvailable, "CharLS runtime library is unavailable")
+        try DicomTestRuntimePreflight.require(.charLS)
 
         let pixels: [UInt16] = [100, 200, 1024, 4095]
         let encoded = try DicomJPEGLSCodec.encodeForTesting(
@@ -114,7 +115,7 @@ final class DicomLosslessCodecTests: XCTestCase {
     }
 
     func testDecoderRoutesEncapsulatedJPEGLSThroughFrameIndex() throws {
-        try XCTSkipIf(!DicomJPEGLSCodec.isAvailable, "CharLS runtime library is unavailable")
+        try DicomTestRuntimePreflight.require(.charLS)
 
         let pixels: [UInt16] = [10, 20, 30, 40]
         let encoded = try DicomJPEGLSCodec.encodeForTesting(
@@ -142,7 +143,7 @@ final class DicomLosslessCodecTests: XCTestCase {
     }
 
     func testJPEGLSNearLosslessDecodesWithinNearParameter() throws {
-        try XCTSkipIf(!DicomJPEGLSCodec.isAvailable, "CharLS runtime library is unavailable")
+        try DicomTestRuntimePreflight.require(.charLS)
 
         let pixels = Data([10, 12, 50, 52, 100, 101])
         let encoded = try DicomJPEGLSCodec.encodeForTesting(
@@ -167,7 +168,7 @@ final class DicomLosslessCodecTests: XCTestCase {
     }
 
     func testJPEGLSLosslessPreservesSignedPixelRepresentation() throws {
-        try XCTSkipIf(!DicomJPEGLSCodec.isAvailable, "CharLS runtime library is unavailable")
+        try DicomTestRuntimePreflight.require(.charLS)
 
         let signedPixels = [UInt16(bitPattern: Int16(-1024)), UInt16(bitPattern: Int16(0))]
         let encoded = try DicomJPEGLSCodec.encodeForTesting(

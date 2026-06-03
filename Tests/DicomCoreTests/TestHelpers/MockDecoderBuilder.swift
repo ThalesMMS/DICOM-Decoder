@@ -94,6 +94,8 @@ enum MockDecoderBuilder {
             mock.setPixels8([UInt8](repeating: value, count: pixelCount))
         case (1, 16):
             mock.setPixels16([UInt16](repeating: pixelValue, count: pixelCount))
+        case (1, 32):
+            mock.setStoredPixelValues([Int](repeating: Int(pixelValue), count: pixelCount))
         case (3, 8):
             let value = UInt8(clamping: Int(pixelValue))
             mock.setPixels24([UInt8](repeating: value, count: pixelCount * 3))

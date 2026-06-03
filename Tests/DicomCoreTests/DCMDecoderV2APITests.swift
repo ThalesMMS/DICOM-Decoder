@@ -64,9 +64,10 @@ final class DCMDecoderV2APITests: XCTestCase {
     func testCalculateOptimalWindowV2() throws {
         let decoder = try DCMDecoder(contentsOf: getAnyFixtureDICOMURL())
 
-        guard let settingsV2 = decoder.calculateOptimalWindowV2() else {
-            throw XCTSkip("File has no pixel data for optimal window calculation")
-        }
+        let settingsV2 = try XCTUnwrap(
+            decoder.calculateOptimalWindowV2(),
+            "Required bundled fixture must include pixel data for optimal window calculation."
+        )
 
         XCTAssertTrue(settingsV2.isValid, "Calculated settings should be valid")
         XCTAssertGreaterThan(settingsV2.width, 0, "Calculated window width should be positive")

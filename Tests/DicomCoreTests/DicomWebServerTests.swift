@@ -3,6 +3,35 @@ import XCTest
 @testable import DicomCore
 
 final class DicomWebServerTests: XCTestCase {
+    func testConformanceMatrixListsProductionScopeAndResponsibilities() throws {
+        let matrix = DicomWebConformanceMatrix.packageDefault
+
+        XCTAssertNotNil(matrix.row(feature: "QIDO-RS"))
+        XCTAssertNotNil(matrix.row(feature: "WADO-RS metadata"))
+        XCTAssertNotNil(matrix.row(feature: "WADO-URI"))
+        XCTAssertNotNil(matrix.row(feature: "STOW-RS"))
+        XCTAssertEqual(matrix.row(feature: "UPS-RS")?.server, "stable 501")
+        XCTAssertEqual(matrix.row(feature: "BulkDataURI")?.client, "transport-injected")
+        XCTAssertEqual(matrix.row(feature: "JPIP")?.responsibility, "DicomJPIPClient with DicomJPIPTransport")
+        XCTAssertEqual(matrix.row(feature: "WADO-RS rendered frame")?.server, "stable 501")
+        XCTAssertEqual(matrix.row(feature: "Pagination")?.server, "limit/offset applied")
+        XCTAssertTrue(try XCTUnwrap(matrix.row(feature: "Large payload streaming")?.notes).contains("true streaming is outside"))
+    }
+
+    func testDICOMwebDocumentationExposesScopedConformanceMatrix() throws {
+        let conformance = try Self.packageText("Sources/DicomCore/DicomCore.docc/Articles/ConformanceStatement.md")
+        let readme = try Self.packageText("README.md")
+        let gaps = try Self.packageText("IMPLEMENTATION_GAPS.md")
+
+        for row in DicomWebConformanceMatrix.packageDefault.rows {
+            XCTAssertTrue(conformance.contains(row.feature), "Missing \(row.feature) from conformance DocC.")
+        }
+        XCTAssertTrue(conformance.contains("not a complete production PACS"))
+        XCTAssertFalse(conformance.contains("| **No DICOM Network** |"))
+        XCTAssertTrue(readme.contains("DicomWebConformanceMatrix.packageDefault"))
+        XCTAssertTrue(gaps.contains("Status: scoped and guarded"))
+    }
+
     func testQIDOWADOAndSTOWRoutesThroughClientSmoke() async throws {
         let store = DicomWebInMemoryStore()
         let fixture = try store.add(dataSet: Self.imageDataSet(patientName: "DOE^JANE",
@@ -39,6 +68,30 @@ final class DicomWebServerTests: XCTestCase {
         XCTAssertEqual(storedStudies.first?.studyInstanceUID, "2.25.4")
     }
 
+    func testQIDOPaginationIsAppliedOnServer() async throws {
+        let store = DicomWebInMemoryStore()
+        try store.add(dataSet: Self.imageDataSet(patientName: "DOE^A",
+                                                 studyInstanceUID: "2.25.1",
+                                                 seriesInstanceUID: "2.25.2",
+                                                 sopInstanceUID: "2.25.3"))
+        try store.add(dataSet: Self.imageDataSet(patientName: "DOE^B",
+                                                 studyInstanceUID: "2.25.4",
+                                                 seriesInstanceUID: "2.25.5",
+                                                 sopInstanceUID: "2.25.6"))
+        try store.add(dataSet: Self.imageDataSet(patientName: "DOE^C",
+                                                 studyInstanceUID: "2.25.7",
+                                                 seriesInstanceUID: "2.25.8",
+                                                 sopInstanceUID: "2.25.9"))
+        let client = DicomWebClient(
+            configuration: DicomWebClientConfiguration(baseURL: URL(string: "https://server.example/dicom-web")!),
+            transport: DicomWebServer(store: store)
+        )
+
+        let studies = try await client.searchStudies(DicomWebQuery(limit: 1, offset: 1))
+
+        XCTAssertEqual(studies.map(\.studyInstanceUID), ["2.25.4"])
+    }
+
     func testXMLMetadataRoute() async throws {
         let store = DicomWebInMemoryStore()
         try store.add(dataSet: Self.imageDataSet(patientName: "DOE^JANE",
@@ -59,6 +112,45 @@ final class DicomWebServerTests: XCTestCase {
         XCTAssertTrue(xml.contains("NativeDicomModel"))
         XCTAssertTrue(xml.contains("0020000D"))
         XCTAssertTrue(xml.contains("2.25.1"))
+    }
+
+    func testStableUnsupportedFrameRenderedAndUPSResponses() async throws {
+        let server = DicomWebServer()
+        let frame = try await server.send(DicomWebHTTPRequest(
+            method: .get,
+            url: URL(string: "https://server.example/dicom-web/studies/1/series/2/instances/3/frames/4")!
+        ))
+        let rendered = try await server.send(DicomWebHTTPRequest(
+            method: .get,
+            url: URL(string: "https://server.example/dicom-web/studies/1/series/2/instances/3/frames/4/rendered")!
+        ))
+        let ups = try await server.send(DicomWebHTTPRequest(
+            method: .get,
+            url: URL(string: "https://server.example/dicom-web/ups")!
+        ))
+
+        XCTAssertEqual(frame.statusCode, 501)
+        XCTAssertEqual(frame.headers["X-DICOMweb-Error-Code"], DicomWebServerErrorCode.frameRetrievalUnsupported.rawValue)
+        XCTAssertEqual(rendered.statusCode, 501)
+        XCTAssertEqual(rendered.headers["X-DICOMweb-Error-Code"], DicomWebServerErrorCode.renderedFrameUnsupported.rawValue)
+        XCTAssertEqual(ups.statusCode, 501)
+        XCTAssertEqual(ups.headers["X-DICOMweb-Error-Code"], DicomWebServerErrorCode.upsDeferred.rawValue)
+    }
+
+    func testLargeSTOWPayloadIsPreservedByInMemoryServer() async throws {
+        let store = DicomWebInMemoryStore()
+        let server = DicomWebServer(store: store)
+        let client = DicomWebClient(
+            configuration: DicomWebClientConfiguration(baseURL: URL(string: "https://server.example/dicom-web")!),
+            transport: server
+        )
+        let payload = Data(repeating: 0x5A, count: 1024 * 1024)
+
+        let result = try await client.storeInstances([DicomWebStoreInstance(data: payload)])
+
+        XCTAssertEqual(result.statusCode, 200)
+        XCTAssertEqual(store.count, 1)
+        XCTAssertEqual(store.allInstances().first?.part10Data, payload)
     }
 
     func testOAuth2CacheConformanceAndUPSP2() async throws {
@@ -99,7 +191,10 @@ final class DicomWebServerTests: XCTestCase {
         XCTAssertEqual(second.headers["X-DICOMweb-Cache"], "HIT")
         XCTAssertEqual(conformance.statusCode, 200)
         XCTAssertTrue(try XCTUnwrap(String(data: conformance.body, encoding: .utf8)).contains("UPS: P2 deferred"))
+        XCTAssertTrue(try XCTUnwrap(String(data: conformance.body, encoding: .utf8)).contains("BulkDataURI"))
+        XCTAssertTrue(try XCTUnwrap(String(data: conformance.body, encoding: .utf8)).contains("DICOMWEB_RENDERED_FRAME_UNSUPPORTED"))
         XCTAssertEqual(ups.statusCode, 501)
+        XCTAssertEqual(ups.headers["X-DICOMweb-Error-Code"], DicomWebServerErrorCode.upsDeferred.rawValue)
         XCTAssertTrue(try XCTUnwrap(String(data: ups.body, encoding: .utf8)).contains("P2 deferred"))
     }
 
@@ -134,5 +229,24 @@ final class DicomWebServerTests: XCTestCase {
 
     private static func string(_ tag: Int, _ vr: DicomVR, _ value: String) -> DicomDataElement {
         DicomDataElement(tag: tag, vr: vr, value: .strings([value]))
+    }
+
+    private static func packageText(_ relativePath: String) throws -> String {
+        try String(contentsOf: packageRoot().appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    private static func packageRoot() throws -> URL {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let fileManager = FileManager.default
+        while directory.path != "/" {
+            let candidate = directory.appendingPathComponent("Package.swift")
+            if fileManager.fileExists(atPath: candidate.path) {
+                return directory
+            }
+            directory.deleteLastPathComponent()
+        }
+        throw NSError(domain: "DicomWebServerTests",
+                      code: 1,
+                      userInfo: [NSLocalizedDescriptionKey: "Could not locate DICOM-Decoder package root."])
     }
 }

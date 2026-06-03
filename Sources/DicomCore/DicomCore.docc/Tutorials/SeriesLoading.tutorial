@@ -11,7 +11,7 @@
         @ContentAndMedia {
             DICOM series are collections of 2D slices that form 3D volumes. Each slice represents a cross-section at a specific anatomical position.
 
-            The ``DicomSeriesLoader`` automatically orders slices by their Image Position (Patient) coordinates, validates consistency across the series, and assembles them into a contiguous 3D volume buffer with complete geometric metadata.
+            The ``DicomSeriesLoader`` automatically orders slices by their Image Position (Patient) coordinates, validates consistency across the series, and assembles supported single-frame uncompressed grayscale inputs into a contiguous `Int16` 3D volume buffer with complete geometric metadata.
 
             @Image(source: "series-concept.png", alt: "DICOM series concept")
         }

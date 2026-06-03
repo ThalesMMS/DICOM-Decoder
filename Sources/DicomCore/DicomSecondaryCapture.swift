@@ -5,6 +5,7 @@ public enum DicomSecondaryCaptureError: Error, Equatable, LocalizedError, Sendab
     case invalidDimensions(columns: Int, rows: Int)
     case invalidPixelBuffer(expected: Int, actual: Int)
     case unsupportedPixelLayout(String)
+    case missingRequiredMetadata([String])
     case imageContextCreationFailed
 
     public var errorDescription: String? {
@@ -15,10 +16,17 @@ public enum DicomSecondaryCaptureError: Error, Equatable, LocalizedError, Sendab
             return "Invalid Secondary Capture pixel buffer: expected \(expected) bytes, found \(actual)."
         case .unsupportedPixelLayout(let reason):
             return "Unsupported Secondary Capture pixel layout: \(reason)."
+        case .missingRequiredMetadata(let fields):
+            return "Missing required Secondary Capture metadata: \(fields.joined(separator: ", "))."
         case .imageContextCreationFailed:
             return "Could not create a CoreGraphics context for the Secondary Capture snapshot."
         }
     }
+}
+
+public enum DicomSecondaryCaptureValidationScope: Equatable, Sendable {
+    case syntheticDefaultsAllowed
+    case clinicalExport
 }
 
 /// Native pixel payload for a single-frame Secondary Capture image.
@@ -353,17 +361,31 @@ public enum DicomSecondaryCaptureBuilder {
         return DicomDataSet(elements: elements)
     }
 
+    public static func validatedDataSet(
+        pixelData: DicomSecondaryCapturePixelData,
+        options: DicomSecondaryCaptureBuildOptions = DicomSecondaryCaptureBuildOptions(),
+        validationScope: DicomSecondaryCaptureValidationScope = .clinicalExport
+    ) throws -> DicomDataSet {
+        try validate(pixelData: pixelData, options: options, scope: validationScope)
+        return dataSet(pixelData: pixelData, options: options)
+    }
+
     public static func dataSet(
         from image: CGImage,
-        options: DicomSecondaryCaptureBuildOptions = DicomSecondaryCaptureBuildOptions()
+        options: DicomSecondaryCaptureBuildOptions = DicomSecondaryCaptureBuildOptions(),
+        validationScope: DicomSecondaryCaptureValidationScope = .syntheticDefaultsAllowed
     ) throws -> DicomDataSet {
-        try dataSet(pixelData: rgb8PixelData(from: image), options: options)
+        let pixelData = try rgb8PixelData(from: image)
+        try validate(pixelData: pixelData, options: options, scope: validationScope)
+        return dataSet(pixelData: pixelData, options: options)
     }
 
     public static func part10Data(
         pixelData: DicomSecondaryCapturePixelData,
-        options: DicomSecondaryCaptureBuildOptions = DicomSecondaryCaptureBuildOptions()
+        options: DicomSecondaryCaptureBuildOptions = DicomSecondaryCaptureBuildOptions(),
+        validationScope: DicomSecondaryCaptureValidationScope = .syntheticDefaultsAllowed
     ) throws -> Data {
+        try validate(pixelData: pixelData, options: options, scope: validationScope)
         let dataSet = dataSet(pixelData: pixelData, options: options)
         return try DicomDataSetWriter.part10Data(
             from: dataSet,
@@ -376,9 +398,45 @@ public enum DicomSecondaryCaptureBuilder {
 
     public static func part10Data(
         from image: CGImage,
-        options: DicomSecondaryCaptureBuildOptions = DicomSecondaryCaptureBuildOptions()
+        options: DicomSecondaryCaptureBuildOptions = DicomSecondaryCaptureBuildOptions(),
+        validationScope: DicomSecondaryCaptureValidationScope = .syntheticDefaultsAllowed
     ) throws -> Data {
-        try part10Data(pixelData: rgb8PixelData(from: image), options: options)
+        try part10Data(
+            pixelData: rgb8PixelData(from: image),
+            options: options,
+            validationScope: validationScope
+        )
+    }
+
+    public static func validate(
+        pixelData: DicomSecondaryCapturePixelData,
+        options: DicomSecondaryCaptureBuildOptions,
+        scope: DicomSecondaryCaptureValidationScope = .clinicalExport
+    ) throws {
+        _ = pixelData
+        guard scope == .clinicalExport else { return }
+
+        let requiredStrings: [(String, String?)] = [
+            ("SOP Instance UID", options.sopInstanceUID),
+            ("Study Instance UID", options.studyInstanceUID),
+            ("Series Instance UID", options.seriesInstanceUID),
+            ("Patient Name", options.patientName),
+            ("Patient ID", options.patientID),
+            ("Study ID", options.studyID),
+            ("Study Date", options.studyDate)
+        ]
+        var missing = requiredStrings.compactMap { item in
+            item.1?.dicomSCNonEmptyValue == nil ? item.0 : nil
+        }
+        if options.seriesNumber == nil {
+            missing.append("Series Number")
+        }
+        if options.instanceNumber == nil {
+            missing.append("Instance Number")
+        }
+        guard missing.isEmpty else {
+            throw DicomSecondaryCaptureError.missingRequiredMetadata(missing)
+        }
     }
 
     public static func rgb8PixelData(from image: CGImage) throws -> DicomSecondaryCapturePixelData {

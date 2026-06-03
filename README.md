@@ -47,8 +47,10 @@ This project is a full DICOM decoder written in Swift, modernized from a legacy 
 
 - Complete DICOM file parsing (metadata and pixels)
 - Pixel extraction for 8-bit, 16-bit grayscale, RGB, PALETTE COLOR, and YBR images
+- Color display conversion matrix for MONOCHROME, RGB, PALETTE COLOR, YBR_FULL, YBR_FULL_422, and explicit unsupported YBR paths
 - Image export API and CLI for PNG, JPEG, TIFF, 16-bit TIFF, multiframe output, and optional non-PHI metadata sidecars
 - UI-independent print/export preprocessing pipeline for windowing, resize, and explicit annotation burn-in
+- Export support matrix for image export, Secondary Capture, print management, waveform, and video helpers with typed unsupported-path diagnostics
 - Window/level with medical presets and automatic suggestions
 - Modern async/await APIs for non-blocking operations
 - File validation before processing
@@ -63,6 +65,7 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 ### DICOM Decoding
 
 - Little/Big Endian, Explicit/Implicit VR
+- Explicit-length and undefined-length SQ parsing, including nested items and strict delimiter diagnostics
 - Grayscale 8/16-bit, RGB 24-bit, PALETTE COLOR, YBR_FULL/YBR_FULL_422, and ICC profile metadata
 - Real World Value Mapping for linear/LUT quantitative maps with physical units and ranges
 - Parametric Map Storage parsing for scalar layers with units, quantity definitions, RWV, geometry, and source references
@@ -72,16 +75,21 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - Grayscale Softcopy Presentation State graphic annotation dataset building/parsing
 - Encapsulated PDF, CDA, and STL document dataset building/parsing with MIME, title, concept, payload, and source instance metadata
 - ECG and waveform dataset building/parsing with channel samples, sampling frequency, units, and waveform source references
-- Video Endoscopic/Microscopic/Photographic dataset building/parsing with MPEG-2, H.264, and H.265 stream forwarding
+- Video Endoscopic/Microscopic/Photographic dataset building/parsing with MPEG-2, H.264, and H.265 stream forwarding; native frame decode and transcoding fail with typed errors
 - PET SUVbw/SUVlbm/SUVbsa/SUVibw helpers with required-metadata diagnostics
 - Transfer syntax registry and conservative transcode planning with codec diagnostics
+- Compressed pixel support matrix with `decoded`, `delegated`, `streamed-only`, `unsupported`, and `out-of-scope` statuses
+- Color display conversion matrix with stable diagnostics for unsupported photometric interpretation, sample count, planar layout, bit depth, alpha/extra samples, and transfer syntax context
+- Transfer syntax writing matrix for native datasets, Deflated datasets, referenced datasets, and encapsulated Pixel Data passthrough
 - Encapsulated Pixel Data parsing for Basic Offset Table, Extended Offset Table, fragments, and frame extraction
 - Deflated Explicit VR Little Endian dataset read/write support through zlib
 - Native JPEG Lossless decoding (Process 14, all selection values 0-7) for transfer syntaxes 1.2.840.10008.1.2.4.57 and 1.2.840.10008.1.2.4.70
-- Native RLE Lossless decoding and JPEG-LS lossless/near-lossless decoding when the CharLS runtime is available
+- Native RLE Lossless decoding and JPEG-LS lossless/near-lossless decoding when `DicomCodecRuntimePreflight` reports the CharLS runtime available
 - Explicit JPEG Baseline, JPEG 2000, and diagnostic unsupported-path handling when the selected backend cannot preserve pixel precision
-- JPEG 2000 Part 2 multi-component volume documents (1.2.840.10008.1.2.4.92 and .93) decoded through OpenJPEG into `DicomSeriesVolume`
+- JPEG 2000 Part 2 multi-component volume documents (1.2.840.10008.1.2.4.92 and .93) decoded through OpenJPEG into `DicomSeriesVolume` when `DicomCodecRuntimePreflight` reports OpenJPEG available
 - JPIP referenced pixel data (1.2.840.10008.1.2.4.94 and deflated .95) with progressive volume update streams through caller-provided transport
+- DICOMweb helpers with an explicit conformance matrix: QIDO-RS study search, WADO-RS metadata/instance retrieval, WADO-URI, STOW-RS multipart Part 10 storage, BulkDataURI retrieval through injected transport, optional bearer-token auth in the in-memory server, limit/offset pagination, and stable `501` errors for UPS and server-side frame/rendered-frame routes
+- DIMSE helpers for tested C-ECHO, C-FIND, C-GET, C-MOVE, C-STORE, Storage SCP, Storage Commitment, MPPS, and Basic Grayscale Print workflows, with TLS/user-identity configuration, association pooling, retries, cancellation, circuit breaker, progress, and audit hooks
 - Automatic memory mapping for large files (>10MB)
 - Downsampling for fast thumbnail generation
 
@@ -801,7 +809,7 @@ The library includes **DicomSwiftUI**, a complete set of pre-built SwiftUI compo
 |-----------|-------------|--------------|
 | **DicomImageView** | Display DICOM images | Automatic scaling, windowing modes, GPU acceleration |
 | **WindowingControlView** | Interactive window/level controls | 13 medical presets, sliders, automatic optimization |
-| **SeriesNavigatorView** | Navigate DICOM series | Slice navigation, progress indicator, keyboard shortcuts |
+| **SeriesNavigatorView** | Navigate DICOM series | Slice navigation, progress indicator, thumbnail strip, keyboard shortcuts |
 | **MetadataView** | Display DICOM metadata | Organized sections, formatted values, accessibility |
 
 ### Installation
@@ -1397,12 +1405,17 @@ autoreleasepool {
 
 ### Known Limitations
 
-- Compressed and referenced transfer syntaxes: Deflated Explicit VR Little Endian uses zlib for dataset-level compression. Native support for JPEG Lossless (Process 14, all selection values 0-7) and RLE Lossless. JPEG-LS lossless/near-lossless decoding uses CharLS when the runtime library is available. Encapsulated multi-frame payloads can be indexed and individual compressed frames extracted before codec decode. JPEG Baseline 8-bit uses ImageIO, and JPEG 2000 up to 16-bit grayscale uses OpenJPEG when the runtime library is available with ImageIO limited to 8-bit fallback. JPEG 2000 Part 2 multi-component volume documents use OpenJPEG and expose a decoder-owned `DicomSeriesVolume` buffer for MTK. JPIP referenced pixel data exposes `Pixel Data Provider URL` and progressive stream contracts, but the application supplies the actual transport. JPEG Extended 12-bit and HTJ2K return diagnostics when no precision-preserving backend is available. Use the transfer syntax planner to get explicit diagnostics before conversion.
+- Compressed and referenced transfer syntaxes: inspect `DicomTransferSyntaxRegistry.standard.compressedPixelSupportMatrix` for the explicit status of every compressed pixel syntax. JPEG Lossless and RLE are `decoded` natively. JPEG Baseline, JPEG Extended <=8-bit, JPEG-LS, JPEG 2000, and JPEG 2000 Part 2 are `delegated` to ImageIO, CharLS, OpenJPEG, or `DicomJP3DVolumeDocument` with documented limits. JPIP and video syntaxes are `streamed-only`: encoded or referenced pixel data is exposed, but native frame decode is not performed. HTJ2K is `unsupported`, and Deflated Explicit VR Little Endian is `out-of-scope` for pixel codecs because zlib handles dataset-level compression.
+- Color display conversion: inspect `DicomColorDisplayConversionMatrix.standard` separately from compressed pixel support. `displayRGBPixelBuffer(frame:)` converts supported MONOCHROME1, MONOCHROME2, RGB, PALETTE COLOR, YBR_FULL, and YBR_FULL_422 native frames to interleaved RGB8 display data. Unsupported YBR variants, alpha/extra samples, unsupported planar layouts, and unsupported bit depths throw `DicomColorConversionError.unsupportedColorPath` with photometric interpretation, samples per pixel, planar configuration, bits allocated, and transfer syntax context.
+- Dataset and file writing: inspect `DicomTransferSyntaxRegistry.standard.writeSupportMatrix` before writing. `DicomDataSetWriter` writes native and Deflated datasets, writes referenced JPIP metadata only when Pixel Data Provider URL is present, and preserves already encapsulated Pixel Data for compressed/video syntaxes. It does not recompress native pixels or decompress encapsulated payloads during reserialization; those attempts return stable `DicomDataSetWriterError` values before Part 10 output is generated.
+- DICOMweb scope: inspect `DicomWebConformanceMatrix.packageDefault` before treating the package helpers as a production integration surface. `DicomWebClient` serializes tested QIDO-RS, WADO-RS, WADO-URI, STOW-RS, frame, rendered-frame, and BulkDataURI requests through the configured transport. `DicomWebServer` is an in-memory test/demo server for QIDO study search, WADO metadata/instance, WADO-URI, and STOW Part 10 payloads; UPS, server-side frame retrieval, server-side rendered frames, JPIP proxying, authorization policy, audit logging, persistent storage, and zero-copy large-payload streaming remain caller-owned or unsupported.
+- DIMSE scope: `DicomDIMSEServiceSCU`, `DicomStorageSCPService`, and `DicomStorageSCPServer` cover package-tested SCU/SCP helper workflows. They are not a managed PACS service; archive qualification, operational authorization, PHI audit policy, deployment monitoring, and external endpoint validation remain caller-owned.
 - Thread safety: `DCMDecoder` uses internal locking for public API access, and batch/series services create isolated decoder instances for concurrent work.
 - Waveform scope: ECG and related waveform objects expose temporal samples and metadata; they are not converted into image-volume slices by `DicomSeriesLoader`.
 - Video scope: MPEG-2/H.264/H.265 video objects expose the encoded stream and timing metadata for a caller/player backend; they are not decoded into volume slices by `DicomSeriesLoader`.
 - Very large files (>1GB): May consume significant memory. Process in chunks or downsample.
-- `SeriesNavigatorView` provides slice shortcut controls in its expanded layout, but image thumbnail strips are not implemented.
+- `SeriesNavigatorView` loads thumbnail-backed slice shortcuts in its expanded layout and keeps an explicit unavailable-thumbnail state when a slice cannot be decoded.
+- `MockDicomDecoderForPreviews`, `DicomSampleData`, and `PreviewHelpers` are supported preview APIs only; do not use them for clinical/runtime decoding, validation, conformance, or patient-data workflows.
 
 ### Frameworks Used
 
@@ -1412,8 +1425,10 @@ Core Apple frameworks:
 - `ImageIO`
 - `Accelerate`
 
-Deflated Explicit VR Little Endian uses system zlib. JPEG-LS can use CharLS when that runtime library is available; it is loaded dynamically rather than added as a Swift package dependency.
-JPEG 2000 and JPEG 2000 Part 2 multi-component volume decoding can use OpenJPEG when that runtime library is available; it is loaded dynamically rather than added as a Swift package dependency.
+Deflated Explicit VR Little Endian uses system zlib. JPEG-LS can use CharLS when `DicomCodecRuntimePreflight.status(for: .charLS)` reports availability; it is loaded dynamically rather than added as a Swift package dependency.
+JPEG 2000 and JPEG 2000 Part 2 multi-component volume decoding can use OpenJPEG when `DicomCodecRuntimePreflight.status(for: .openJPEG)` reports availability; it is loaded dynamically rather than added as a Swift package dependency.
+
+Optional codec runtimes are developer/CI-provisioned, not bundled production dependencies. Use `brew install charls openjpeg` for the common Homebrew setup, or set `DICOM_DECODER_CHARLS_LIBRARY_PATH` and `DICOM_DECODER_OPENJPEG_LIBRARY_PATH` to explicit dynamic-library paths. Default CI skips optional codec runtime tests with classified messages; set `DICOM_REQUIRE_CHARLS=1`, `DICOM_REQUIRE_OPENJPEG=1`, or `DICOM_REQUIRE_OPTIONAL_RUNTIMES=1` when CI provisions those runtimes and should fail if they are absent.
 
 ---
 

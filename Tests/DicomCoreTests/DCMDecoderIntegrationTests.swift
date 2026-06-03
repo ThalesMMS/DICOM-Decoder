@@ -1,4 +1,5 @@
 import XCTest
+import DicomTestSupport
 @testable import DicomCore
 import Foundation
 
@@ -15,11 +16,16 @@ final class DCMDecoderIntegrationTests: XCTestCase {
 
     /// Get DICOM files from specific modality subdirectory
     private func getDICOMFiles(from subdirectory: String) throws -> [URL] {
+        try DicomTestRuntimePreflight.require(.bundledSyntheticFixtures)
         let modalityPath = getFixturesPath().appendingPathComponent(subdirectory)
 
         // Skip if directory doesn't exist
         guard FileManager.default.fileExists(atPath: modalityPath.path) else {
-            throw XCTSkip("Fixtures directory '\(subdirectory)' not found. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+            throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+                capability: .bundledSyntheticFixtures,
+                kind: .regression,
+                message: "Fixtures directory '\(subdirectory)' not found."
+            ))
         }
 
         let files = try FileManager.default.contentsOfDirectory(
@@ -31,7 +37,11 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         }
 
         guard !files.isEmpty else {
-            throw XCTSkip("No DICOM files found in '\(subdirectory)'. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+            throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+                capability: .bundledSyntheticFixtures,
+                kind: .regression,
+                message: "No DICOM files found in required '\(subdirectory)' fixture directory."
+            ))
         }
 
         return files
@@ -39,24 +49,7 @@ final class DCMDecoderIntegrationTests: XCTestCase {
 
     /// Get any available DICOM file from fixtures
     private func getAnyDICOMFile() throws -> URL {
-        let fixturesPath = getFixturesPath()
-
-        // Skip if fixtures directory doesn't exist
-        guard FileManager.default.fileExists(atPath: fixturesPath.path) else {
-            throw XCTSkip("Fixtures directory not found. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
-        }
-
-        // Search recursively for any .dcm or .dicom file
-        let enumerator = FileManager.default.enumerator(at: fixturesPath, includingPropertiesForKeys: nil)
-
-        while let fileURL = enumerator?.nextObject() as? URL {
-            let ext = fileURL.pathExtension.lowercased()
-            if ext == "dcm" || ext == "dicom" {
-                return fileURL
-            }
-        }
-
-        throw XCTSkip("No DICOM files found in Fixtures. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+        try getAnyFixtureDICOMURL()
     }
 
     // MARK: - Basic Integration Tests
@@ -568,11 +561,17 @@ final class DCMDecoderIntegrationTests: XCTestCase {
     // MARK: - Edge Cases
 
     func testLoadVeryLargeImage() throws {
+        try DicomTestRuntimePreflight.require(.largeDicomFixtures)
+
         // Try to find a large image (>1MB)
         let fixturesPath = getFixturesPath()
 
         guard FileManager.default.fileExists(atPath: fixturesPath.path) else {
-            throw XCTSkip("Fixtures directory not found")
+            throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+                capability: .bundledSyntheticFixtures,
+                kind: .regression,
+                message: "Fixtures directory not found at \(fixturesPath.path)."
+            ))
         }
 
         let enumerator = FileManager.default.enumerator(at: fixturesPath, includingPropertiesForKeys: [.fileSizeKey])
@@ -590,7 +589,11 @@ final class DCMDecoderIntegrationTests: XCTestCase {
         }
 
         guard let file = largeFile else {
-            throw XCTSkip("No large DICOM files (>1MB) found in fixtures")
+            throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+                capability: .largeDicomFixtures,
+                kind: .regression,
+                message: "Large DICOM fixture preflight passed but no fixture larger than 1 MB was found."
+            ))
         }
 
         let decoder = try DCMDecoder(contentsOfFile: file.path)

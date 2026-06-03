@@ -231,6 +231,15 @@ Access collections of sample data for testing list views and complex layouts:
 }
 ```
 
+### Preview Mock Scope
+
+`MockDicomDecoderForPreviews`, `DicomSampleData`, and `PreviewHelpers` are
+supported public preview APIs for Xcode canvases and example-only UI states.
+They are not clinical/runtime decoders and must not be used for production
+decode, validation, conformance, or patient-data workflows. Production code
+should use `DCMDecoder` or a caller-owned `DicomDecoderProtocol`
+implementation backed by real DICOM data.
+
 ### State Testing Helpers
 
 Test loading and error states:

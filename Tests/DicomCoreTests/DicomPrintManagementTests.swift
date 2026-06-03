@@ -53,4 +53,24 @@ final class DicomPrintManagementTests: XCTestCase {
         XCTAssertEqual(queue.entries.first?.status, .completed)
         XCTAssertNil(queue.entries.first?.failureDescription)
     }
+
+    func testPrintScopeListsSupportedSOPClassesAndRejectsUnsupportedServices() throws {
+        XCTAssertEqual(DicomPrintManagementSupport.supportedSOPClassUIDs, Set([
+            DicomNetworkUID.basicGrayscalePrintManagementMetaSOPClass,
+            DicomNetworkUID.basicFilmSessionSOPClass,
+            DicomNetworkUID.basicFilmBoxSOPClass,
+            DicomNetworkUID.basicGrayscaleImageBoxSOPClass
+        ]))
+        XCTAssertTrue(DicomPrintManagementSupport.unsupportedServices.contains(.presentationLUT))
+        XCTAssertTrue(DicomPrintManagementSupport.unsupportedServices.contains(.colorPrintManagement))
+
+        XCTAssertThrowsError(
+            try DicomPrintManagementSupport.rejectUnsupported(.presentationLUT)
+        ) { error in
+            XCTAssertEqual(
+                error as? DicomPrintManagementError,
+                .unsupportedService(DicomPrintManagementUnsupportedService.presentationLUT.rawValue)
+            )
+        }
+    }
 }

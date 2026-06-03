@@ -1,6 +1,7 @@
 import CoreGraphics
 import ImageIO
 import XCTest
+import DicomTestSupport
 @testable import DicomCore
 
 final class DicomLossyCodecBackendTests: XCTestCase {
@@ -25,7 +26,7 @@ final class DicomLossyCodecBackendTests: XCTestCase {
     }
 
     func testJPEG2000Lossless16BitGrayscalePreservesPrecision() throws {
-        try XCTSkipIf(!DicomJPEG2000Codec.isAvailable, "OpenJPEG runtime library is unavailable")
+        try DicomTestRuntimePreflight.require(.openJPEG)
 
         let pixels: [UInt16] = [0, 1024, 4096, 65535]
         let encoded = try makeOpenJPEGLosslessCodestream16(width: 2, height: 2, pixels: pixels)
@@ -161,13 +162,7 @@ final class DicomLossyCodecBackendTests: XCTestCase {
 
     private func makeOpenJPEGLosslessCodestream16(width: Int, height: Int, pixels: [UInt16]) throws -> Data {
         XCTAssertEqual(pixels.count, width * height)
-        let executable = [
-            "/opt/homebrew/bin/opj_compress",
-            "/usr/local/bin/opj_compress"
-        ].first { FileManager.default.isExecutableFile(atPath: $0) }
-        guard let executable else {
-            throw XCTSkip("opj_compress is unavailable")
-        }
+        let executable = try DicomTestRuntimePreflight.requireExecutable(.opjCompress, named: "opj_compress")
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("jpeg2000_fixture_\(UUID().uuidString)", isDirectory: true)

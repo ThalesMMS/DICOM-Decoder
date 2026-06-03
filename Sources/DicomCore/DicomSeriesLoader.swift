@@ -3,7 +3,7 @@
 //
 //  High-level helper to load a DICOM series from a directory,
 //  order slices by Image Position (Patient), compute spacing/orientation,
-//  and assemble a contiguous 16-bit volume buffer.
+//  and assemble a contiguous Int16 volume buffer.
 //
 //  This stays pure Swift and uses lightweight parallelism when
 //  copying slices into the final buffer.
@@ -39,6 +39,15 @@ public enum DicomSeriesLoaderError: Error {
     /// - Parameter String: Transfer Syntax UID (0002,0010)
     case unsupportedTransferSyntax(String)
 
+    /// Pixel metadata is outside the declared volume assembly support matrix.
+    case unsupportedPixelFormat(DicomSeriesLoaderPixelFormat)
+
+    /// Multi-frame image input is outside the declared volume assembly support matrix.
+    case unsupportedMultiframe(DicomSeriesLoaderPixelFormat)
+
+    /// The transfer syntax is outside the declared volume assembly support matrix.
+    case unsupportedTransferSyntaxForVolume(DicomSeriesLoaderPixelFormat)
+
     /// Slices have inconsistent dimensions (width/height mismatch)
     case inconsistentDimensions
 
@@ -73,6 +82,163 @@ public enum DicomSeriesLoaderError: Error {
     ///   - median: The median inter-slice spacing measured from IPP projections (mm).
     ///   - maxDeviation: The maximum absolute deviation from the median (mm).
     case variableSliceSpacing(median: Double, maxDeviation: Double)
+}
+
+/// Pixel format context used by `DicomSeriesLoader` support checks and errors.
+public struct DicomSeriesLoaderPixelFormat: Equatable, Sendable {
+    /// Bits Allocated (0028,0100).
+    public let bitsAllocated: Int
+
+    /// Bits Stored (0028,0101).
+    public let bitsStored: Int
+
+    /// High Bit (0028,0102).
+    public let highBit: Int
+
+    /// Pixel Representation (0028,0103), where 0 means unsigned and 1 means signed.
+    public let pixelRepresentation: Int
+
+    /// Samples per Pixel (0028,0002).
+    public let samplesPerPixel: Int
+
+    /// Photometric Interpretation (0028,0004), normalized to uppercase.
+    public let photometricInterpretation: String
+
+    /// Planar Configuration (0028,0006), when present.
+    public let planarConfiguration: Int?
+
+    /// Number of Frames (0028,0008), defaulting to 1.
+    public let numberOfFrames: Int
+
+    /// Transfer Syntax UID (0002,0010), or `<unknown>` when absent.
+    public let transferSyntaxUID: String
+
+    /// Whether the decoder marks the pixel payload as compressed.
+    public let isCompressed: Bool
+
+    /// Creates a pixel format context.
+    public init(
+        bitsAllocated: Int,
+        bitsStored: Int,
+        highBit: Int,
+        pixelRepresentation: Int,
+        samplesPerPixel: Int,
+        photometricInterpretation: String,
+        planarConfiguration: Int?,
+        numberOfFrames: Int,
+        transferSyntaxUID: String,
+        isCompressed: Bool
+    ) {
+        self.bitsAllocated = bitsAllocated
+        self.bitsStored = bitsStored
+        self.highBit = highBit
+        self.pixelRepresentation = pixelRepresentation
+        self.samplesPerPixel = samplesPerPixel
+        self.photometricInterpretation = photometricInterpretation
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        self.planarConfiguration = planarConfiguration
+        self.numberOfFrames = max(1, numberOfFrames)
+        self.transferSyntaxUID = transferSyntaxUID.isEmpty ? "<unknown>" : transferSyntaxUID
+        self.isCompressed = isCompressed
+    }
+
+    static let defaultGrayscale16 = DicomSeriesLoaderPixelFormat(
+        bitsAllocated: 16,
+        bitsStored: 16,
+        highBit: 15,
+        pixelRepresentation: 0,
+        samplesPerPixel: 1,
+        photometricInterpretation: "MONOCHROME2",
+        planarConfiguration: nil,
+        numberOfFrames: 1,
+        transferSyntaxUID: DicomTransferSyntax.explicitVRLittleEndian.rawValue,
+        isCompressed: false
+    )
+}
+
+/// Declares the volume assembly scope supported by `DicomSeriesLoader`.
+public struct DicomSeriesLoaderSupportMatrix: Equatable, Sendable {
+    /// Supported Bits Allocated values.
+    public let supportedBitsAllocated: Set<Int>
+
+    /// Supported Bits Stored values.
+    public let supportedBitsStored: Set<Int>
+
+    /// Supported Pixel Representation values.
+    public let supportedPixelRepresentations: Set<Int>
+
+    /// Supported Samples per Pixel values.
+    public let supportedSamplesPerPixel: Set<Int>
+
+    /// Supported Photometric Interpretation values.
+    public let supportedPhotometricInterpretations: Set<String>
+
+    /// Supported Planar Configuration values when present.
+    public let supportedPlanarConfigurations: Set<Int>
+
+    /// Whether absent Planar Configuration is accepted.
+    public let supportsAbsentPlanarConfiguration: Bool
+
+    /// Whether multi-frame image inputs are assembled by this loader.
+    public let supportsMultiframe: Bool
+
+    /// Whether compressed transfer syntaxes are assembled by this loader.
+    public let supportsCompressedTransferSyntaxes: Bool
+
+    /// Scalar type stored in `DicomSeriesVolume.voxels`.
+    public let outputVoxelScalarType: String
+
+    /// How rescale metadata is preserved.
+    public let rescaleBehavior: String
+
+    /// How spacing metadata is preserved.
+    public let spacingBehavior: String
+
+    /// How orientation metadata is preserved.
+    public let orientationBehavior: String
+
+    /// Ordered slice sorting rules used by the loader.
+    public let sliceOrderingBehavior: [String]
+
+    /// Standard package-only loader scope.
+    public static let standard = DicomSeriesLoaderSupportMatrix(
+        supportedBitsAllocated: [8, 16, 32],
+        supportedBitsStored: [8, 16, 32],
+        supportedPixelRepresentations: [0, 1],
+        supportedSamplesPerPixel: [1],
+        supportedPhotometricInterpretations: ["MONOCHROME1", "MONOCHROME2"],
+        supportedPlanarConfigurations: [],
+        supportsAbsentPlanarConfiguration: true,
+        supportsMultiframe: false,
+        supportsCompressedTransferSyntaxes: false,
+        outputVoxelScalarType: "Int16",
+        rescaleBehavior: "Per-slice slope/intercept are preserved; voxels remain stored-value Int16.",
+        spacingBehavior: "X/Y from Pixel Spacing, Z from IPP projection delta when available.",
+        orientationBehavior: "ImageOrientationPatient row/column vectors are normalized and validated.",
+        sliceOrderingBehavior: [
+            "ImagePositionPatient projected onto the slice normal",
+            "InstanceNumber",
+            "Filename localized standard order"
+        ]
+    )
+
+    /// Returns true when the pixel format fits the declared support matrix.
+    public func supports(_ format: DicomSeriesLoaderPixelFormat) -> Bool {
+        guard supportedBitsAllocated.contains(format.bitsAllocated),
+              supportedBitsStored.contains(format.bitsStored),
+              supportedPixelRepresentations.contains(format.pixelRepresentation),
+              supportedSamplesPerPixel.contains(format.samplesPerPixel),
+              supportedPhotometricInterpretations.contains(format.photometricInterpretation),
+              supportsCompressedTransferSyntaxes || !format.isCompressed,
+              supportsMultiframe || format.numberOfFrames == 1 else {
+            return false
+        }
+        if let planarConfiguration = format.planarConfiguration {
+            return supportedPlanarConfigurations.contains(planarConfiguration)
+        }
+        return supportsAbsentPlanarConfiguration
+    }
 }
 
 // MARK: - Volume Data Structure
@@ -258,6 +424,7 @@ struct SliceMeta {
     let sopInstanceUID: String?
     let rescaleSlope: Double
     let rescaleIntercept: Double
+    let pixelFormat: DicomSeriesLoaderPixelFormat
 
     init(url: URL,
          position: SIMD3<Double>?,
@@ -270,7 +437,8 @@ struct SliceMeta {
          sopClassUID: String? = nil,
          sopInstanceUID: String? = nil,
          rescaleSlope: Double = 1,
-         rescaleIntercept: Double = 0) {
+         rescaleIntercept: Double = 0,
+         pixelFormat: DicomSeriesLoaderPixelFormat = .defaultGrayscale16) {
         self.url = url
         self.position = position
         self.instanceNumber = instanceNumber
@@ -283,6 +451,7 @@ struct SliceMeta {
         self.sopInstanceUID = sopInstanceUID
         self.rescaleSlope = rescaleSlope
         self.rescaleIntercept = rescaleIntercept
+        self.pixelFormat = pixelFormat
     }
 }
 
@@ -445,18 +614,36 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
     // MARK: - Properties
 
     let decoderFactory: (String) throws -> DicomDecoderProtocol
+    let logger: LoggerProtocol
 
     // MARK: - Initialization
 
     /// Required protocol initializer - uses default DCMDecoder.
-    public init() {
-        self.decoderFactory = { path in try DCMDecoder(contentsOfFile: path) }
+    public convenience init() {
+        self.init(decoderFactory: { path in try DCMDecoder(contentsOfFile: path) })
+    }
+
+    /// Required protocol initializer with injected logging.
+    public convenience init(logger: LoggerProtocol) {
+        self.init(decoderFactory: { path in try DCMDecoder(contentsOfFile: path) },
+                  logger: logger)
     }
 
     /// Dependency injection initializer for testing and customization.
     /// - Parameter decoderFactory: Factory closure that creates DicomDecoderProtocol instances from a file path
-    public init(decoderFactory: @escaping (String) throws -> DicomDecoderProtocol) {
+    public convenience init(decoderFactory: @escaping (String) throws -> DicomDecoderProtocol) {
+        self.init(decoderFactory: decoderFactory,
+                  logger: DicomLogger.make(subsystem: "com.dicomcore", category: "series-loader"))
+    }
+
+    /// Dependency injection initializer for testing and customization.
+    /// - Parameters:
+    ///   - decoderFactory: Factory closure that creates DicomDecoderProtocol instances from a file path.
+    ///   - logger: Logger used for diagnostics emitted during series loading.
+    public init(decoderFactory: @escaping (String) throws -> DicomDecoderProtocol,
+                logger: LoggerProtocol) {
         self.decoderFactory = decoderFactory
+        self.logger = logger
     }
 
     /// Backward-compatible dependency injection initializer.
@@ -470,15 +657,16 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         })
     }
 
-    /// Loads a DICOM series from a directory and assembles all slices into a single 16-bit volume.
+    /// Loads a DICOM series from a directory and assembles all slices into a single Int16 volume.
     /// - Parameters:
     ///   - directory: URL of the directory containing the DICOM files to load.
     ///   - progress: Optional callback invoked after each decoded slice with the fraction complete, the 1-based slice index, the decoded slice voxel `Data`, and a lightweight `DicomSeriesVolume` descriptor for the series.
-    /// - Returns: A `DicomSeriesVolume` containing the assembled contiguous 16-bit voxel buffer and associated geometry, spacing, orientation, origin, rescale parameters, pixel format, and series description.
+    /// - Returns: A `DicomSeriesVolume` containing the assembled contiguous Int16 voxel buffer and associated geometry, spacing, orientation, origin, rescale parameters, pixel format, and series description.
     /// - Throws:
     ///   - `DicomSeriesLoaderError.noDicomFiles` if no valid DICOM files are found or no valid slices could be loaded.
-    ///   - `DicomSeriesLoaderError.unsupportedSamplesPerPixel(_)` if a decoded file reports `samplesPerPixel` other than 1.
-    ///   - `DicomSeriesLoaderError.unsupportedBitDepth(_)` if a decoded file reports a bit depth other than 16.
+    ///   - `DicomSeriesLoaderError.unsupportedPixelFormat(_)` if a decoded file is outside the support matrix.
+    ///   - `DicomSeriesLoaderError.unsupportedMultiframe(_)` if a decoded file reports multiple frames.
+    ///   - `DicomSeriesLoaderError.unsupportedTransferSyntaxForVolume(_)` if a decoded file is compressed.
     ///   - `DicomSeriesLoaderError.inconsistentDimensions` if slice widths/heights differ across the series.
     ///   - `DicomSeriesLoaderError.inconsistentOrientation` if slice row/column orientation vectors differ across the series.
     ///   - `DicomSeriesLoaderError.inconsistentPixelRepresentation` if `pixelRepresentation` differs across slices.
@@ -532,6 +720,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
         var height = 0
         var bitsAllocated = 0
         var spacing = SIMD3<Double>(1, 1, 1)
+        var baselinePixelFormat: DicomSeriesLoaderPixelFormat?
 
         var slices: [SliceMeta] = []
 
@@ -569,21 +758,8 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                 continue
             }
 
-            // Validate modality: 16-bit grayscale only.
-            guard decoder.samplesPerPixel == 1 else {
-                throw DicomSeriesLoaderError.unsupportedSamplesPerPixel(decoder.samplesPerPixel)
-            }
-            guard decoder.bitDepth == 16 else {
-                throw DicomSeriesLoaderError.unsupportedBitDepth(decoder.bitDepth)
-            }
-
-            // Explicitly reject compressed / unsupported transfer syntaxes for volume assembly.
-            // The volume pipeline requires a contiguous uncompressed 16-bit voxel buffer.
-            if decoder.compressedImage {
-                let rawUID = decoder.info(for: .transferSyntaxUID)
-                let uid = rawUID.isEmpty ? "<unknown>" : rawUID
-                throw DicomSeriesLoaderError.unsupportedTransferSyntax(uid)
-            }
+            let pixelFormat = pixelFormat(from: decoder)
+            try validatePixelFormat(pixelFormat)
 
             // Cache the validated decoder for reuse in second pass
             cacheDecoder(decoder, for: url)
@@ -619,6 +795,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                 seriesInstanceUID = nonEmpty(decoder.info(for: DicomTag.seriesInstanceUID.rawValue))
                 frameOfReferenceUID = nonEmpty(decoder.info(for: 0x0020_0052))
                 quantitativeValueProfile = decoder.quantitativeValueProfile
+                baselinePixelFormat = pixelFormat
             } else {
                 // Check consistency across slices.
                 guard decoder.width == width, decoder.height == height else {
@@ -637,6 +814,10 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                 }
                 if decoder.pixelRepresentationTagValue != pixelRepresentation {
                     throw DicomSeriesLoaderError.inconsistentPixelRepresentation
+                }
+                if let baselinePixelFormat,
+                   !hasConsistentPixelFormat(pixelFormat, comparedTo: baselinePixelFormat) {
+                    throw DicomSeriesLoaderError.unsupportedPixelFormat(pixelFormat)
                 }
             }
 
@@ -662,7 +843,8 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                                     sopClassUID: nonEmpty(decoder.info(for: .sopClassUID)),
                                     sopInstanceUID: nonEmpty(decoder.info(for: .sopInstanceUID)),
                                     rescaleSlope: sliceRescale.slope,
-                                    rescaleIntercept: sliceRescale.intercept))
+                                    rescaleIntercept: sliceRescale.intercept,
+                                    pixelFormat: pixelFormat))
         }
 
         guard !slices.isEmpty, firstDecoder != nil else {
@@ -777,6 +959,7 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
 
         // Acquire a single pooled buffer for reuse across all slices
         var sliceBuffer = BufferPool.shared.acquire(type: [Int16].self, count: sliceVoxelCount)
+        var didReport32BitClamp = false
         defer {
             BufferPool.shared.release(sliceBuffer)
         }
@@ -802,9 +985,16 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
                     buffer: &sliceBuffer,
                     expectedWidth: width,
                     expectedHeight: height,
-                    isSigned: pixelRepresentation == 1,
+                    pixelFormat: slice.pixelFormat,
                     cachedDecoder: cachedDecoder(for:),
-                    cacheDecoder: cacheDecoder(_:for:)
+                    cacheDecoder: cacheDecoder(_:for:),
+                    report32BitClamp: {
+                        self.report32BitClampIfNeeded(
+                            reported: &didReport32BitClamp,
+                            pixelFormat: slice.pixelFormat,
+                            url: slice.url
+                        )
+                    }
                 )
 
                 guard let pixelCount, pixelCount == sliceVoxelCount else {
@@ -858,4 +1048,52 @@ public final class DicomSeriesLoader: DicomSeriesLoaderProtocol {
 private func nonEmpty(_ value: String) -> String? {
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+}
+
+private func pixelFormat(from decoder: any DicomDecoderProtocol) -> DicomSeriesLoaderPixelFormat {
+    let bitsStored = decoder.intValue(for: .bitsStored) ?? decoder.bitDepth
+    let highBit = decoder.intValue(for: .highBit) ?? max(0, bitsStored - 1)
+    let transferSyntaxUID = decoder.info(for: .transferSyntaxUID)
+    let transferSyntaxIsCompressed = DicomTransferSyntax(uid: transferSyntaxUID)?.isCompressed ?? false
+
+    return DicomSeriesLoaderPixelFormat(
+        bitsAllocated: decoder.bitDepth,
+        bitsStored: bitsStored,
+        highBit: highBit,
+        pixelRepresentation: decoder.pixelRepresentationTagValue,
+        samplesPerPixel: decoder.samplesPerPixel,
+        photometricInterpretation: decoder.photometricInterpretation.isEmpty
+            ? "MONOCHROME2"
+            : decoder.photometricInterpretation,
+        planarConfiguration: decoder.intValue(for: .planarConfiguration),
+        numberOfFrames: decoder.nImages,
+        transferSyntaxUID: transferSyntaxUID,
+        isCompressed: decoder.compressedImage || transferSyntaxIsCompressed
+    )
+}
+
+private func validatePixelFormat(_ pixelFormat: DicomSeriesLoaderPixelFormat) throws {
+    let matrix = DicomSeriesLoaderSupportMatrix.standard
+    if pixelFormat.isCompressed {
+        throw DicomSeriesLoaderError.unsupportedTransferSyntaxForVolume(pixelFormat)
+    }
+    if !matrix.supportsMultiframe, pixelFormat.numberOfFrames > 1 {
+        throw DicomSeriesLoaderError.unsupportedMultiframe(pixelFormat)
+    }
+    guard matrix.supports(pixelFormat) else {
+        throw DicomSeriesLoaderError.unsupportedPixelFormat(pixelFormat)
+    }
+}
+
+private func hasConsistentPixelFormat(
+    _ lhs: DicomSeriesLoaderPixelFormat,
+    comparedTo rhs: DicomSeriesLoaderPixelFormat
+) -> Bool {
+    lhs.bitsAllocated == rhs.bitsAllocated &&
+        lhs.bitsStored == rhs.bitsStored &&
+        lhs.highBit == rhs.highBit &&
+        lhs.pixelRepresentation == rhs.pixelRepresentation &&
+        lhs.samplesPerPixel == rhs.samplesPerPixel &&
+        lhs.photometricInterpretation == rhs.photometricInterpretation &&
+        lhs.planarConfiguration == rhs.planarConfiguration
 }

@@ -287,6 +287,30 @@ final class ViewTests: XCTestCase {
         XCTAssertFalse(viewModel.isEmpty, "View model should not be empty")
     }
 
+    @MainActor
+    func testSeriesNavigatorSliceShortcutButtonWithThumbnailAndFallback() throws {
+        let thumbnail = try XCTUnwrap(SeriesNavigatorThumbnail(
+            pixels: [0, 64, 128, 255],
+            width: 2,
+            height: 2
+        ))
+        let thumbnailButton = SeriesNavigatorSliceShortcutButton(
+            index: 0,
+            isSelected: true,
+            thumbnail: thumbnail,
+            onSelect: {}
+        )
+        let fallbackButton = SeriesNavigatorSliceShortcutButton(
+            index: 1,
+            isSelected: false,
+            thumbnail: nil,
+            onSelect: {}
+        )
+
+        XCTAssertNotNil(thumbnailButton)
+        XCTAssertNotNil(fallbackButton)
+    }
+
     // MARK: - MetadataView Tests
 
     func testMetadataViewInitialization() {

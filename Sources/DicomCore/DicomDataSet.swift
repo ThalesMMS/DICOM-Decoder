@@ -656,7 +656,21 @@ public extension DCMDecoder {
 
     private func dataValue(for tag: Int, vr: DicomVR, metadata: TagMetadata?) -> DicomDataValue {
         if vr == .SQ {
-            return .sequence([])
+            guard let metadata,
+                  metadata.offset >= 0,
+                  metadata.elementLength >= 0,
+                  metadata.offset + metadata.elementLength <= dicomData.count else {
+                return .sequence([])
+            }
+            let syntax = DicomTransferSyntax(uid: transferSyntaxUID) ?? .explicitVRLittleEndian
+            let items = (try? DicomSequenceValueParser.parseItems(
+                in: dicomData,
+                valueOffset: metadata.offset,
+                valueLength: metadata.elementLength,
+                littleEndian: littleEndian,
+                explicitVR: syntax.isExplicitVR
+            )) ?? []
+            return .sequence(items)
         }
 
         if let metadata,

@@ -26,6 +26,9 @@ let package = Package(
                 .product(name: "ZIPFoundation", package: "ZIPFoundation")
             ],
             path: "Sources/DicomCore",
+            exclude: [
+                "JPEGLossless_ALGORITHM.md"
+            ],
             resources: [
                 .process("Resources")
             ],
@@ -50,7 +53,15 @@ let package = Package(
         .executableTarget(
             name: "DicomSwiftUIExample",
             dependencies: ["DicomSwiftUI", "DicomCore"],
-            path: "Examples/DicomSwiftUIExample"
+            path: "Examples/DicomSwiftUIExample",
+            exclude: [
+                "Info.plist",
+                "README.md"
+            ],
+            resources: [
+                .process("Assets.xcassets"),
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "DicomTestSupport",
@@ -66,8 +77,12 @@ let package = Package(
                 .product(name: "ZIPFoundation", package: "ZIPFoundation")
             ],
             path: "Tests/DicomCoreTests",
-            exclude: ["Fixtures"],
+            exclude: [
+                "Fixtures",
+                "validate_jpeg_lossless_bitperfect.sh"
+            ],
             resources: [
+                .process("PerformanceBenchmarks/Baselines"),
                 .process("Resources")
             ],
             swiftSettings: [
@@ -93,7 +108,8 @@ let package = Package(
             name: "dicomtoolIntegrationTests",
             dependencies: [
                 "dicomtool",
-                "DicomCore"
+                "DicomCore",
+                "DicomTestSupport"
             ],
             path: "Tests/dicomtoolIntegrationTests"
         )

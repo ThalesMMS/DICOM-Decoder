@@ -66,6 +66,7 @@ public struct DicomStorageSCPConfiguration: Equatable, Sendable {
     public var timeout: TimeInterval
     public var acceptAnyCalledAETitle: Bool
     public var enableStorageCommitment: Bool
+    public var tls: DicomTLSConfiguration
 
     public init(aeTitle: String,
                 port: UInt16 = 11112,
@@ -74,7 +75,8 @@ public struct DicomStorageSCPConfiguration: Equatable, Sendable {
                 maximumPDULength: UInt32 = 16_384,
                 timeout: TimeInterval = 10,
                 acceptAnyCalledAETitle: Bool = false,
-                enableStorageCommitment: Bool = true) {
+                enableStorageCommitment: Bool = true,
+                tls: DicomTLSConfiguration = .disabled) {
         self.aeTitle = aeTitle
         self.port = port
         self.supportedStorageSOPClassUIDs = supportedStorageSOPClassUIDs
@@ -83,6 +85,7 @@ public struct DicomStorageSCPConfiguration: Equatable, Sendable {
         self.timeout = timeout
         self.acceptAnyCalledAETitle = acceptAnyCalledAETitle
         self.enableStorageCommitment = enableStorageCommitment
+        self.tls = tls
     }
 }
 
@@ -756,13 +759,16 @@ public final class DicomStorageSCPServer {
     public let service: DicomStorageSCPService
     private let listener: NWListener
     private let queue = DispatchQueue(label: "DicomStorageSCPServer")
+    private let tlsContext: DicomAppliedTLSContext?
 
     public init(service: DicomStorageSCPService) throws {
         self.service = service
         guard let port = NWEndpoint.Port(rawValue: service.configuration.port) else {
             throw DicomNetworkError.networkUnavailable("Invalid Storage SCP port \(service.configuration.port).")
         }
-        self.listener = try NWListener(using: .tcp, on: port)
+        let prepared = try DicomTLSOptionsFactory.preparedParameters(for: service.configuration.tls, role: .server)
+        self.tlsContext = prepared.tlsContext
+        self.listener = try NWListener(using: prepared.parameters, on: port)
     }
 
     public func start(progress: ((DicomStorageSCPProgress) -> Void)? = nil) throws {

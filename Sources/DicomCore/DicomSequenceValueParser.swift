@@ -23,6 +23,28 @@ enum DicomSequenceValueParser {
     private static let sequenceDelimiterTag = 0xFFFEE0DD
     private static let undefinedLength = UInt32.max
 
+    static func undefinedLengthSequenceBounds(
+        in data: Data,
+        valueOffset: Int,
+        end: Int,
+        littleEndian: Bool,
+        explicitVR: Bool
+    ) throws -> (valueLength: Int, endOffset: Int) {
+        var offset = valueOffset
+        let result = try parseSequenceItemsResult(
+            in: data,
+            offset: &offset,
+            end: end,
+            littleEndian: littleEndian,
+            explicitVR: explicitVR,
+            requiresSequenceDelimiter: true
+        )
+        guard let delimiterOffset = result.delimiterOffset else {
+            throw DicomSequenceValueParserError.missingSequenceDelimiter
+        }
+        return (delimiterOffset - valueOffset, offset)
+    }
+
     static func parseItems(
         in data: Data,
         valueOffset: Int,
@@ -37,13 +59,14 @@ enum DicomSequenceValueParser {
         }
 
         var offset = valueOffset
-        return try parseSequenceItems(
+        return try parseSequenceItemsResult(
             in: data,
             offset: &offset,
             end: valueOffset + valueLength,
             littleEndian: littleEndian,
-            explicitVR: explicitVR
-        )
+            explicitVR: explicitVR,
+            requiresSequenceDelimiter: false
+        ).items
     }
 
     static func parseDataSet(
@@ -53,13 +76,43 @@ enum DicomSequenceValueParser {
         littleEndian: Bool,
         explicitVR: Bool
     ) throws -> DicomDataSet {
+        try parseDataSet(
+            in: data,
+            offset: &offset,
+            end: end,
+            littleEndian: littleEndian,
+            explicitVR: explicitVR,
+            requiresItemDelimiter: false
+        )
+    }
+
+    private static func parseDataSet(
+        in data: Data,
+        offset: inout Int,
+        end: Int,
+        littleEndian: Bool,
+        explicitVR: Bool,
+        requiresItemDelimiter: Bool
+    ) throws -> DicomDataSet {
         var elements: [DicomDataElement] = []
 
-        while offset + 8 <= end {
+        while offset < end {
+            guard offset + 8 <= end else {
+                throw requiresItemDelimiter
+                    ? DicomSequenceValueParserError.missingItemDelimiter
+                    : DicomSequenceValueParserError.unexpectedEnd
+            }
+
             let tag = try readTag(data, offset: &offset, littleEndian: littleEndian)
             if tag == itemDelimiterTag || tag == sequenceDelimiterTag {
-                _ = try readUInt32(data, offset: &offset, littleEndian: littleEndian)
-                break
+                let delimiterLength = try readUInt32(data, offset: &offset, littleEndian: littleEndian)
+                try validateDelimiterLength(delimiterLength, tag: tag)
+                if tag == itemDelimiterTag, requiresItemDelimiter {
+                    return DicomDataSet(elements: elements)
+                }
+                throw tag == itemDelimiterTag
+                    ? DicomSequenceValueParserError.unexpectedItemDelimiter
+                    : DicomSequenceValueParserError.unexpectedSequenceDelimiter
             }
             if tag == DicomTag.pixelData.rawValue {
                 break
@@ -76,25 +129,27 @@ enum DicomSequenceValueParser {
             if elementHeader.vr == .SQ {
                 let items: [DicomSequenceItem]
                 if elementHeader.length == undefinedLength {
-                    items = try parseSequenceItems(
+                    items = try parseSequenceItemsResult(
                         in: data,
                         offset: &offset,
                         end: end,
                         littleEndian: littleEndian,
-                        explicitVR: explicitVR
-                    )
+                        explicitVR: explicitVR,
+                        requiresSequenceDelimiter: true
+                    ).items
                 } else {
                     let sequenceEnd = offset + Int(elementHeader.length)
                     guard sequenceEnd <= end else {
                         throw DicomSequenceValueParserError.elementExceedsBounds(tag)
                     }
-                    items = try parseSequenceItems(
+                    items = try parseSequenceItemsResult(
                         in: data,
                         offset: &offset,
                         end: sequenceEnd,
                         littleEndian: littleEndian,
-                        explicitVR: explicitVR
-                    )
+                        explicitVR: explicitVR,
+                        requiresSequenceDelimiter: false
+                    ).items
                     offset = sequenceEnd
                 }
                 elements.append(DicomDataElement(tag: tag, vr: .SQ, value: .sequence(items)))
@@ -116,24 +171,49 @@ enum DicomSequenceValueParser {
             }
         }
 
+        if requiresItemDelimiter {
+            throw DicomSequenceValueParserError.missingItemDelimiter
+        }
         return DicomDataSet(elements: elements)
     }
 
-    private static func parseSequenceItems(
+    private struct SequenceParseResult {
+        let items: [DicomSequenceItem]
+        let delimiterOffset: Int?
+    }
+
+    private static func parseSequenceItemsResult(
         in data: Data,
         offset: inout Int,
         end: Int,
         littleEndian: Bool,
-        explicitVR: Bool
-    ) throws -> [DicomSequenceItem] {
+        explicitVR: Bool,
+        requiresSequenceDelimiter: Bool
+    ) throws -> SequenceParseResult {
         var items: [DicomSequenceItem] = []
 
-        while offset + 8 <= end {
+        while offset < end {
+            guard offset + 8 <= end else {
+                throw requiresSequenceDelimiter
+                    ? DicomSequenceValueParserError.missingSequenceDelimiter
+                    : DicomSequenceValueParserError.unexpectedEnd
+            }
+
+            let tagOffset = offset
             let tag = try readTag(data, offset: &offset, littleEndian: littleEndian)
             let length = try readUInt32(data, offset: &offset, littleEndian: littleEndian)
 
-            if tag == sequenceDelimiterTag || tag == itemDelimiterTag {
-                break
+            if tag == sequenceDelimiterTag {
+                try validateDelimiterLength(length, tag: tag)
+                guard requiresSequenceDelimiter else {
+                    throw DicomSequenceValueParserError.unexpectedSequenceDelimiter
+                }
+                return SequenceParseResult(items: items, delimiterOffset: tagOffset)
+            }
+
+            if tag == itemDelimiterTag {
+                try validateDelimiterLength(length, tag: tag)
+                throw DicomSequenceValueParserError.unexpectedItemDelimiter
             }
 
             guard tag == itemTag else {
@@ -146,7 +226,8 @@ enum DicomSequenceValueParser {
                     offset: &offset,
                     end: end,
                     littleEndian: littleEndian,
-                    explicitVR: explicitVR
+                    explicitVR: explicitVR,
+                    requiresItemDelimiter: true
                 )
                 items.append(DicomSequenceItem(dataSet: dataSet))
             } else {
@@ -159,14 +240,24 @@ enum DicomSequenceValueParser {
                     offset: &offset,
                     end: itemEnd,
                     littleEndian: littleEndian,
-                    explicitVR: explicitVR
+                    explicitVR: explicitVR,
+                    requiresItemDelimiter: false
                 )
                 items.append(DicomSequenceItem(dataSet: dataSet))
                 offset = itemEnd
             }
         }
 
-        return items
+        if requiresSequenceDelimiter {
+            throw DicomSequenceValueParserError.missingSequenceDelimiter
+        }
+        return SequenceParseResult(items: items, delimiterOffset: nil)
+    }
+
+    private static func validateDelimiterLength(_ length: UInt32, tag: Int) throws {
+        guard length == 0 else {
+            throw DicomSequenceValueParserError.invalidDelimiterLength(tag: tag, length: length)
+        }
     }
 
     private static func readElementHeader(
@@ -556,6 +647,11 @@ enum DicomSequenceValueParserError: Error, Equatable {
     case itemExceedsBounds
     case elementExceedsBounds(Int)
     case unsupportedUndefinedLengthElement(Int)
+    case missingItemDelimiter
+    case missingSequenceDelimiter
+    case unexpectedItemDelimiter
+    case unexpectedSequenceDelimiter
+    case invalidDelimiterLength(tag: Int, length: UInt32)
 }
 
 private extension Data {

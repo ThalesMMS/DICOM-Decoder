@@ -244,7 +244,7 @@ final class DCMDecoderStressTests: XCTestCase {
                 getXRSyntheticFixtureURL().path
             ]
         } catch {
-            throw XCTSkip("Skipping stress test because fixture URLs are unavailable: \(error)")
+            throw error
         }
 
         // Use multiple queues with different priorities to maximize contention

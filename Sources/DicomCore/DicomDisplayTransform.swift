@@ -390,7 +390,7 @@ extension DCMDecoder {
               frame < descriptor.numberOfFrames,
               sample >= 0,
               sample < descriptor.samplesPerPixel,
-              descriptor.bytesPerSample <= 2 else {
+              descriptor.bytesPerSample <= 4 else {
             return nil
         }
 
@@ -410,6 +410,8 @@ extension DCMDecoder {
             rawValue = Int(dicomData[byteOffset])
         case 2:
             rawValue = Int(dicomData.readUInt16(at: byteOffset, littleEndian: littleEndian))
+        case 4:
+            rawValue = Int(dicomData.readUInt32(at: byteOffset, littleEndian: littleEndian))
         default:
             return nil
         }
@@ -440,6 +442,16 @@ private extension Data {
         stride(from: 0, to: count - count % 2, by: 2).map {
             readUInt16(at: $0, littleEndian: littleEndian)
         }
+    }
+
+    func readUInt32(at offset: Int, littleEndian: Bool) -> UInt32 {
+        let b0 = UInt32(self[offset])
+        let b1 = UInt32(self[offset + 1])
+        let b2 = UInt32(self[offset + 2])
+        let b3 = UInt32(self[offset + 3])
+        return littleEndian
+            ? (b3 << 24 | b2 << 16 | b1 << 8 | b0)
+            : (b0 << 24 | b1 << 16 | b2 << 8 | b3)
     }
 }
 

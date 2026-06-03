@@ -515,6 +515,58 @@ final class SeriesNavigatorViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isLoadingThumbnails)
     }
 
+    func testSeriesNavigatorThumbnailRejectsInvalidDimensions() {
+        XCTAssertNil(SeriesNavigatorThumbnail(pixels: [], width: 0, height: 1))
+        XCTAssertNil(SeriesNavigatorThumbnail(pixels: [0, 1], width: 2, height: 2))
+    }
+
+    func testSetThumbnailStoresAndClearsValidIndex() throws {
+        let viewModel = SeriesNavigatorViewModel(seriesURLs: createTestURLs(count: 2))
+        let thumbnail = try XCTUnwrap(SeriesNavigatorThumbnail(
+            pixels: [0, 64, 128, 255],
+            width: 2,
+            height: 2
+        ))
+
+        viewModel.setThumbnail(thumbnail, for: 1)
+
+        XCTAssertEqual(viewModel.thumbnail(at: 1), thumbnail)
+        XCTAssertNil(viewModel.thumbnail(at: 0))
+
+        viewModel.setThumbnail(nil, for: 1)
+
+        XCTAssertNil(viewModel.thumbnail(at: 1))
+    }
+
+    func testSeriesReplacementClearsThumbnails() throws {
+        let viewModel = SeriesNavigatorViewModel(seriesURLs: createTestURLs(count: 2))
+        let thumbnail = try XCTUnwrap(SeriesNavigatorThumbnail(
+            pixels: [0, 64, 128, 255],
+            width: 2,
+            height: 2
+        ))
+        viewModel.setThumbnail(thumbnail, for: 0)
+
+        viewModel.setSeriesURLs(createTestURLs(count: 1, seriesName: "replacement"))
+
+        XCTAssertNil(viewModel.thumbnail(at: 0))
+        XCTAssertTrue(viewModel.thumbnails.isEmpty)
+    }
+
+    func testLoadThumbnailsGeneratesImageFromFixture() async throws {
+        let fixtureURL = try Self.packageRoot()
+            .appendingPathComponent("Tests/DicomCoreTests/Fixtures/CT/ct_synthetic.dcm")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixtureURL.path))
+        let viewModel = SeriesNavigatorViewModel(seriesURLs: [fixtureURL])
+
+        await viewModel.loadThumbnails(for: [0], maxDimension: 32)
+
+        let thumbnail = try XCTUnwrap(viewModel.thumbnail(at: 0))
+        XCTAssertLessThanOrEqual(max(thumbnail.width, thumbnail.height), 32)
+        XCTAssertEqual(thumbnail.pixels.count, thumbnail.width * thumbnail.height)
+        XCTAssertFalse(viewModel.isLoadingThumbnails)
+    }
+
     // MARK: - Sequential Navigation Tests
 
     func testNavigateFromFirstToLast() {
@@ -772,5 +824,23 @@ final class SeriesNavigatorViewModelTests: XCTestCase {
 
         viewModel.goToLast()
         XCTAssertEqual(viewModel.positionString, "9999 / 9999")
+    }
+
+    private static func packageRoot() throws -> URL {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let fileManager = FileManager.default
+
+        while directory.path != "/" {
+            if fileManager.fileExists(atPath: directory.appendingPathComponent("Package.swift").path) {
+                return directory
+            }
+            directory.deleteLastPathComponent()
+        }
+
+        throw NSError(
+            domain: "SeriesNavigatorViewModelTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Could not locate package root."]
+        )
     }
 }

@@ -4,6 +4,10 @@ Use ``DicomSeriesLoader`` when an app needs to load a DICOM series from a
 directory, ZIP archive, or selected DICOM file. The decoder owns source
 preparation, path-traversal validation, slice ordering, geometry validation,
 rescale slope/intercept, window metadata, and DICOM-specific errors.
+`DicomSeriesLoader` is a package-only loader: it supports single-frame,
+uncompressed 8/16/32-bit MONOCHROME1/2 grayscale inputs and normalizes the
+assembled voxel buffer to `Int16`. It explicitly rejects compressed transfer
+syntaxes, color samples, and multiframe images with typed pixel-format errors.
 
 ```swift
 let loader = DicomSeriesLoader()

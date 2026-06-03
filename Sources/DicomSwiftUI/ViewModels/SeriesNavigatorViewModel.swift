@@ -33,6 +33,40 @@ import DicomCore
 
 // MARK: - View Model
 
+/// Thumbnail pixel data for one slice in ``SeriesNavigatorView``.
+///
+/// The thumbnail stores already-windowed 8-bit grayscale pixels so SwiftUI views
+/// can build display images without re-decoding DICOM files on the main thread.
+public struct SeriesNavigatorThumbnail: Equatable, Sendable {
+    /// Row-major 8-bit grayscale pixels.
+    public let pixels: [UInt8]
+
+    /// Thumbnail width in pixels.
+    public let width: Int
+
+    /// Thumbnail height in pixels.
+    public let height: Int
+
+    /// Creates a validated thumbnail value.
+    ///
+    /// Returns `nil` when dimensions are invalid or the pixel count does not
+    /// match `width * height`.
+    public init?(pixels: [UInt8], width: Int, height: Int) {
+        guard width > 0, height > 0 else {
+            return nil
+        }
+
+        let (expectedPixelCount, overflow) = width.multipliedReportingOverflow(by: height)
+        guard !overflow, pixels.count == expectedPixelCount else {
+            return nil
+        }
+
+        self.pixels = pixels
+        self.width = width
+        self.height = height
+    }
+}
+
 /// View model for managing DICOM series navigation state.
 ///
 /// ## Overview
@@ -202,6 +236,9 @@ public final class SeriesNavigatorViewModel: ObservableObject {
     /// Whether thumbnail loading is in progress
     @Published public private(set) var isLoadingThumbnails: Bool = false
 
+    /// Windowed thumbnail pixels keyed by slice index.
+    @Published public private(set) var thumbnails: [Int: SeriesNavigatorThumbnail] = [:]
+
     // MARK: - Private Properties
 
     private let logger: Logger
@@ -295,6 +332,7 @@ public final class SeriesNavigatorViewModel: ObservableObject {
 
         seriesURLs = urls
         totalCount = urls.count
+        thumbnails = [:]
 
         // Clamp initial index to valid range
         if totalCount == 0 {
@@ -332,6 +370,7 @@ public final class SeriesNavigatorViewModel: ObservableObject {
         totalCount = 0
         currentIndex = 0
         isLoadingThumbnails = false
+        thumbnails = [:]
     }
 
     // MARK: - Public Interface - Navigation Methods
@@ -542,6 +581,103 @@ public final class SeriesNavigatorViewModel: ObservableObject {
     public func completeThumbnailLoading() {
         logger.debug("✅ Thumbnail loading complete")
         isLoadingThumbnails = false
+    }
+
+    /// Sets or clears a thumbnail for a valid slice index.
+    ///
+    /// Use this for tests, previews, or callers that generate thumbnails through
+    /// their own image pipeline.
+    public func setThumbnail(_ thumbnail: SeriesNavigatorThumbnail?, for index: Int) {
+        guard index >= 0, index < totalCount else {
+            return
+        }
+
+        if let thumbnail {
+            thumbnails[index] = thumbnail
+        } else {
+            thumbnails.removeValue(forKey: index)
+        }
+    }
+
+    /// Returns the thumbnail for a slice index, if one has been generated.
+    public func thumbnail(at index: Int) -> SeriesNavigatorThumbnail? {
+        thumbnails[index]
+    }
+
+    /// Loads thumbnails for selected slice indexes without blocking the main actor.
+    ///
+    /// Existing thumbnails are preserved. Invalid indexes are ignored, and files
+    /// that cannot be decoded keep using the view's unavailable-thumbnail state.
+    public func loadThumbnails(for indexes: [Int]? = nil, maxDimension: Int = 50) async {
+        guard maxDimension > 0, !seriesURLs.isEmpty else {
+            return
+        }
+
+        let targetIndexes = normalizedThumbnailIndexes(indexes)
+        guard !targetIndexes.isEmpty else {
+            return
+        }
+
+        startThumbnailLoading()
+        defer { completeThumbnailLoading() }
+
+        var loadedThumbnails: [Int: SeriesNavigatorThumbnail] = [:]
+        for index in targetIndexes where thumbnails[index] == nil {
+            if Task.isCancelled {
+                return
+            }
+
+            if let thumbnail = await Self.makeThumbnail(contentsOf: seriesURLs[index], maxDimension: maxDimension) {
+                loadedThumbnails[index] = thumbnail
+            }
+        }
+
+        thumbnails.merge(loadedThumbnails) { current, _ in current }
+    }
+
+    private func normalizedThumbnailIndexes(_ indexes: [Int]?) -> [Int] {
+        let rawIndexes = indexes ?? Array(seriesURLs.indices)
+        return Array(Set(rawIndexes.filter { $0 >= 0 && $0 < totalCount })).sorted()
+    }
+
+    private nonisolated static func makeThumbnail(contentsOf url: URL, maxDimension: Int) async -> SeriesNavigatorThumbnail? {
+        await Task.detached(priority: .utility) {
+            guard maxDimension > 0,
+                  let decoder = try? DCMDecoder(contentsOf: url) else {
+                return nil
+            }
+
+            if let thumbnail = decoder.getDownsampledPixels8(maxDimension: maxDimension) {
+                return SeriesNavigatorThumbnail(
+                    pixels: thumbnail.pixels,
+                    width: thumbnail.width,
+                    height: thumbnail.height
+                )
+            }
+
+            guard let thumbnail = decoder.getDownsampledPixels16(maxDimension: maxDimension) else {
+                return nil
+            }
+
+            let windowSettings = decoder.windowSettingsV2.isValid
+                ? decoder.windowSettingsV2
+                : DCMWindowingProcessor.calculateOptimalWindowLevelV2(pixels16: thumbnail.pixels)
+
+            guard let pixels8 = DCMWindowingProcessor.applyWindowLevel(
+                pixels16: thumbnail.pixels,
+                center: windowSettings.center,
+                width: windowSettings.width,
+                processingMode: .vdsp
+            ) else {
+                return nil
+            }
+
+            return SeriesNavigatorThumbnail(
+                pixels: Array(pixels8),
+                width: thumbnail.width,
+                height: thumbnail.height
+            )
+        }.value
     }
 }
 

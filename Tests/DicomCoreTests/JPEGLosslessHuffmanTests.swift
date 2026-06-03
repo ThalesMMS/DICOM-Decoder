@@ -84,17 +84,15 @@ final class JPEGLosslessHuffmanTests: XCTestCase {
         // Create decoder and parse the data
         let decoder = JPEGLosslessDecoder()
 
-        // The decode method should successfully parse the markers
-        // and build the Huffman tables without throwing
+        // The decode method should parse markers, build Huffman tables, and decode pixels.
         do {
-            _ = try decoder.decode(data: jpegData)
-
-            // If we got here without throwing, the Huffman table was successfully parsed
-            // The actual decoding will return placeholder data since we haven't implemented
-            // the full pixel decoding yet, but marker parsing should work
-
+            let result = try decoder.decode(data: jpegData)
+            XCTAssertEqual(result.width, 2)
+            XCTAssertEqual(result.height, 2)
+            XCTAssertEqual(result.bitDepth, 16)
+            XCTAssertEqual(result.pixels, [32768, 32768, 32768, 32768])
         } catch {
-            XCTFail("Huffman table parsing failed with error: \(error)")
+            XCTFail("Huffman table parsing or pixel decoding failed with error: \(error)")
         }
     }
 

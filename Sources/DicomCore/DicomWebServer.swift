@@ -4,6 +4,148 @@ public enum DicomWebUPSSupport: String, Sendable {
     case p2Deferred = "P2 deferred"
 }
 
+/// Stable server-side error identifiers exposed in `X-DICOMweb-Error-Code`.
+public enum DicomWebServerErrorCode: String, Sendable {
+    case upsDeferred = "DICOMWEB_UPS_DEFERRED"
+    case frameRetrievalUnsupported = "DICOMWEB_FRAME_RETRIEVAL_UNSUPPORTED"
+    case renderedFrameUnsupported = "DICOMWEB_RENDERED_FRAME_UNSUPPORTED"
+    case routeNotFound = "DICOMWEB_ROUTE_NOT_FOUND"
+}
+
+/// One row in the DICOMweb helper conformance matrix.
+public struct DicomWebConformanceRow: Equatable, Sendable {
+    /// The DICOMweb feature or responsibility being described.
+    public var feature: String
+    /// The client-side support level.
+    public var client: String
+    /// The server-side support level.
+    public var server: String
+    /// The component or caller that owns the behavior.
+    public var responsibility: String
+    /// Additional scope notes and limitations.
+    public var notes: String
+
+    /// Creates a conformance row for one DICOMweb feature.
+    public init(feature: String,
+                client: String,
+                server: String,
+                responsibility: String,
+                notes: String) {
+        self.feature = feature
+        self.client = client
+        self.server = server
+        self.responsibility = responsibility
+        self.notes = notes
+    }
+}
+
+/// Explicit support matrix for the package DICOMweb helper APIs.
+public struct DicomWebConformanceMatrix: Equatable, Sendable {
+    /// Ordered feature rows emitted by the conformance endpoint and docs.
+    public var rows: [DicomWebConformanceRow]
+
+    /// Creates a matrix from precomputed feature rows.
+    public init(rows: [DicomWebConformanceRow]) {
+        self.rows = rows
+    }
+
+    /// The default matrix for `DicomWebClient` and `DicomWebServer`.
+    public static let packageDefault = DicomWebConformanceMatrix(rows: [
+        DicomWebConformanceRow(feature: "QIDO-RS",
+                               client: "supported",
+                               server: "study-level supported",
+                               responsibility: "DicomWebClient/DicomWebServer",
+                               notes: "Study search supports tested metadata filters plus limit/offset pagination."),
+        DicomWebConformanceRow(feature: "WADO-RS metadata",
+                               client: "supported",
+                               server: "supported",
+                               responsibility: "DicomWebClient/DicomWebServer",
+                               notes: "Study metadata is DICOM JSON on the client; the server can emit DICOM JSON or XML."),
+        DicomWebConformanceRow(feature: "WADO-RS instance",
+                               client: "supported",
+                               server: "supported",
+                               responsibility: "DicomWebClient/DicomWebServer",
+                               notes: "Instance retrieval uses multipart/related application/dicom payloads."),
+        DicomWebConformanceRow(feature: "WADO-RS frame",
+                               client: "transport-injected",
+                               server: "stable 501",
+                               responsibility: "Remote DICOMweb service or caller transport",
+                               notes: "Client serializes frame retrieval; in-memory server returns DICOMWEB_FRAME_RETRIEVAL_UNSUPPORTED."),
+        DicomWebConformanceRow(feature: "WADO-RS rendered frame",
+                               client: "transport-injected",
+                               server: "stable 501",
+                               responsibility: "Remote DICOMweb service or caller renderer",
+                               notes: "Client serializes rendered-frame retrieval; in-memory server returns DICOMWEB_RENDERED_FRAME_UNSUPPORTED."),
+        DicomWebConformanceRow(feature: "WADO-URI",
+                               client: "supported",
+                               server: "supported",
+                               responsibility: "DicomWebClient/DicomWebServer",
+                               notes: "Object retrieval is covered by package HTTP serialization tests."),
+        DicomWebConformanceRow(feature: "STOW-RS",
+                               client: "supported",
+                               server: "supported for Part 10 payloads",
+                               responsibility: "DicomWebClient/DicomWebServer",
+                               notes: "Multipart boundaries and payload preservation are covered by package tests."),
+        DicomWebConformanceRow(feature: "UPS-RS",
+                               client: "deferred",
+                               server: "stable 501",
+                               responsibility: "Deferred P2 work",
+                               notes: "UPS routes return DICOMWEB_UPS_DEFERRED until a concrete UPS scope is implemented."),
+        DicomWebConformanceRow(feature: "BulkDataURI",
+                               client: "transport-injected",
+                               server: "unsupported",
+                               responsibility: "DicomWebClient or caller transport",
+                               notes: "DICOM JSON BulkDataURI values are preserved; retrieveBulkData fetches absolute or relative URIs through the configured transport."),
+        DicomWebConformanceRow(feature: "JPIP",
+                               client: "caller-supplied transport",
+                               server: "unsupported",
+                               responsibility: "DicomJPIPClient with DicomJPIPTransport",
+                               notes: "JPIP progressive pixel delivery is not proxied through DicomWebServer."),
+        DicomWebConformanceRow(feature: "Multipart",
+                               client: "supported",
+                               server: "supported",
+                               responsibility: "DicomWebMultipartParser and STOW/WADO helpers",
+                               notes: "multipart/related parsing and emission are tested, including large payload preservation."),
+        DicomWebConformanceRow(feature: "Authentication",
+                               client: "caller headers",
+                               server: "optional bearer token",
+                               responsibility: "Application security layer",
+                               notes: "No authorization policy, TLS termination, or PHI audit trail is implemented by the in-memory server."),
+        DicomWebConformanceRow(feature: "Pagination",
+                               client: "limit/offset query items",
+                               server: "limit/offset applied",
+                               responsibility: "DicomWebQuery and DicomWebServer QIDO",
+                               notes: "Server pagination is deterministic over the in-memory study list."),
+        DicomWebConformanceRow(feature: "Error semantics",
+                               client: "stable typed errors",
+                               server: "stable HTTP status and error-code headers",
+                               responsibility: "DicomWebClientError and DicomWebServerErrorCode",
+                               notes: "Unsupported routes use 501 with X-DICOMweb-Error-Code; missing resources use HTTP status codes."),
+        DicomWebConformanceRow(feature: "Large payload streaming",
+                               client: "Data-backed request bodies",
+                               server: "Data-backed responses",
+                               responsibility: "Caller-provided transport for zero-copy streaming",
+                               notes: "The package preserves large multipart payloads, but true streaming is outside this helper API.")
+    ])
+
+    /// Returns the row with the requested feature name, ignoring case.
+    public func row(feature: String) -> DicomWebConformanceRow? {
+        rows.first { $0.feature.caseInsensitiveCompare(feature) == .orderedSame }
+    }
+
+    /// Markdown table representation used by the server conformance endpoint.
+    public var markdown: String {
+        var lines = [
+            "| Feature | Client | Server | Responsibility | Notes |",
+            "| --- | --- | --- | --- | --- |"
+        ]
+        lines += rows.map { row in
+            "| \(row.feature) | \(row.client) | \(row.server) | \(row.responsibility) | \(row.notes) |"
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
 public struct DicomWebServerConfiguration: Equatable, Sendable {
     public var servicePath: String
     public var requiredBearerToken: String?
@@ -32,6 +174,8 @@ public struct DicomWebConformanceStatement: Equatable, Sendable {
     public var supportsMultipart: Bool
     public var oauth2Optional: Bool
     public var upsSupport: DicomWebUPSSupport
+    /// Route-backed DICOMweb helper capability matrix.
+    public var matrix: DicomWebConformanceMatrix
 
     public init(serverName: String,
                 supportsQIDORS: Bool = true,
@@ -42,7 +186,8 @@ public struct DicomWebConformanceStatement: Equatable, Sendable {
                 supportsXML: Bool = true,
                 supportsMultipart: Bool = true,
                 oauth2Optional: Bool = true,
-                upsSupport: DicomWebUPSSupport = .p2Deferred) {
+                upsSupport: DicomWebUPSSupport = .p2Deferred,
+                matrix: DicomWebConformanceMatrix = .packageDefault) {
         self.serverName = serverName
         self.supportsQIDORS = supportsQIDORS
         self.supportsWADORS = supportsWADORS
@@ -53,6 +198,7 @@ public struct DicomWebConformanceStatement: Equatable, Sendable {
         self.supportsMultipart = supportsMultipart
         self.oauth2Optional = oauth2Optional
         self.upsSupport = upsSupport
+        self.matrix = matrix
     }
 
     public var markdown: String {
@@ -75,6 +221,10 @@ public struct DicomWebConformanceStatement: Equatable, Sendable {
 
         Workflows:
         - UPS: \(upsSupport.rawValue)
+
+        DICOMweb support matrix:
+
+        \(matrix.markdown)
         """
     }
 }
@@ -284,9 +434,9 @@ public final class DicomWebServer: DicomWebHTTPTransport, @unchecked Sendable {
                             headers: ["Content-Type": "text/markdown"],
                             body: Data(conformanceStatement.markdown.utf8))
         case (.get, ["ups"]), (.get, ["workitems"]):
-            return response(statusCode: 501,
-                            headers: ["Content-Type": "text/plain"],
-                            text: "UPS is explicitly \(conformanceStatement.upsSupport.rawValue).")
+            return stableError(statusCode: 501,
+                               code: .upsDeferred,
+                               text: "UPS is explicitly \(conformanceStatement.upsSupport.rawValue).")
         case (.get, ["studies"]):
             return qidoStudies(request)
         case (.get, ["wado"]):
@@ -314,17 +464,45 @@ public final class DicomWebServer: DicomWebHTTPTransport, @unchecked Sendable {
                                 sopInstanceUID: path[5])
         }
 
+        if request.method == .get,
+           path.count == 8,
+           path[0] == "studies",
+           path[2] == "series",
+           path[4] == "instances",
+           path[6] == "frames" {
+            return stableError(statusCode: 501,
+                               code: .frameRetrievalUnsupported,
+                               text: "WADO-RS frame retrieval is not implemented by this in-memory DICOMweb server.")
+        }
+
+        if request.method == .get,
+           path.count == 9,
+           path[0] == "studies",
+           path[2] == "series",
+           path[4] == "instances",
+           path[6] == "frames",
+           path[8] == "rendered" {
+            return stableError(statusCode: 501,
+                               code: .renderedFrameUnsupported,
+                               text: "WADO-RS rendered-frame retrieval is not implemented by this in-memory DICOMweb server.")
+        }
+
         if request.method == .post,
            path.count == 2,
            path[0] == "studies" {
             return stow(request, forcedStudyInstanceUID: path[1])
         }
 
-        return response(statusCode: 404, text: "DICOMweb route not found.")
+        return stableError(statusCode: 404,
+                           code: .routeNotFound,
+                           text: "DICOMweb route not found.")
     }
 
     private func qidoStudies(_ request: DicomWebHTTPRequest) -> DicomWebHTTPResponse {
         let filters = queryItems(for: request.url)
+        guard let pagination = pagination(from: filters) else {
+            return response(statusCode: 400, text: "Invalid QIDO pagination.")
+        }
         let modalityFilter = filters["ModalitiesInStudy"] ?? filters["Modality"]
         let studies = uniqueStudies().filter { dataSet in
             matches(dataSet: dataSet, tag: .patientName, filter: filters["PatientName"]) &&
@@ -337,7 +515,7 @@ public final class DicomWebServer: DicomWebHTTPTransport, @unchecked Sendable {
             matches(dataSet: dataSet, tag: .studyInstanceUID, filter: filters["StudyInstanceUID"]) &&
             matches(dataSet: dataSet, tag: .modalitiesInStudy, fallbackTag: .modality, filter: modalityFilter)
         }
-        return encodedDataSets(studies, request: request)
+        return encodedDataSets(page(studies, pagination: pagination), request: request)
     }
 
     private func wadoMetadata(studyInstanceUID: String, request: DicomWebHTTPRequest) -> DicomWebHTTPResponse {
@@ -511,6 +689,14 @@ public final class DicomWebServer: DicomWebHTTPTransport, @unchecked Sendable {
                  body: Data(text.utf8))
     }
 
+    private func stableError(statusCode: Int,
+                             code: DicomWebServerErrorCode,
+                             text: String) -> DicomWebHTTPResponse {
+        response(statusCode: statusCode,
+                 headers: ["X-DICOMweb-Error-Code": code.rawValue],
+                 text: text)
+    }
+
     private func response(statusCode: Int,
                           headers: [String: String] = [:],
                           body: Data) -> DicomWebHTTPResponse {
@@ -538,6 +724,33 @@ public final class DicomWebServer: DicomWebHTTPTransport, @unchecked Sendable {
         lock.lock()
         cache.removeAll()
         lock.unlock()
+    }
+
+    private func pagination(from filters: [String: String]) -> (offset: Int, limit: Int?)? {
+        let offset: Int
+        if let value = filters["offset"] {
+            guard let parsed = Int(value), parsed >= 0 else { return nil }
+            offset = parsed
+        } else {
+            offset = 0
+        }
+
+        let limit: Int?
+        if let value = filters["limit"] {
+            guard let parsed = Int(value), parsed >= 0 else { return nil }
+            limit = parsed
+        } else {
+            limit = nil
+        }
+        return (offset, limit)
+    }
+
+    private func page(_ dataSets: [DicomDataSet], pagination: (offset: Int, limit: Int?)) -> [DicomDataSet] {
+        let offsetDataSets = Array(dataSets.dropFirst(pagination.offset))
+        guard let limit = pagination.limit else {
+            return offsetDataSets
+        }
+        return Array(offsetDataSets.prefix(limit))
     }
 }
 

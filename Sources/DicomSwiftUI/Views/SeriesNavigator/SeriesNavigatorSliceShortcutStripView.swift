@@ -25,6 +25,7 @@ struct SeriesNavigatorSliceShortcutStripView: View {
                         SeriesNavigatorSliceShortcutButton(
                             index: index,
                             isSelected: index == navigatorViewModel.currentIndex,
+                            thumbnail: navigatorViewModel.thumbnail(at: index),
                             onSelect: { navigatorViewModel.goToIndex(index) }
                         )
                     }
@@ -39,10 +40,26 @@ struct SeriesNavigatorSliceShortcutStripView: View {
                 }
             }
             .frame(height: 60)
+
+            if navigatorViewModel.isLoadingThumbnails {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading thumbnails")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Slice shortcut strip")
         .accessibilityHint("Quick navigation for series slices")
+        .task(id: thumbnailTaskID) {
+            await navigatorViewModel.loadThumbnails(
+                for: Array(sliceShortcutVisibleRange),
+                maxDimension: 50
+            )
+        }
     }
 
     private var sliceShortcutVisibleRange: Range<Int> {
@@ -57,5 +74,11 @@ struct SeriesNavigatorSliceShortcutStripView: View {
         let start = min(preferredStart, latestStart)
         let end = min(totalCount, start + maxVisibleCount)
         return start..<end
+    }
+
+    private var thumbnailTaskID: String {
+        let range = sliceShortcutVisibleRange
+        let seriesSignature = navigatorViewModel.seriesURLs.map(\.path).joined(separator: "|").hashValue
+        return "\(range.lowerBound)-\(range.upperBound)-\(navigatorViewModel.totalCount)-\(seriesSignature)"
     }
 }

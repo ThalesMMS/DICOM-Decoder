@@ -16,6 +16,8 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 // MARK: - Document Picker Configuration
@@ -207,35 +209,94 @@ public struct DocumentPickerView: UIViewControllerRepresentable {
 // MARK: - macOS Support
 
 #if os(macOS)
-/// Placeholder for macOS document picker functionality.
-///
-/// macOS uses NSOpenPanel instead of UIDocumentPickerViewController.
-/// This can be implemented in a future update if macOS support is needed.
+/// SwiftUI wrapper for NSOpenPanel for DICOM file and folder selection.
 public struct DocumentPickerView: View {
+    private let configuration: DocumentPickerConfiguration
     private let onPick: ([URL]) -> Void
+    private let onCancel: (() -> Void)?
 
     public init(
         configuration: DocumentPickerConfiguration = .singleFile,
         onPick: @escaping ([URL]) -> Void,
         onCancel: (() -> Void)? = nil
     ) {
+        self.configuration = configuration
         self.onPick = onPick
+        self.onCancel = onCancel
     }
 
     public init(
         onPick: @escaping (URL) -> Void,
         onCancel: (() -> Void)? = nil
     ) {
+        self.configuration = .singleFile
         self.onPick = { urls in
             if let url = urls.first {
                 onPick(url)
             }
         }
+        self.onCancel = onCancel
     }
 
     public var body: some View {
-        Text("Document picker not yet implemented for macOS")
-            .foregroundColor(.secondary)
+        VStack(spacing: 20) {
+            Image(systemName: "doc.badge.plus")
+                .font(.system(size: 60))
+                .foregroundColor(.blue)
+
+            Text("Import DICOM Files")
+                .font(.title2)
+
+            Text(selectionDescription)
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            Button(selectionButtonTitle) {
+                presentOpenPanel()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(40)
+        .frame(minWidth: 400, minHeight: 300)
+    }
+
+    private func presentOpenPanel() {
+        let panel = NSOpenPanel()
+        let canChooseFiles = !configuration.allowsDirectories || configuration.allowsMultipleSelection
+        panel.allowsMultipleSelection = configuration.allowsMultipleSelection
+        panel.canChooseDirectories = configuration.allowsDirectories
+        panel.canChooseFiles = canChooseFiles
+        panel.canCreateDirectories = false
+        panel.message = selectionDescription
+        panel.prompt = "Import"
+
+        if panel.runModal() == .OK {
+            onPick(panel.urls)
+        } else {
+            onCancel?()
+        }
+    }
+
+    private var selectionDescription: String {
+        if configuration.allowsDirectories && configuration.allowsMultipleSelection {
+            return "Select DICOM files or folders to import"
+        }
+        if configuration.allowsDirectories {
+            return "Select a DICOM folder to import"
+        }
+        return "Select DICOM files to import"
+    }
+
+    private var selectionButtonTitle: String {
+        if configuration.allowsDirectories && configuration.allowsMultipleSelection {
+            return "Select Files or Folders"
+        }
+        if configuration.allowsDirectories {
+            return "Select Folder"
+        }
+        return "Select Files"
     }
 }
 #endif

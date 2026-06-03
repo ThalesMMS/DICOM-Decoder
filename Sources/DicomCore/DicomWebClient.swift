@@ -229,6 +229,8 @@ public struct DicomWebStoreResult: Equatable, Sendable {
 public enum DicomWebClientError: Error, Equatable, Sendable {
     case invalidHTTPResponse
     case invalidBaseURL(URL)
+    /// The supplied DICOMweb `BulkDataURI` could not be resolved against the client base URL.
+    case invalidBulkDataURI(String)
     case httpStatus(statusCode: Int, method: String, url: String, bodyPreview: String)
     case invalidJSONResponse
     case malformedDICOMJSONElement(String)
@@ -245,6 +247,8 @@ extension DicomWebClientError: LocalizedError {
             return "DICOMweb response was not an HTTP response."
         case .invalidBaseURL(let url):
             return "Invalid DICOMweb base URL: \(url.absoluteString)"
+        case .invalidBulkDataURI(let uri):
+            return "Invalid DICOMweb BulkDataURI: \(uri)"
         case .httpStatus(let statusCode, let method, let url, let bodyPreview):
             let suffix = bodyPreview.isEmpty ? "" : " Body: \(bodyPreview)"
             return "DICOMweb \(method) \(url) failed with HTTP \(statusCode).\(suffix)"
@@ -318,6 +322,36 @@ public struct DicomWebClient: Sendable {
                 "frames", String(max(1, frameNumber)),
                 "rendered"
             ]),
+            headers: ["Accept": accept]
+        )
+        return try retrievedObject(from: response)
+    }
+
+    /// Retrieves a single WADO-RS frame through the configured HTTP transport.
+    public func retrieveFrame(studyInstanceUID: String,
+                              seriesInstanceUID: String,
+                              sopInstanceUID: String,
+                              frameNumber: Int = 1,
+                              accept: String = "multipart/related; type=\"application/octet-stream\"; transfer-syntax=*") async throws -> DicomWebRetrievedObject {
+        let response = try await send(
+            .get,
+            url: endpoint([
+                "studies", studyInstanceUID,
+                "series", seriesInstanceUID,
+                "instances", sopInstanceUID,
+                "frames", String(max(1, frameNumber))
+            ]),
+            headers: ["Accept": accept]
+        )
+        return try retrievedObject(from: response)
+    }
+
+    /// Retrieves a DICOM JSON `BulkDataURI` through the configured HTTP transport.
+    public func retrieveBulkData(uri: String,
+                                 accept: String = "application/octet-stream, multipart/related; type=\"application/octet-stream\"") async throws -> DicomWebRetrievedObject {
+        let response = try await send(
+            .get,
+            url: try bulkDataURL(uri),
             headers: ["Accept": accept]
         )
         return try retrievedObject(from: response)
@@ -440,6 +474,30 @@ public struct DicomWebClient: Sendable {
         }
         components.queryItems = query.isEmpty ? nil : query
         return components.url ?? url
+    }
+
+    private func bulkDataURL(_ uri: String) throws -> URL {
+        let trimmed = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw DicomWebClientError.invalidBulkDataURI(uri)
+        }
+        if let absoluteURL = URL(string: trimmed), absoluteURL.scheme != nil {
+            return absoluteURL
+        }
+        guard let relativeURL = URL(string: trimmed, relativeTo: relativeBulkDataBaseURL())?.absoluteURL else {
+            throw DicomWebClientError.invalidBulkDataURI(uri)
+        }
+        return relativeURL
+    }
+
+    private func relativeBulkDataBaseURL() -> URL {
+        guard var components = URLComponents(url: configuration.baseURL, resolvingAgainstBaseURL: false) else {
+            return configuration.baseURL
+        }
+        if !components.path.hasSuffix("/") {
+            components.path += "/"
+        }
+        return components.url ?? configuration.baseURL
     }
 
     private func studyQueryItems(_ query: DicomWebQuery) -> [URLQueryItem] {

@@ -9,14 +9,16 @@
 
 import XCTest
 import Metal
+import DicomTestSupport
 @testable import DicomCore
 
 class MetalWindowingTests: XCTestCase {
 
     // MARK: - Metal Setup Tests
 
-    func testMetalDeviceAvailable() {
-        // Verify Metal is available on the test system
+    func testMetalDeviceAvailable() throws {
+        try DicomTestRuntimePreflight.require(.metalDevice)
+
         let device = MTLCreateSystemDefaultDevice()
         XCTAssertNotNil(device, "Metal device should be available")
     }
@@ -36,9 +38,8 @@ class MetalWindowingTests: XCTestCase {
 
     func testMetalLibraryCreation() throws {
         // Verify Metal library can be created from bundled shader
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            throw XCTSkip("Metal not available on this system")
-        }
+        try DicomTestRuntimePreflight.require(.metalDevice)
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
 
         // Load shader source from Bundle.module (SPM pattern)
         let shaderURL = try XCTUnwrap(
@@ -59,10 +60,8 @@ class MetalWindowingTests: XCTestCase {
     // MARK: - Metal Windowing Tests
 
     func testMetalWindowingTransformation() throws {
-        // Skip if Metal not available
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            throw XCTSkip("Metal not available on this system")
-        }
+        try DicomTestRuntimePreflight.require(.metalDevice)
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice())
 
         // Create Metal pipeline
         let shaderURL = try XCTUnwrap(Bundle.module.url(forResource: "WindowingShaders", withExtension: "metal"))
@@ -124,9 +123,7 @@ class MetalWindowingTests: XCTestCase {
 
     func testMetalVsDSPConsistency() throws {
         // Verify Metal and vDSP produce equivalent results
-        guard MTLCreateSystemDefaultDevice() != nil else {
-            throw XCTSkip("Metal not available on this system")
-        }
+        try DicomTestRuntimePreflight.require(.metalDevice)
 
         // Test data
         let pixels16: [UInt16] = (0..<1000).map { UInt16($0 * 4) }
@@ -137,11 +134,23 @@ class MetalWindowingTests: XCTestCase {
         let vdspResult = DCMWindowingProcessor.applyWindowLevel(pixels16: pixels16, center: center, width: width)
         XCTAssertNotNil(vdspResult, "vDSP windowing should succeed")
 
-        // TODO: Implement Metal windowing in DCMWindowingProcessor
-        // For now, this test documents the expected behavior
+        let metalResult = DCMWindowingProcessor.applyWindowLevel(
+            pixels16: pixels16,
+            center: center,
+            width: width,
+            processingMode: .metal
+        )
+        XCTAssertNotNil(metalResult, "Metal windowing should succeed when the Metal capability preflight passes")
 
-        print("NOTE: Metal implementation in DCMWindowingProcessor pending")
-        print("      External validation via MetalBenchmark shows 3.94x speedup")
-        print("      This test will verify consistency once integrated")
+        let vdspBytes = [UInt8](try XCTUnwrap(vdspResult))
+        let metalBytes = [UInt8](try XCTUnwrap(metalResult))
+        XCTAssertEqual(metalBytes.count, vdspBytes.count)
+        for (index, pair) in zip(vdspBytes, metalBytes).enumerated() {
+            XCTAssertLessThanOrEqual(
+                abs(Int(pair.0) - Int(pair.1)),
+                1,
+                "vDSP and Metal should match within +/-1 at index \(index)"
+            )
+        }
     }
 }

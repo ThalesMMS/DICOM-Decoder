@@ -15,11 +15,15 @@ public enum DicomNetworkError: Error, Equatable, Sendable {
     case unsupportedPDU(DicomPDUType)
     case malformedCommandSet(String)
     case missingAcceptedPresentationContext(String)
+    case transferSyntaxMismatch(expected: String, actual: String)
     case unexpectedDIMSECommand(expected: UInt16, actual: UInt16)
     case dimseStatusFailure(UInt16)
     case networkTimeout(String)
     case networkUnavailable(String)
+    case tlsConfigurationInvalid(String)
+    case tlsTrustEvaluationFailed(String)
     case circuitBreakerOpen(String)
+    case operationCancelled(String)
     /// User identity negotiation was configured without TLS.
     case insecureUserIdentityTransport
 }
@@ -55,6 +59,8 @@ extension DicomNetworkError: LocalizedError {
             return "Malformed DIMSE command set: \(reason)."
         case .missingAcceptedPresentationContext(let uid):
             return "No accepted presentation context for SOP Class \(uid)."
+        case .transferSyntaxMismatch(let expected, let actual):
+            return "Accepted transfer syntax \(actual) does not match required transfer syntax \(expected)."
         case .unexpectedDIMSECommand(let expected, let actual):
             return String(format: "Unexpected DIMSE command 0x%04X; expected 0x%04X.", actual, expected)
         case .dimseStatusFailure(let status):
@@ -63,8 +69,14 @@ extension DicomNetworkError: LocalizedError {
             return "DIMSE network timeout while \(operation)."
         case .networkUnavailable(let reason):
             return "DIMSE network transport is unavailable: \(reason)."
+        case .tlsConfigurationInvalid(let reason):
+            return "DIMSE TLS configuration is invalid: \(reason)."
+        case .tlsTrustEvaluationFailed(let reason):
+            return "DIMSE TLS trust evaluation failed: \(reason)."
         case .circuitBreakerOpen(let operation):
             return "DIMSE circuit breaker is open for \(operation)."
+        case .operationCancelled(let operation):
+            return "DIMSE operation \(operation) was cancelled."
         case .insecureUserIdentityTransport:
             return "DIMSE user identity negotiation requires TLS."
         }
@@ -484,6 +496,10 @@ public struct DicomAssociationStateMachine: Equatable, Sendable {
 public protocol DicomAssociationTransport: AnyObject {
     func writePDU(_ data: Data) throws
     func readPDU() throws -> Data
+}
+
+public protocol DicomCancellableAssociationTransport: DicomAssociationTransport {
+    func close()
 }
 
 public struct DicomAssociationSCU: Sendable {

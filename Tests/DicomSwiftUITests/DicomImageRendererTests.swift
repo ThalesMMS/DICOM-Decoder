@@ -1,5 +1,6 @@
 import XCTest
 import CoreGraphics
+import DicomTestSupport
 @testable import DicomSwiftUI
 @testable import DicomCore
 
@@ -482,10 +483,15 @@ final class DicomImageRendererTests: XCTestCase {
 
     /// Finds any fixture DICOM file containing 16-bit pixels for integration tests.
     private func getAnyDICOMFile() throws -> URL {
+        try DicomTestRuntimePreflight.require(.bundledSyntheticFixtures)
         let fixturesPath = getFixturesPath()
 
         guard FileManager.default.fileExists(atPath: fixturesPath.path) else {
-            throw XCTSkip("Fixtures directory not found. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+            throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+                capability: .bundledSyntheticFixtures,
+                kind: .regression,
+                message: "Fixtures directory not found: \(fixturesPath.path)."
+            ))
         }
 
         let enumerator = FileManager.default.enumerator(at: fixturesPath, includingPropertiesForKeys: nil)
@@ -504,7 +510,11 @@ final class DicomImageRendererTests: XCTestCase {
             }
         }
 
-        throw XCTSkip("No DICOM files with 16-bit pixel data found in Fixtures. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+        throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+            capability: .bundledSyntheticFixtures,
+            kind: .regression,
+            message: "No bundled DICOM fixture contains 16-bit pixel data."
+        ))
     }
 
     // MARK: - Integration Tests

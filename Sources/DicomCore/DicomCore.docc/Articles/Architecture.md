@@ -118,13 +118,15 @@ GPU-accelerated windowing using Metal compute shaders for high-performance image
 
 **Location:** `DicomSeriesLoader.swift`
 
-Loads directories of DICOM slices, orders them by position, and assembles 3D volumes.
+Loads directories of DICOM slices, orders them by position, and assembles package-only 3D volumes for single-frame, uncompressed 8/16/32-bit MONOCHROME1/2 grayscale inputs.
 
 **Key Responsibilities:**
 - Scan directories for `.dcm` files
 - Order slices by Image Position (Patient) projection
 - Validate geometry consistency across slices
 - Assemble contiguous volume buffers
+- Normalize supported source bit depths to an `Int16` voxel buffer
+- Reject compressed, multiframe, and color inputs with typed pixel-format context
 - Compute Z spacing from slice positions
 - Provide progress callbacks during loading
 

@@ -164,6 +164,7 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
     private var _pixels8: [UInt8]?
     private var _pixels16: [UInt16]?
     private var _pixels24: [UInt8]?
+    private var _storedPixelValues: [Int]?
     private var _downsampledPixels16: (pixels: [UInt16], width: Int, height: Int)?
     private var _downsampledPixels8: (pixels: [UInt8], width: Int, height: Int)?
     private var _tags: [String: String] = [:]
@@ -287,6 +288,13 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
         }
     }
 
+    /// Configures stored sample values returned by `storedPixelValue`.
+    public func setStoredPixelValues(_ values: [Int]) {
+        queue.sync {
+            _storedPixelValues = values
+        }
+    }
+
     /// Configures the mock with downsampled pixel data
     public func setDownsampledPixels16(_ pixels: [UInt16], width: Int, height: Int) {
         queue.sync {
@@ -367,7 +375,7 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
 
     public func getValidationStatus() -> (isValid: Bool, width: Int, height: Int, hasPixels: Bool, isCompressed: Bool) {
         return queue.sync {
-            let hasPixels = _pixels8 != nil || _pixels16 != nil || _pixels24 != nil
+            let hasPixels = _pixels8 != nil || _pixels16 != nil || _pixels24 != nil || _storedPixelValues != nil
             return (_dicomFound, _width, _height, hasPixels, _compressedImage)
         }
     }
@@ -452,6 +460,27 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
             let byteStart = range.lowerBound * 3
             let byteEnd = range.upperBound * 3
             return Array(pixels[byteStart..<byteEnd])
+        }
+    }
+
+    public func storedPixelValue(at pixelIndex: Int, frame: Int, sample: Int) -> Int? {
+        return queue.sync {
+            guard pixelIndex >= 0, frame >= 0, sample >= 0 else { return nil }
+            let pixelsPerFrame = max(0, _width * _height)
+            guard pixelsPerFrame > 0, pixelIndex < pixelsPerFrame else { return nil }
+            let index = frame * pixelsPerFrame * max(1, _samplesPerPixel) +
+                pixelIndex * max(1, _samplesPerPixel) + sample
+            if let values = _storedPixelValues {
+                guard index < values.count else { return nil }
+                return values[index]
+            }
+            if let pixels = _pixels8, index < pixels.count {
+                return Int(pixels[index])
+            }
+            if let pixels = _pixels16, index < pixels.count {
+                return Int(pixels[index])
+            }
+            return nil
         }
     }
 

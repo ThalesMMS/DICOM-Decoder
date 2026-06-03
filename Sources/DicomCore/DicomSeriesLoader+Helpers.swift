@@ -112,18 +112,18 @@ extension DicomSeriesLoader {
         return urls
     }
 
-    /// Decode a DICOM image slice at the given URL and return its pixel values as an array of 16-bit integers.
+    /// Decode a DICOM image slice at the given URL and return its pixel values as an array of Int16 integers.
     /// - Parameters:
     ///   - url: File URL of the DICOM slice to decode.
     ///   - expectedWidth: Expected image width in pixels; decoder must match this value.
     ///   - expectedHeight: Expected image height in pixels; decoder must match this value.
-    ///   - isSigned: If `true`, map pixel values into signed `Int16` range using an offset; if `false`, preserve the raw 16-bit bit pattern as `Int16`.
-    /// - Returns: An array of `Int16` pixel values for the decoded slice, converted according to `isSigned`.
+    ///   - pixelFormat: Validated DICOM pixel format context for this slice.
+    /// - Returns: An array of `Int16` pixel values for the decoded slice, normalized according to the pixel format.
     /// - Throws: `DicomSeriesLoaderError.failedToDecode(url)` if the decoder's format does not match the expected dimensions/format or pixel data cannot be obtained; also rethrows errors from the `decoderFactory` when creating a decoder.
     func decodeSlice(at url: URL,
                      expectedWidth: Int,
                      expectedHeight: Int,
-                     isSigned: Bool,
+                     pixelFormat: DicomSeriesLoaderPixelFormat,
                      cachedDecoder: (URL) -> DicomDecoderProtocol? = { _ in nil },
                      cacheDecoder: (DicomDecoderProtocol, URL) -> Void = { _, _ in }) throws -> [Int16] {
         // Try to use cached decoder first, fallback to creating new one
@@ -140,8 +140,8 @@ extension DicomSeriesLoader {
 
         guard decoder.width == expectedWidth,
               decoder.height == expectedHeight,
-              decoder.bitDepth == 16,
-              decoder.samplesPerPixel == 1 else {
+              decoder.bitDepth == pixelFormat.bitsAllocated,
+              decoder.samplesPerPixel == pixelFormat.samplesPerPixel else {
             throw DicomSeriesLoaderError.failedToDecode(url)
         }
 
@@ -149,29 +149,31 @@ extension DicomSeriesLoader {
             cacheDecoder(decoder, url)
         }
 
-        guard let pixels = decoder.getPixels16() else {
-            throw DicomSeriesLoaderError.failedToDecode(url)
-        }
-
-        // When isSigned is true, shift 0...65535 samples by Int16.min to map
-        // them into signed DICOM range. Otherwise preserve the raw bit pattern.
-        if isSigned {
-            return pixels.map { value in
-                let signed = Int32(value) + Int32(Int16.min)
-                return Int16(truncatingIfNeeded: signed)
+        var buffer = [Int16](repeating: 0, count: expectedWidth * expectedHeight)
+        var didReport32BitClamp = false
+        let count = try decodePixels(
+            from: decoder,
+            into: &buffer,
+            pixelFormat: pixelFormat,
+            url: url,
+            report32BitClamp: {
+                self.report32BitClampIfNeeded(
+                    reported: &didReport32BitClamp,
+                    pixelFormat: pixelFormat,
+                    url: url
+                )
             }
-        } else {
-            return pixels.map { Int16(bitPattern: $0) }
-        }
+        )
+        return Array(buffer.prefix(count))
     }
 
-    /// Decode a DICOM slice from `url` into the provided `buffer`, converting pixel samples to `Int16` using the specified signedness and validating expected image dimensions and format.
+    /// Decode a DICOM slice from `url` into the provided `buffer`, converting pixel samples to `Int16` and validating expected image dimensions and format.
     /// - Parameters:
     ///   - url: File URL of the DICOM slice to decode.
     ///   - buffer: Destination buffer to receive decoded pixels. Must have a count greater than or equal to the number of pixels in the slice.
     ///   - expectedWidth: Expected image width; decoding fails if the decoder reports a different width.
     ///   - expectedHeight: Expected image height; decoding fails if the decoder reports a different height.
-    ///   - isSigned: Interpret decoded 16-bit samples as signed when `true`, as unsigned when `false`.
+    ///   - pixelFormat: Validated DICOM pixel format context for this slice.
     /// - Returns: The number of pixels written into `buffer`.
     /// - Throws: `DicomSeriesLoaderError.failedToDecode(url)` if the decoder or pixel data cannot be obtained, the decoder's format does not match the expectations, or `buffer` is too small.
     func decodeSliceIntoBuffer(
@@ -179,9 +181,10 @@ extension DicomSeriesLoader {
         buffer: inout [Int16],
         expectedWidth: Int,
         expectedHeight: Int,
-        isSigned: Bool,
+        pixelFormat: DicomSeriesLoaderPixelFormat,
         cachedDecoder: (URL) -> DicomDecoderProtocol? = { _ in nil },
-        cacheDecoder: (DicomDecoderProtocol, URL) -> Void = { _, _ in }
+        cacheDecoder: (DicomDecoderProtocol, URL) -> Void = { _, _ in },
+        report32BitClamp: () -> Void = {}
     ) throws -> Int {
         // Try to use cached decoder first, fallback to creating new one
         let decoder: DicomDecoderProtocol
@@ -197,8 +200,8 @@ extension DicomSeriesLoader {
 
         guard decoder.width == expectedWidth,
               decoder.height == expectedHeight,
-              decoder.bitDepth == 16,
-              decoder.samplesPerPixel == 1 else {
+              decoder.bitDepth == pixelFormat.bitsAllocated,
+              decoder.samplesPerPixel == pixelFormat.samplesPerPixel else {
             throw DicomSeriesLoaderError.failedToDecode(url)
         }
 
@@ -206,31 +209,102 @@ extension DicomSeriesLoader {
             cacheDecoder(decoder, url)
         }
 
-        guard let pixels = decoder.getPixels16() else {
+        return try decodePixels(
+            from: decoder,
+            into: &buffer,
+            pixelFormat: pixelFormat,
+            url: url,
+            report32BitClamp: report32BitClamp
+        )
+    }
+
+    private func decodePixels(
+        from decoder: any DicomDecoderProtocol,
+        into buffer: inout [Int16],
+        pixelFormat: DicomSeriesLoaderPixelFormat,
+        url: URL,
+        report32BitClamp: () -> Void
+    ) throws -> Int {
+        let expectedPixelCount = decoder.width * decoder.height
+        guard buffer.count >= expectedPixelCount else {
             throw DicomSeriesLoaderError.failedToDecode(url)
         }
 
-        let pixelCount = pixels.count
-
-        // Ensure buffer has sufficient capacity
-        guard buffer.count >= pixelCount else {
-            throw DicomSeriesLoaderError.failedToDecode(url)
+        switch pixelFormat.bitsAllocated {
+        case 8:
+            guard let pixels = decoder.getPixels8(), pixels.count == expectedPixelCount else {
+                throw DicomSeriesLoaderError.failedToDecode(url)
+            }
+            for index in 0..<expectedPixelCount {
+                buffer[index] = Int16(clamping: normalizedStoredValue(
+                    Int(pixels[index]),
+                    pixelFormat: pixelFormat
+                ))
+            }
+        case 16:
+            guard let pixels = decoder.getPixels16(), pixels.count == expectedPixelCount else {
+                throw DicomSeriesLoaderError.failedToDecode(url)
+            }
+            if pixelFormat.pixelRepresentation == 1 {
+                for index in 0..<expectedPixelCount {
+                    let signed = Int32(pixels[index]) + Int32(Int16.min)
+                    buffer[index] = Int16(truncatingIfNeeded: signed)
+                }
+            } else {
+                for index in 0..<expectedPixelCount {
+                    buffer[index] = Int16(bitPattern: pixels[index])
+                }
+            }
+        case 32:
+            for index in 0..<expectedPixelCount {
+                guard let stored = decoder.storedPixelValue(at: index, frame: 0, sample: 0) else {
+                    throw DicomSeriesLoaderError.failedToDecode(url)
+                }
+                if stored < Int(Int16.min) || stored > Int(Int16.max) {
+                    report32BitClamp()
+                }
+                buffer[index] = Int16(clamping: stored)
+            }
+        default:
+            throw DicomSeriesLoaderError.unsupportedPixelFormat(pixelFormat)
         }
 
-        // When isSigned is true, Int32(Int16.min) maps unsigned samples into
-        // signed DICOM range; otherwise Int16(bitPattern:) keeps raw bits.
-        if isSigned {
-            for i in 0..<pixelCount {
-                let signed = Int32(pixels[i]) + Int32(Int16.min)
-                buffer[i] = Int16(truncatingIfNeeded: signed)
-            }
-        } else {
-            for i in 0..<pixelCount {
-                buffer[i] = Int16(bitPattern: pixels[i])
-            }
-        }
+        return expectedPixelCount
+    }
 
-        return pixelCount
+    func report32BitClampIfNeeded(
+        reported: inout Bool,
+        pixelFormat: DicomSeriesLoaderPixelFormat,
+        url: URL
+    ) {
+        guard !reported else { return }
+        reported = true
+
+        let representation = pixelFormat.pixelRepresentation == 1 ? "signed" : "unsigned"
+        logger.warning(
+            "32-bit \(representation) DICOM pixel values outside Int16 range were quantized while loading "
+            + "\(url.lastPathComponent). DicomSeriesLoader outputs Int16 voxels, so saturated values are lossy."
+        )
+    }
+
+    private func normalizedStoredValue(
+        _ rawValue: Int,
+        pixelFormat: DicomSeriesLoaderPixelFormat
+    ) -> Int {
+        guard pixelFormat.bitsStored > 0,
+              pixelFormat.bitsStored < Int.bitWidth else {
+            return rawValue
+        }
+        let shift = max(0, pixelFormat.highBit - pixelFormat.bitsStored + 1)
+        let mask = (1 << pixelFormat.bitsStored) - 1
+        let storedBits = (rawValue >> shift) & mask
+        guard pixelFormat.pixelRepresentation == 1 else {
+            return storedBits
+        }
+        let signBit = 1 << (pixelFormat.bitsStored - 1)
+        return (storedBits & signBit) != 0
+            ? storedBits - (1 << pixelFormat.bitsStored)
+            : storedBits
     }
 
     /// Computes slice spacing along the series normal using IPP projection deltas.

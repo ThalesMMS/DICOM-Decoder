@@ -14,14 +14,17 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - Support for 8-bit, 16-bit grayscale and 24-bit RGB images
 - PNG, JPEG, TIFF, 16-bit TIFF, and multiframe image export
 - UI-independent print/export preprocessing with resize and explicit annotation burn-in
+- Export, Secondary Capture, print, waveform, and video support matrix with typed unsupported-path diagnostics
 - Transfer syntax registry and conservative transcode planning
 - Encapsulated Pixel Data frame indexing before codec decode
 - Deflated Explicit VR Little Endian dataset read/write support through zlib
 - JPIP referenced pixel data and progressive volume update streams with injected transport
+- DICOMweb client/server helpers with a tested conformance matrix for QIDO-RS, WADO-RS, WADO-URI, STOW-RS, BulkDataURI retrieval, pagination, auth hooks, multipart handling, and stable unsupported-route errors
+- Package-only series volume assembly for single-frame uncompressed 8/16/32-bit MONOCHROME1/2 grayscale inputs normalized to `Int16`
 - DICOM Segmentation parsing, labelmap extraction, and synthetic SEG dataset building
 - RT Structure Set, RT Dose, and RT Plan parsing for contour, dose-volume, and beam inspection
 - Parametric Map scalar layer parsing with units, quantity definitions, RWV, geometry, and source references
-- Structured Report and Key Object Selection parsing with navigable content trees, measurements, ROI references, CAD findings, and key image references
+- Structured Report and Key Object Selection parsing with navigable content trees, measurements, ROI references, CAD findings, key image references, and scoped semantic validation for Enhanced/Comprehensive SR TID 1500 plus KOS references
 - Secondary Capture snapshot dataset building and parsing with patient/study/series context and source image references
 - External inference builders for SR findings, SEG masks, GSPS graphic annotations, and derived images
 - Grayscale Softcopy Presentation State graphic annotation dataset building/parsing
@@ -47,9 +50,15 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - ``DCMWindowingProcessor``
 - ``MetalWindowingProcessor``
 - ``DicomSeriesLoader``
+- ``DicomSeriesLoaderSupportMatrix``
+- ``DicomSeriesLoaderPixelFormat``
 - ``DicomJP3DVolumeDocument``
 - ``DicomJPIPClient``
 - ``DicomJPIPReferencedPixelData``
+- ``DicomWebClient``
+- ``DicomWebServer``
+- ``DicomWebConformanceMatrix``
+- ``DicomWebConformanceStatement``
 - ``DicomDeflatedDataSetCodec``
 - ``DicomSegmentationBuilder``
 - ``DicomRTStructureSet``
@@ -59,6 +68,8 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - ``DicomSRDocument``
 - ``DicomStructuredReportBuilder``
 - ``DicomKeyObjectSelectionBuilder``
+- ``DicomSRSupportMatrix``
+- ``DicomSRSemanticValidator``
 - ``DicomSecondaryCaptureBuilder``
 - ``DicomAIInferenceBuilder``
 - ``DicomGrayscalePresentationState``
@@ -66,6 +77,7 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - ``DicomSecondaryCaptureImage``
 - ``DicomSecondaryCapturePixelData``
 - ``DicomSecondaryCaptureBuildOptions``
+- ``DicomSecondaryCaptureValidationScope``
 - ``DicomEncapsulatedDocument``
 - ``DicomEncapsulatedDocumentBuilder``
 - ``DicomEncapsulatedDocumentBuildOptions``
@@ -86,6 +98,10 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - ``DicomVideoStorageKind``
 - ``DicomVideoCodec``
 - ``DicomImageExporter``
+- ``DicomExportSupportMatrix``
+- ``DicomExportSupportRow``
+- ``DicomPrintManagementSupport``
+- ``DicomPrintManagementUnsupportedService``
 - ``DicomImagePreprocessor``
 - ``DicomBitmapResizer``
 - ``DicomAnnotationRenderer``

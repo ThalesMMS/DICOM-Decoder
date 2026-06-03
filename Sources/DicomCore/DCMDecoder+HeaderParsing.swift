@@ -138,6 +138,12 @@ extension DCMDecoder {
             guard endiannessChanged, let currentReader = self.reader else { return }
             tagParser = DCMTagParser(data: dicomData, dict: dict, binaryReader: currentReader)
         }
+        func isSequenceTag(_ tag: Int, parser: DCMTagParser) -> Bool {
+            if parser.currentVR == .SQ {
+                return true
+            }
+            return dict.vrCode(forKey: String(format: "%08X", tag)) == "SQ"
+        }
 
         while decodingTags && location < dicomData.count {
             tagCount += 1
@@ -160,7 +166,10 @@ extension DCMDecoder {
                 }
                 break
             }
-            if tagParser?.isInSequence == true && tag != DicomTag.pixelData.rawValue {
+            if let parser = tagParser,
+               parser.isInSequence == true,
+               !isSequenceTag(tag, parser: parser),
+               tag != DicomTag.pixelData.rawValue {
                 // Sequence content is handled inside headerInfo
                 addInfo(tag: tag, stringValue: nil)
                 rebuildParserIfNeeded(afterEndiannessChange: parsedTag.endiannessChanged)
@@ -204,15 +213,47 @@ extension DCMDecoder {
                 // Lazy parsing optimization: Store tag metadata for deferred parsing
                 // instead of eagerly parsing all tags to strings. The tag value will
                 // be parsed on first access via info(for:) using parseTagOnDemand().
+                let metadataVR: DicomVR = isSequenceTag(tag, parser: parser) ? .SQ : parser.currentVR
+                let metadataLength: Int
+                if metadataVR == .SQ, parser.currentElementLengthIsUndefined {
+                    let syntax = DicomTransferSyntax(uid: transferSyntaxUID) ?? .explicitVRLittleEndian
+                    do {
+                        let bounds = try DicomSequenceValueParser.undefinedLengthSequenceBounds(
+                            in: dicomData,
+                            valueOffset: location,
+                            end: dicomData.count,
+                            littleEndian: littleEndian,
+                            explicitVR: syntax.isExplicitVR
+                        )
+                        metadataLength = bounds.valueLength
+                        let metadata = TagMetadata(
+                            tag: tag,
+                            offset: location,
+                            vr: metadataVR,
+                            elementLength: metadataLength
+                        )
+                        tagMetadataCache[tag] = metadata
+                        location = bounds.endOffset
+                        rebuildParserIfNeeded(afterEndiannessChange: parsedTag.endiannessChanged)
+                        continue
+                    } catch {
+                        logger.warning(
+                            "Failed to scan undefined-length sequence \(String(format: "%08X", tag)): \(error)"
+                        )
+                        break
+                    }
+                } else {
+                    metadataLength = parser.currentElementLength
+                }
                 let metadata = TagMetadata(
                     tag: tag,
                     offset: location,
-                    vr: parser.currentVR,
-                    elementLength: parser.currentElementLength
+                    vr: metadataVR,
+                    elementLength: metadataLength
                 )
                 tagMetadataCache[tag] = metadata
                 // Advance location to skip the element value
-                location += parser.currentElementLength
+                location += metadataLength
                 rebuildParserIfNeeded(afterEndiannessChange: parsedTag.endiannessChanged)
             }
         }

@@ -1,4 +1,5 @@
 import Foundation
+import DicomTestSupport
 @testable import DicomCore
 import XCTest
 
@@ -134,6 +135,99 @@ final class DicomStorageSCPTests: XCTestCase {
 
         XCTAssertEqual(parsed, report)
     }
+
+    func testStorageSCPServerAcceptsListenerTLSMaterial() throws {
+        #if canImport(Network) && canImport(Security) && os(macOS)
+        let fixture = try DicomTLSTestMaterial.write()
+        defer { fixture.remove() }
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = DicomStorageSCPService(
+            configuration: DicomStorageSCPConfiguration(
+                aeTitle: "MTKDEMO",
+                port: 0,
+                tls: DicomTLSConfiguration(
+                    mode: .enabled,
+                    material: DicomTLSMaterial(
+                        certificatePath: fixture.serverCertificatePath,
+                        privateKeyPath: fixture.serverPrivateKeyPath,
+                        trustStorePath: fixture.caCertificatePath
+                    ),
+                    securityProfile: .bcp195
+                )
+            ),
+            storage: try DicomFileStorageCache(directoryURL: directory)
+        )
+
+        _ = try DicomStorageSCPServer(service: service)
+        #else
+        throw skipNetworkSecurityTLS("Network/Security TLS listener tests run only on macOS.")
+        #endif
+    }
+
+    func testStorageSCPTLSOptionsRequirePeerAuthenticationForTrustStore() throws {
+        #if canImport(Network) && canImport(Security) && os(macOS)
+        let fixture = try DicomTLSTestMaterial.write()
+        defer { fixture.remove() }
+        let tls = DicomTLSConfiguration(
+            mode: .enabled,
+            material: DicomTLSMaterial(
+                certificatePath: fixture.serverCertificatePath,
+                privateKeyPath: fixture.serverPrivateKeyPath,
+                trustStorePath: fixture.caCertificatePath
+            ),
+            securityProfile: .extendedBCP195
+        )
+
+        let prepared = try DicomTLSOptionsFactory.preparedParameters(for: tls, role: .server)
+
+        XCTAssertEqual(prepared.tlsContext?.role, .server)
+        XCTAssertEqual(prepared.tlsContext?.hasLocalIdentity, true)
+        XCTAssertEqual(prepared.tlsContext?.trustedCertificateCount, 1)
+        XCTAssertEqual(prepared.tlsContext?.securityProfile, .extendedBCP195)
+        XCTAssertEqual(prepared.tlsContext?.peerAuthenticationRequired, true)
+        #else
+        throw skipNetworkSecurityTLS("Network/Security TLS listener tests run only on macOS.")
+        #endif
+    }
+
+    func testStorageSCPServerRejectsMissingListenerPrivateKey() throws {
+        #if canImport(Network) && canImport(Security) && os(macOS)
+        let fixture = try DicomTLSTestMaterial.write()
+        defer { fixture.remove() }
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = DicomStorageSCPService(
+            configuration: DicomStorageSCPConfiguration(
+                aeTitle: "MTKDEMO",
+                port: 0,
+                tls: DicomTLSConfiguration(
+                    mode: .enabled,
+                    material: DicomTLSMaterial(certificatePath: fixture.serverCertificatePath),
+                    securityProfile: .bcp195
+                )
+            ),
+            storage: try DicomFileStorageCache(directoryURL: directory)
+        )
+
+        XCTAssertThrowsError(try DicomStorageSCPServer(service: service)) { error in
+            guard case .tlsConfigurationInvalid(let reason) = error as? DicomNetworkError else {
+                return XCTFail("Expected TLS configuration error, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("private key"))
+        }
+        #else
+        throw skipNetworkSecurityTLS("Network/Security TLS listener tests run only on macOS.")
+        #endif
+    }
+}
+
+private func skipNetworkSecurityTLS(_ message: String) -> XCTSkip {
+    XCTSkip(DicomTestRuntimePreflight.skipMessage(for: DicomRuntimeStatus(
+        capability: .networkSecurityTLS,
+        kind: .unsupportedFeature,
+        message: message
+    )))
 }
 
 private let storageSOPClassUID = DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID

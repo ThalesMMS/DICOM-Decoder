@@ -1,11 +1,12 @@
 import Foundation
 import XCTest
+import DicomTestSupport
 @testable import DicomCore
 import simd
 
 final class DicomJP3DVolumeDocumentTests: XCTestCase {
     func testDocumentDecodesSyntheticMultiComponentVolume() throws {
-        try XCTSkipIf(!DicomJP3DVolumeDocument.isCodecAvailable, "OpenJPEG runtime library is unavailable")
+        try DicomTestRuntimePreflight.require(.openJPEG)
 
         let planes: [[UInt16]] = [
             [10, 20, 30, 40],
@@ -55,7 +56,7 @@ final class DicomJP3DVolumeDocumentTests: XCTestCase {
     }
 
     func testDocumentReadsEncapsulatedDicomObject() throws {
-        try XCTSkipIf(!DicomJP3DVolumeDocument.isCodecAvailable, "OpenJPEG runtime library is unavailable")
+        try DicomTestRuntimePreflight.require(.openJPEG)
 
         let planes: [[UInt16]] = [
             [1, 2, 3, 4],
@@ -84,13 +85,7 @@ final class DicomJP3DVolumeDocumentTests: XCTestCase {
         for plane in planes {
             XCTAssertEqual(plane.count, width * height)
         }
-        let executable = [
-            "/opt/homebrew/bin/opj_compress",
-            "/usr/local/bin/opj_compress"
-        ].first { FileManager.default.isExecutableFile(atPath: $0) }
-        guard let executable else {
-            throw XCTSkip("opj_compress is unavailable")
-        }
+        let executable = try DicomTestRuntimePreflight.requireExecutable(.opjCompress, named: "opj_compress")
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("jp3d_fixture_\(UUID().uuidString)", isDirectory: true)

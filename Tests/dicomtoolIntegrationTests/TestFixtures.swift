@@ -7,6 +7,7 @@
 
 import Foundation
 import XCTest
+import DicomTestSupport
 
 enum TestFixtures {
     static func fixturesPath() -> URL {
@@ -18,10 +19,15 @@ enum TestFixtures {
     }
 
     static func validDICOMFile() throws -> URL {
+        try DicomTestRuntimePreflight.require(.bundledSyntheticFixtures)
         let fixturesPath = fixturesPath()
 
         guard FileManager.default.fileExists(atPath: fixturesPath.path) else {
-            throw XCTSkip("Fixtures directory not found. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+            throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+                capability: .bundledSyntheticFixtures,
+                kind: .regression,
+                message: "Fixtures directory not found: \(fixturesPath.path)."
+            ))
         }
 
         let ctFile = fixturesPath.appendingPathComponent("CT").appendingPathComponent("ct_synthetic.dcm")
@@ -37,6 +43,10 @@ enum TestFixtures {
             }
         }
 
-        throw XCTSkip("No DICOM files found in Fixtures. See Tests/DicomCoreTests/Fixtures/README.md for setup instructions.")
+        throw DicomRuntimeRequirementError(status: DicomRuntimeStatus(
+            capability: .bundledSyntheticFixtures,
+            kind: .regression,
+            message: "No DICOM files found in required bundled Fixtures directory."
+        ))
     }
 }

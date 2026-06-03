@@ -18,6 +18,7 @@
 
 import XCTest
 import Foundation
+import DicomTestSupport
 @testable import DicomCore
 
 final class JPEGLosslessConformanceTests: XCTestCase {
@@ -44,7 +45,7 @@ final class JPEGLosslessConformanceTests: XCTestCase {
 
         // Verify conformance directory exists
         guard FileManager.default.fileExists(atPath: conformanceDirectory.path) else {
-            throw XCTSkip("Fixtures/Compressed directory not found. See Fixtures/README.md for setup instructions.")
+            throw skipMissingConformanceFixtures("Fixtures/Compressed directory is absent.")
         }
     }
 
@@ -86,14 +87,7 @@ final class JPEGLosslessConformanceTests: XCTestCase {
         let files = try findJPEGLosslessFiles()
 
         guard !files.isEmpty else {
-            throw XCTSkip("""
-                No JPEG Lossless DICOM files found in Fixtures/Compressed/.
-
-                To obtain conformance test files:
-                1. Download from dcm4che: https://github.com/dcm4che/dcm4che/tree/master/dcm4che-test-data
-                2. Convert existing files: dcmcjpeg +e14 input.dcm output_lossless.dcm
-                3. See Tests/DicomCoreTests/Fixtures/README.md for detailed instructions
-                """)
+            throw skipMissingConformanceFixtures("No JPEG Lossless DICOM files found in Fixtures/Compressed.")
         }
 
         print("\n=== Testing \(files.count) JPEG Lossless conformance files ===")
@@ -246,7 +240,9 @@ final class JPEGLosslessConformanceTests: XCTestCase {
         }
 
         guard !process14Files.isEmpty else {
-            throw XCTSkip("No JPEG Lossless Process 14 files found. Transfer syntax: 1.2.840.10008.1.2.4.70")
+            throw skipMissingConformanceFixtures(
+                "No JPEG Lossless Process 14 files found. Transfer syntax: 1.2.840.10008.1.2.4.70."
+            )
         }
 
         print("\n=== Testing \(process14Files.count) JPEG Lossless Process 14 files ===")
@@ -290,7 +286,7 @@ final class JPEGLosslessConformanceTests: XCTestCase {
         let files = try findJPEGLosslessFiles()
 
         guard let testFile = files.first else {
-            throw XCTSkip("No JPEG Lossless test files available")
+            throw skipMissingConformanceFixtures("No JPEG Lossless test files available.")
         }
 
         print("\nTesting decode consistency with: \(testFile.lastPathComponent)")
@@ -332,7 +328,7 @@ final class JPEGLosslessConformanceTests: XCTestCase {
         let files = try findJPEGLosslessFiles()
 
         guard !files.isEmpty else {
-            throw XCTSkip("No JPEG Lossless test files available")
+            throw skipMissingConformanceFixtures("No JPEG Lossless test files available.")
         }
 
         print("\n=== Testing metadata extraction from \(files.count) files ===")
@@ -367,7 +363,7 @@ final class JPEGLosslessConformanceTests: XCTestCase {
         let files = try findJPEGLosslessFiles()
 
         guard !files.isEmpty else {
-            throw XCTSkip("No JPEG Lossless test files available")
+            throw skipMissingConformanceFixtures("No JPEG Lossless test files available.")
         }
 
         var bitDepthCounts: [Int: Int] = [:]
@@ -411,7 +407,7 @@ final class JPEGLosslessConformanceTests: XCTestCase {
         let files = try findJPEGLosslessFiles()
 
         guard !files.isEmpty else {
-            throw XCTSkip("No JPEG Lossless test files available")
+            throw skipMissingConformanceFixtures("No JPEG Lossless test files available.")
         }
 
         print("\n=== Testing JPEG Lossless Selection Values ===")
@@ -426,7 +422,7 @@ final class JPEGLosslessConformanceTests: XCTestCase {
         }
 
         guard !filesBySelectionValue.isEmpty else {
-            throw XCTSkip("Could not extract selection values from any test files")
+            throw skipMissingConformanceFixtures("Could not extract selection values from any JPEG Lossless test files.")
         }
 
         print("\nFound \(filesBySelectionValue.count) distinct selection value(s):")
@@ -510,30 +506,12 @@ final class JPEGLosslessConformanceTests: XCTestCase {
     /// Compare DCMDecoder output with reference decoder (requires dcmtk)
     /// This test is skipped if dcmtk is not available
     func testCompareWithReferenceDecoder() throws {
-        // Check if dcmdjpeg (dcmtk) is available
-        let checkDcmtk = Process()
-        checkDcmtk.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        checkDcmtk.arguments = ["which", "dcmdjpeg"]
-
-        let pipe = Pipe()
-        checkDcmtk.standardOutput = pipe
-        checkDcmtk.standardError = Pipe()
-
-        do {
-            try checkDcmtk.run()
-            checkDcmtk.waitUntilExit()
-        } catch {
-            throw XCTSkip("dcmtk not available. Install with: brew install dcmtk")
-        }
-
-        guard checkDcmtk.terminationStatus == 0 else {
-            throw XCTSkip("dcmdjpeg command not found. Install dcmtk: brew install dcmtk")
-        }
+        let dcmdjpegPath = try DicomTestRuntimePreflight.requireExecutable(.dcmtkDcmdjpeg, named: "dcmdjpeg")
 
         let files = try findJPEGLosslessFiles()
 
         guard let testFile = files.first else {
-            throw XCTSkip("No JPEG Lossless test files available")
+            throw skipMissingConformanceFixtures("No JPEG Lossless test files available.")
         }
 
         print("\n=== Comparing with reference decoder (dcmdjpeg) ===")
@@ -552,14 +530,17 @@ final class JPEGLosslessConformanceTests: XCTestCase {
 
         // Decompress with dcmdjpeg
         let dcmdjpeg = Process()
-        dcmdjpeg.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        dcmdjpeg.arguments = ["dcmdjpeg", testFile.path, decompressedFile.path]
+        dcmdjpeg.executableURL = URL(fileURLWithPath: dcmdjpegPath)
+        dcmdjpeg.arguments = [testFile.path, decompressedFile.path]
 
         try dcmdjpeg.run()
         dcmdjpeg.waitUntilExit()
 
         guard dcmdjpeg.terminationStatus == 0 else {
-            throw XCTSkip("dcmdjpeg failed to decompress file")
+            throw XCTSkip(
+                "DCMTK dcmdjpeg could not decompress the selected fixture [capability="
+                    + "\(DicomRuntimeCapability.dcmtkDcmdjpeg.manifestID), classification=missing-optional-runtime]."
+            )
         }
 
         // Decode with DCMDecoder (JPEG Lossless)
@@ -623,7 +604,10 @@ final class JPEGLosslessConformanceTests: XCTestCase {
     /// Compare DCMDecoder output with reference decoder (requires dcmtk)
     /// This test is skipped on non-macOS platforms.
     func testCompareWithReferenceDecoder() throws {
-        throw XCTSkip("Reference decoder comparison requires macOS")
+        throw XCTSkip(
+            "Reference decoder comparison is unsupported on this platform [capability="
+                + "\(DicomRuntimeCapability.dcmtkDcmdjpeg.manifestID), classification=unsupported-feature]."
+        )
     }
     #endif
 
@@ -634,7 +618,7 @@ final class JPEGLosslessConformanceTests: XCTestCase {
         let files = try findJPEGLosslessFiles()
 
         guard !files.isEmpty else {
-            throw XCTSkip("No JPEG Lossless test files available")
+            throw skipMissingConformanceFixtures("No JPEG Lossless test files available.")
         }
 
         print("\n=== Performance testing \(files.count) conformance files ===")
@@ -665,6 +649,14 @@ final class JPEGLosslessConformanceTests: XCTestCase {
 // MARK: - Helper Extensions
 
 extension JPEGLosslessConformanceTests {
+    func skipMissingConformanceFixtures(_ detail: String) -> XCTSkip {
+        let status = DicomRuntimeStatus(
+            capability: .jpegLosslessConformanceFixtures,
+            kind: .missingOptionalRuntime,
+            message: detail
+        )
+        return XCTSkip(DicomTestRuntimePreflight.skipMessage(for: status))
+    }
 
     /// Print detailed information about a DICOM file
     func printDICOMInfo(_ file: URL) {

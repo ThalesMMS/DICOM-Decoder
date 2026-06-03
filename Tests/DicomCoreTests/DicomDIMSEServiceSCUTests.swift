@@ -1,4 +1,11 @@
 import Foundation
+#if canImport(Network)
+import Network
+#endif
+#if canImport(Security)
+import Security
+#endif
+import DicomTestSupport
 @testable import DicomCore
 import XCTest
 
@@ -197,6 +204,111 @@ final class DicomDIMSEServiceSCUTests: XCTestCase {
         XCTAssertEqual(transport.writtenDataSets.first?.string(for: .patientName), "DOE^JANE")
     }
 
+    func testStoreRequestFromPart10DataPreservesMetadataTransferSyntaxAndPayload() throws {
+        let sopInstanceUID = "2.25.1001"
+        let dataSet = writableStorageDataSet(sopInstanceUID: sopInstanceUID)
+        let transferSyntax = DicomTransferSyntax.implicitVRLittleEndian
+        let part10Data = try DicomDataSetWriter.part10Data(
+            from: dataSet,
+            options: DicomPart10WriterOptions(
+                transferSyntax: transferSyntax,
+                mediaStorageSOPClassUID: DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID,
+                mediaStorageSOPInstanceUID: sopInstanceUID
+            )
+        )
+
+        let request = try DicomStoreRequest(part10Data: part10Data)
+
+        XCTAssertEqual(request.sopClassUID, DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID)
+        XCTAssertEqual(request.sopInstanceUID, sopInstanceUID)
+        XCTAssertEqual(request.transferSyntax, transferSyntax)
+        XCTAssertEqual(
+            request.dataSetData,
+            try DicomDataSetWriter.dataSetData(from: dataSet, transferSyntax: transferSyntax)
+        )
+    }
+
+    func testStoreRequestFromCompressedPart10DataPreservesEncapsulatedPayload() throws {
+        let dataSet = compressedStorageDataSet()
+        let part10Data = try DicomDataSetWriter.part10Data(
+            from: dataSet,
+            options: DicomPart10WriterOptions(
+                transferSyntax: .jpeg2000Lossless,
+                mediaStorageSOPClassUID: DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID,
+                mediaStorageSOPInstanceUID: "2.25.2001"
+            )
+        )
+
+        let request = try DicomStoreRequest(part10Data: part10Data)
+
+        XCTAssertEqual(request.sopInstanceUID, "2.25.2001")
+        XCTAssertEqual(request.transferSyntax, .jpeg2000Lossless)
+        XCTAssertNotNil(request.dataSetData.range(of: encapsulatedPixelData()))
+    }
+
+    func testStoreSCUSendsRawStoreRequestAndReportsProgress() throws {
+        let storageUID = DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID
+        let sopInstanceUID = "2.25.1001"
+        let dataSet = writableStorageDataSet(sopInstanceUID: sopInstanceUID)
+        let part10Data = try DicomDataSetWriter.part10Data(
+            from: dataSet,
+            options: DicomPart10WriterOptions(
+                transferSyntax: .explicitVRLittleEndian,
+                mediaStorageSOPClassUID: storageUID,
+                mediaStorageSOPInstanceUID: sopInstanceUID
+            )
+        )
+        let request = try DicomStoreRequest(part10Data: part10Data)
+        let transport = DIMSEScriptedTransport(supportedAbstractSyntaxUIDs: [storageUID])
+        let service = makeService()
+        var progress: [DicomDIMSEProgress] = []
+
+        let result = try service.store(request: request, using: transport) { progress.append($0) }
+
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(transport.writtenCommands.map(\.commandField), [
+            DicomDIMSECommandField.cStoreRQ
+        ])
+        XCTAssertEqual(transport.writtenCommands.first?.affectedSOPClassUID, storageUID)
+        XCTAssertEqual(transport.writtenCommands.first?.affectedSOPInstanceUID, sopInstanceUID)
+        XCTAssertEqual(transport.writtenDataSetPayloads.first, request.dataSetData)
+        XCTAssertEqual(transport.writtenDataSets.first?.string(for: .sopInstanceUID), sopInstanceUID)
+        XCTAssertTrue(progress.contains(.requestSent(operation: .store, messageID: 1)))
+        XCTAssertTrue(progress.contains(.completed(operation: .store, status: 0)))
+    }
+
+    func testStoreSCUProposesOnlyRequestTransferSyntaxForRawPayload() throws {
+        let storageUID = DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID
+        let dataSet = writableStorageDataSet(sopInstanceUID: "2.25.1001")
+        let part10Data = try DicomDataSetWriter.part10Data(
+            from: dataSet,
+            options: DicomPart10WriterOptions(
+                transferSyntax: .implicitVRLittleEndian,
+                mediaStorageSOPClassUID: storageUID,
+                mediaStorageSOPInstanceUID: "2.25.1001"
+            )
+        )
+        let request = try DicomStoreRequest(part10Data: part10Data)
+        let service = DicomDIMSEServiceSCU(configuration: makeConfiguration(
+            transferSyntaxes: [.explicitVRLittleEndian, .implicitVRLittleEndian]
+        ))
+        let transport = DIMSEScriptedTransport(
+            supportedAbstractSyntaxUIDs: [storageUID],
+            preferredTransferSyntaxes: [.explicitVRLittleEndian, .implicitVRLittleEndian]
+        )
+
+        let result = try service.store(request: request, using: transport)
+
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(transport.associationRequests.first?.presentationContexts.first?.transferSyntaxUIDs, [
+            DicomTransferSyntax.implicitVRLittleEndian.rawValue
+        ])
+        XCTAssertEqual(transport.writtenCommands.map(\.commandField), [
+            DicomDIMSECommandField.cStoreRQ
+        ])
+        XCTAssertEqual(transport.writtenDataSetPayloads.first, request.dataSetData)
+    }
+
     func testAssociationTimeoutReachesCaller() throws {
         let service = makeService()
         let transport = TimeoutTransport()
@@ -287,6 +399,49 @@ final class DicomDIMSEServiceSCUTests: XCTestCase {
         XCTAssertFalse(auditLog.events.compactMap(\.errorDescription).contains { $0.contains("DOE") })
     }
 
+    func testDefaultSCURetriesTimeoutAssociationRejectionAndDIMSEFailure() throws {
+        let associationReject = DicomAssociationReject(
+            result: .rejectedTransient,
+            source: .serviceProviderACSE,
+            reason: .noReason
+        )
+        let cases: [(String, Error)] = [
+            ("transient", DicomNetworkError.networkUnavailable("transient transport failure")),
+            ("timeout", DicomNetworkError.networkTimeout("association response")),
+            ("association", DicomNetworkError.associationRejected(associationReject)),
+            ("dimse", DicomNetworkError.dimseStatusFailure(0xA700))
+        ]
+
+        for testCase in cases {
+            let auditLog = DicomInMemoryNetworkAuditLog()
+            var attempt = 0
+            let service = DicomDIMSEServiceSCU(
+                configuration: makeConfiguration(retryPolicy: DicomNetworkRetryPolicy(maxAttempts: 2)),
+                auditLogger: auditLog,
+                transportFactory: {
+                    attempt += 1
+                    if attempt == 1 {
+                        return FailingReadTransport(error: testCase.1)
+                    }
+                    return DIMSEScriptedTransport(supportedAbstractSyntaxUIDs: [
+                        DicomNetworkUID.verificationSOPClass
+                    ])
+                }
+            )
+
+            let result = try service.verify()
+
+            XCTAssertEqual(result.status, 0, testCase.0)
+            XCTAssertEqual(attempt, 2, testCase.0)
+            XCTAssertEqual(auditLog.events.map(\.outcome), [
+                .started,
+                .retrying,
+                .started,
+                .succeeded
+            ], testCase.0)
+        }
+    }
+
     func testCircuitBreakerBlocksAfterFailureThreshold() throws {
         let auditLog = DicomInMemoryNetworkAuditLog()
         let breaker = DicomNetworkCircuitBreaker(policy: DicomCircuitBreakerPolicy(
@@ -315,6 +470,67 @@ final class DicomDIMSEServiceSCUTests: XCTestCase {
         ])
     }
 
+    func testCircuitBreakerResetsAfterOpenIntervalAndRecordsSuccess() throws {
+        let breaker = DicomNetworkCircuitBreaker(policy: DicomCircuitBreakerPolicy(
+            failureThreshold: 1,
+            resetInterval: 0
+        ))
+        var attempt = 0
+        let service = DicomDIMSEServiceSCU(
+            configuration: makeConfiguration(),
+            circuitBreaker: breaker,
+            transportFactory: {
+                attempt += 1
+                if attempt == 1 {
+                    return FailingReadTransport(error: DicomNetworkError.networkTimeout("association response"))
+                }
+                return DIMSEScriptedTransport(supportedAbstractSyntaxUIDs: [
+                    DicomNetworkUID.verificationSOPClass
+                ])
+            }
+        )
+
+        XCTAssertThrowsError(try service.verify()) { error in
+            XCTAssertEqual(error as? DicomNetworkError, .networkTimeout("association response"))
+        }
+        if case .open = breaker.state {
+        } else {
+            XCTFail("Expected circuit breaker to open after first failure.")
+        }
+        let result = try service.verify()
+
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(breaker.state, .closed)
+    }
+
+    func testDefaultSCUDoesNotRetryCancellationOrTripCircuitBreaker() throws {
+        let auditLog = DicomInMemoryNetworkAuditLog()
+        let breaker = DicomNetworkCircuitBreaker(policy: DicomCircuitBreakerPolicy(
+            failureThreshold: 1,
+            resetInterval: 60
+        ))
+        var attempt = 0
+        let service = DicomDIMSEServiceSCU(
+            configuration: makeConfiguration(retryPolicy: DicomNetworkRetryPolicy(maxAttempts: 3)),
+            auditLogger: auditLog,
+            circuitBreaker: breaker,
+            transportFactory: {
+                attempt += 1
+                return FailingReadTransport(error: CancellationError())
+            }
+        )
+
+        XCTAssertThrowsError(try service.verify()) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(attempt, 1)
+        XCTAssertEqual(breaker.state, .closed)
+        XCTAssertEqual(auditLog.events.map(\.outcome), [
+            .started,
+            .failed
+        ])
+    }
+
     func testBandwidthLimitedTransportForwardsReadsAndWrites() throws {
         let raw = RecordingTransport(responses: [Data([0x01, 0x02])])
         let limited = DicomBandwidthLimitedTransport(wrapping: raw, bytesPerSecond: Int.max)
@@ -326,24 +542,455 @@ final class DicomDIMSEServiceSCUTests: XCTestCase {
         XCTAssertEqual(raw.writtenPDUs, [payload])
         XCTAssertEqual(read, Data([0x01, 0x02]))
     }
+
+    func testTLSMaterialIsPreservedForSCUAndStorageSCPConfiguration() throws {
+        let material = DicomTLSMaterial(
+            certificatePath: "/tmp/client.pem",
+            privateKeyPath: "/tmp/client.key",
+            trustStorePath: "/tmp/trust.pem",
+            trustedCertificatePaths: ["/tmp/root.pem"]
+        )
+        let tls = DicomTLSConfiguration(
+            mode: .enabled,
+            serverName: "archive.example",
+            material: material,
+            securityProfile: .bcp195
+        )
+        let scu = DicomDIMSEServiceSCU(configuration: makeConfiguration(tls: tls))
+        let scp = DicomStorageSCPConfiguration(aeTitle: "VIEWER", tls: tls)
+
+        XCTAssertEqual(scu.configuration.tls, tls)
+        XCTAssertEqual(scp.tls, tls)
+    }
+
+    func testTLSOptionsApplyIdentityTrustStoreServerNameAndProfile() throws {
+        #if canImport(Network) && canImport(Security)
+        let fixture = try DicomTLSTestMaterial.write()
+        defer { fixture.remove() }
+        let tls = DicomTLSConfiguration(
+            mode: .enabled,
+            serverName: "localhost",
+            material: DicomTLSMaterial(
+                certificatePath: fixture.serverCertificatePath,
+                privateKeyPath: fixture.serverPrivateKeyPath,
+                trustStorePath: fixture.caCertificatePath
+            ),
+            securityProfile: .bcp195
+        )
+
+        let prepared = try DicomTLSOptionsFactory.preparedParameters(for: tls, role: .client)
+
+        XCTAssertNotNil(prepared.tlsContext)
+        XCTAssertEqual(prepared.tlsContext?.serverName, "localhost")
+        XCTAssertEqual(prepared.tlsContext?.hasLocalIdentity, true)
+        XCTAssertEqual(prepared.tlsContext?.trustedCertificateCount, 1)
+        XCTAssertEqual(prepared.tlsContext?.securityProfile, .bcp195)
+        XCTAssertEqual(prepared.tlsContext?.minimumProtocolVersionName, "TLSv1.2")
+        XCTAssertEqual(prepared.tlsContext?.peerAuthenticationRequired, true)
+        #else
+        throw skipNetworkSecurityTLS("Network/Security TLS options are unavailable on this platform.")
+        #endif
+    }
+
+    func testTLSOptionsRejectMissingCertificate() throws {
+        #if canImport(Network) && canImport(Security)
+        let fixture = try DicomTLSTestMaterial.write()
+        defer { fixture.remove() }
+        let tls = DicomTLSConfiguration(
+            mode: .enabled,
+            material: DicomTLSMaterial(privateKeyPath: fixture.serverPrivateKeyPath)
+        )
+
+        XCTAssertThrowsError(try DicomTLSOptionsFactory.preparedParameters(for: tls, role: .client)) { error in
+            guard case .tlsConfigurationInvalid(let reason) = error as? DicomNetworkError else {
+                return XCTFail("Expected TLS configuration error, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("certificate"))
+        }
+        #else
+        throw skipNetworkSecurityTLS("Network/Security TLS options are unavailable on this platform.")
+        #endif
+    }
+
+    func testTLSOptionsRejectMissingPrivateKey() throws {
+        #if canImport(Network) && canImport(Security)
+        let fixture = try DicomTLSTestMaterial.write()
+        defer { fixture.remove() }
+        let tls = DicomTLSConfiguration(
+            mode: .enabled,
+            material: DicomTLSMaterial(certificatePath: fixture.serverCertificatePath)
+        )
+
+        XCTAssertThrowsError(try DicomTLSOptionsFactory.preparedParameters(for: tls, role: .client)) { error in
+            guard case .tlsConfigurationInvalid(let reason) = error as? DicomNetworkError else {
+                return XCTFail("Expected TLS configuration error, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("private key"))
+        }
+        #else
+        throw skipNetworkSecurityTLS("Network/Security TLS options are unavailable on this platform.")
+        #endif
+    }
+
+    func testTLSOptionsRejectMissingTrustStore() throws {
+        #if canImport(Network) && canImport(Security)
+        let fixture = try DicomTLSTestMaterial.write()
+        defer { fixture.remove() }
+        let missingTrustStore = fixture.directory.appendingPathComponent("missing_trust.pem").path
+        let tls = DicomTLSConfiguration(
+            mode: .enabled,
+            material: DicomTLSMaterial(trustStorePath: missingTrustStore)
+        )
+
+        XCTAssertThrowsError(try DicomTLSOptionsFactory.preparedParameters(for: tls, role: .client)) { error in
+            guard case .tlsConfigurationInvalid(let reason) = error as? DicomNetworkError else {
+                return XCTFail("Expected TLS configuration error, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("trust store"))
+        }
+        #else
+        throw skipNetworkSecurityTLS("Network/Security TLS options are unavailable on this platform.")
+        #endif
+    }
+
+    func testTemporaryKeychainCleansUpDirectoryWhenUnlockFails() throws {
+        #if canImport(Security) && os(macOS)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DicomTemporaryKeychainTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        XCTAssertThrowsError(try DicomTemporaryKeychain(
+            fileManager: .default,
+            directory: directory,
+            unlockKeychain: { _, _, _, _ in errSecAuthFailed }
+        )) { error in
+            guard case DicomNetworkError.tlsConfigurationInvalid(let reason) = error else {
+                return XCTFail("Expected TLS configuration error, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("unlock"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        #else
+        throw skipNetworkSecurityTLS("Temporary keychain cleanup runs only on macOS Security.")
+        #endif
+    }
+
+    func testTLSHandshakeSucceedsWithTrustedPeer() throws {
+        #if canImport(Network) && canImport(Security) && os(macOS)
+        let fixture = try DicomTLSTestMaterial.write()
+        defer { fixture.remove() }
+        let outcome = try performTLSHandshake(
+            serverTLS: DicomTLSConfiguration(
+                mode: .enabled,
+                material: DicomTLSMaterial(
+                    certificatePath: fixture.serverCertificatePath,
+                    privateKeyPath: fixture.serverPrivateKeyPath
+                ),
+                securityProfile: .bcp195
+            ),
+            clientTLS: DicomTLSConfiguration(
+                mode: .enabled,
+                serverName: "localhost",
+                material: DicomTLSMaterial(trustStorePath: fixture.caCertificatePath),
+                securityProfile: .bcp195
+            )
+        )
+
+        XCTAssertEqual(outcome, .ready)
+        #else
+        throw skipNetworkSecurityTLS("Network/Security TLS handshake tests run only on macOS.")
+        #endif
+    }
+
+    func testTLSHandshakeRejectsUntrustedPeer() throws {
+        #if canImport(Network) && canImport(Security) && os(macOS)
+        let fixture = try DicomTLSTestMaterial.write()
+        defer { fixture.remove() }
+        let outcome = try performTLSHandshake(
+            serverTLS: DicomTLSConfiguration(
+                mode: .enabled,
+                material: DicomTLSMaterial(
+                    certificatePath: fixture.serverCertificatePath,
+                    privateKeyPath: fixture.serverPrivateKeyPath
+                ),
+                securityProfile: .bcp195
+            ),
+            clientTLS: DicomTLSConfiguration(
+                mode: .enabled,
+                serverName: "localhost",
+                material: DicomTLSMaterial(trustStorePath: fixture.wrongCACertificatePath),
+                securityProfile: .bcp195
+            )
+        )
+
+        XCTAssertNotEqual(outcome, .ready)
+        #else
+        throw skipNetworkSecurityTLS("Network/Security TLS handshake tests run only on macOS.")
+        #endif
+    }
+
+    func testCancelledOperationHandleRejectsBeforeOpeningTransport() throws {
+        let handle = DicomDIMSEOperationHandle()
+        handle.cancel()
+        var transportFactoryCalls = 0
+        let service = DicomDIMSEServiceSCU(
+            configuration: makeConfiguration(),
+            operationHandle: handle,
+            transportFactory: {
+                transportFactoryCalls += 1
+                return DIMSEScriptedTransport(supportedAbstractSyntaxUIDs: [
+                    DicomNetworkUID.verificationSOPClass
+                ])
+            }
+        )
+
+        XCTAssertThrowsError(try service.verify()) { error in
+            XCTAssertEqual(error as? DicomNetworkError, .operationCancelled("C-ECHO"))
+        }
+        XCTAssertEqual(transportFactoryCalls, 0)
+    }
+
+    func testFindSCUSendsCancelRequestWhenOperationHandleCancels() throws {
+        let handle = DicomDIMSEOperationHandle()
+        let transport = DIMSEScriptedTransport(
+            supportedAbstractSyntaxUIDs: [DicomNetworkUID.studyRootQueryRetrieveFind],
+            cancelBeforeReturningCommandFields: [DicomDIMSECommandField.cFindRSP]
+        )
+        transport.cancelHandler = { handle.cancel() }
+        let service = DicomDIMSEServiceSCU(
+            configuration: makeConfiguration(),
+            operationHandle: handle,
+            transportFactory: { transport }
+        )
+
+        XCTAssertThrowsError(try service.find(identifier: retrieveIdentifier())) { error in
+            XCTAssertEqual(error as? DicomNetworkError, .operationCancelled("C-FIND"))
+        }
+
+        let cancel = transport.writtenCommands.first { $0.commandField == DicomDIMSECommandField.cCancelRQ }
+        XCTAssertEqual(cancel?.messageIDBeingRespondedTo, 1)
+        XCTAssertGreaterThanOrEqual(transport.closeCount, 1)
+    }
+
+    func testGetSCUSendsCancelRequestWhenOperationHandleCancels() throws {
+        let handle = DicomDIMSEOperationHandle()
+        let transport = DIMSEScriptedTransport(
+            supportedAbstractSyntaxUIDs: [
+                DicomNetworkUID.studyRootQueryRetrieveGet,
+                DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID
+            ],
+            cancelBeforeReturningCommandFields: [DicomDIMSECommandField.cStoreRQ]
+        )
+        transport.cancelHandler = { handle.cancel() }
+        let service = DicomDIMSEServiceSCU(
+            configuration: makeConfiguration(),
+            operationHandle: handle,
+            transportFactory: { transport }
+        )
+
+        XCTAssertThrowsError(try service.get(identifier: retrieveIdentifier())) { error in
+            XCTAssertEqual(error as? DicomNetworkError, .operationCancelled("C-GET"))
+        }
+
+        let cancel = transport.writtenCommands.first { $0.commandField == DicomDIMSECommandField.cCancelRQ }
+        XCTAssertEqual(cancel?.messageIDBeingRespondedTo, 1)
+        XCTAssertGreaterThanOrEqual(transport.closeCount, 1)
+    }
+
+    func testMoveSCUSendsCancelRequestWhenOperationHandleCancels() throws {
+        let handle = DicomDIMSEOperationHandle()
+        let transport = DIMSEScriptedTransport(
+            supportedAbstractSyntaxUIDs: [DicomNetworkUID.studyRootQueryRetrieveMove],
+            cancelBeforeReturningCommandFields: [DicomDIMSECommandField.cMoveRSP]
+        )
+        transport.cancelHandler = { handle.cancel() }
+        let service = DicomDIMSEServiceSCU(
+            configuration: makeConfiguration(),
+            operationHandle: handle,
+            transportFactory: { transport }
+        )
+
+        XCTAssertThrowsError(try service.move(identifier: retrieveIdentifier(), moveDestinationAETitle: "VIEWER")) { error in
+            XCTAssertEqual(error as? DicomNetworkError, .operationCancelled("C-MOVE"))
+        }
+
+        let cancel = transport.writtenCommands.first { $0.commandField == DicomDIMSECommandField.cCancelRQ }
+        XCTAssertEqual(cancel?.messageIDBeingRespondedTo, 1)
+        XCTAssertGreaterThanOrEqual(transport.closeCount, 1)
+    }
+
+    func testStoreSCUClosesTransportWithoutCancelRequestWhenOperationHandleCancels() throws {
+        let handle = DicomDIMSEOperationHandle()
+        let storageUID = DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID
+        let transport = DIMSEScriptedTransport(
+            supportedAbstractSyntaxUIDs: [storageUID],
+            cancelBeforeReturningCommandFields: [DicomDIMSECommandField.cStoreRSP]
+        )
+        transport.cancelHandler = { handle.cancel() }
+        let service = DicomDIMSEServiceSCU(
+            configuration: makeConfiguration(),
+            operationHandle: handle,
+            transportFactory: { transport }
+        )
+
+        XCTAssertThrowsError(try service.store(dataSet: storageDataSet())) { error in
+            XCTAssertEqual(error as? DicomNetworkError, .operationCancelled("C-STORE"))
+        }
+
+        XCTAssertFalse(transport.writtenCommands.contains { $0.commandField == DicomDIMSECommandField.cCancelRQ })
+        XCTAssertGreaterThanOrEqual(transport.closeCount, 1)
+    }
+
+    func testAssociationPoolReusesIdleServicesAndHonorsCapacity() throws {
+        let configuration = makeConfiguration()
+        let poolLog = DicomInMemoryAssociationPoolLog()
+        let pool = DicomDIMSEAssociationPool(policy: DicomDIMSEAssociationPoolPolicy(
+            maximumIdleServicesPerKey: 1,
+            idleTimeout: 60
+        ), logger: poolLog)
+        let now = Date(timeIntervalSince1970: 100)
+        let first = pool.service(for: configuration, now: now)
+        let second = pool.service(for: configuration, now: now)
+
+        pool.recycle(first, now: now)
+        pool.recycle(second, now: now)
+
+        XCTAssertEqual(pool.idleCount(for: configuration, now: now), 1)
+        let reused = pool.service(for: configuration, now: now.addingTimeInterval(1))
+        XCTAssertEqual(reused.configuration, configuration)
+        XCTAssertEqual(pool.idleCount(for: configuration, now: now.addingTimeInterval(1)), 0)
+        XCTAssertEqual(poolLog.events.map(\.kind), [
+            .created,
+            .created,
+            .recycled,
+            .evicted,
+            .recycled,
+            .reused
+        ])
+    }
+
+    func testAssociationPoolKeySeparatesNodeTLSIdentityAndDIMSEConfiguration() throws {
+        let tls = DicomTLSConfiguration(
+            mode: .enabled,
+            serverName: "archive.example.com",
+            material: DicomTLSMaterial(
+                certificatePath: "/tmp/client.pem",
+                privateKeyPath: "/tmp/client.key",
+                trustStorePath: "/tmp/trust.pem",
+                trustedCertificatePaths: ["/tmp/root.pem"]
+            ),
+            securityProfile: .bcp195
+        )
+        let identity = DicomUserIdentity.usernameAndPasscode("operator", passcode: "secret-passcode")
+        let base = makeConfiguration(
+            tls: tls,
+            userIdentity: identity,
+            retryPolicy: DicomNetworkRetryPolicy(maxAttempts: 2, retryDelay: 0.1),
+            circuitBreakerPolicy: DicomCircuitBreakerPolicy(failureThreshold: 2, resetInterval: 4),
+            bandwidthLimitBytesPerSecond: 1_024
+        )
+        let baseKey = DicomDIMSEAssociationPool.key(for: base)
+
+        XCTAssertNotEqual(baseKey, DicomDIMSEAssociationPool.key(for: makeConfiguration(host: "192.0.2.10", tls: tls, userIdentity: identity)))
+        XCTAssertNotEqual(baseKey, DicomDIMSEAssociationPool.key(for: makeConfiguration(calledAETitle: "PACS2", tls: tls, userIdentity: identity)))
+        XCTAssertNotEqual(baseKey, DicomDIMSEAssociationPool.key(for: makeConfiguration(callingAETitle: "VIEWER2", tls: tls, userIdentity: identity)))
+        XCTAssertNotEqual(baseKey, DicomDIMSEAssociationPool.key(for: makeConfiguration(timeout: 30, tls: tls, userIdentity: identity)))
+        XCTAssertNotEqual(baseKey, DicomDIMSEAssociationPool.key(for: makeConfiguration(maximumPDULength: 32_768, tls: tls, userIdentity: identity)))
+        XCTAssertNotEqual(baseKey, DicomDIMSEAssociationPool.key(for: makeConfiguration(tls: .disabled, userIdentity: identity)))
+        XCTAssertNotEqual(baseKey, DicomDIMSEAssociationPool.key(for: makeConfiguration(tls: tls, userIdentity: .username("operator"))))
+        XCTAssertNotEqual(baseKey, DicomDIMSEAssociationPool.key(for: makeConfiguration(tls: tls, userIdentity: identity, transferSyntaxes: [.implicitVRLittleEndian])))
+        XCTAssertNotEqual(baseKey, DicomDIMSEAssociationPool.key(for: makeConfiguration(tls: tls, userIdentity: identity, bandwidthLimitBytesPerSecond: 2_048)))
+        XCTAssertFalse(String(describing: baseKey).contains("secret-passcode"))
+        XCTAssertEqual(baseKey.userIdentity?.secondaryFieldLength, "secret-passcode".utf8.count)
+    }
+
+    func testAssociationPoolClosesExpiredAndExplicitIdleServices() throws {
+        let configuration = makeConfiguration()
+        let poolLog = DicomInMemoryAssociationPoolLog()
+        let pool = DicomDIMSEAssociationPool(policy: DicomDIMSEAssociationPoolPolicy(
+            maximumIdleServicesPerKey: 2,
+            idleTimeout: 1
+        ), logger: poolLog)
+        let now = Date(timeIntervalSince1970: 100)
+
+        pool.recycle(pool.service(for: configuration, now: now), now: now)
+        XCTAssertEqual(pool.closeExpiredIdle(now: now.addingTimeInterval(2)), 1)
+        XCTAssertEqual(pool.idleCount(for: configuration, now: now.addingTimeInterval(2)), 0)
+
+        pool.recycle(pool.service(for: configuration, now: now.addingTimeInterval(3)), now: now.addingTimeInterval(3))
+        XCTAssertEqual(pool.closeAll(now: now.addingTimeInterval(4)), 1)
+        XCTAssertEqual(poolLog.events.map(\.kind).filter { $0 == .closedIdle }.count, 1)
+        XCTAssertEqual(poolLog.events.map(\.kind).filter { $0 == .closedExplicit }.count, 1)
+    }
+
+    func testAssociationPoolDiscardLogsFailedAssociationEvictionWithoutPayloadData() throws {
+        let configuration = makeConfiguration()
+        let poolLog = DicomInMemoryAssociationPoolLog()
+        let pool = DicomDIMSEAssociationPool(logger: poolLog)
+        let service = pool.service(for: configuration)
+
+        pool.discard(service, error: DicomNetworkError.malformedCommandSet("DOE^JANE"))
+
+        let event = try XCTUnwrap(poolLog.events.last)
+        XCTAssertEqual(event.kind, .failedAssociationEvicted)
+        XCTAssertEqual(event.host, configuration.host)
+        XCTAssertEqual(event.calledAETitle, configuration.calledAETitle)
+        XCTAssertFalse(String(describing: event).contains("DOE"))
+    }
+
+    func testAssociationPoolHandlesConcurrentAccess() throws {
+        let configuration = makeConfiguration()
+        let pool = DicomDIMSEAssociationPool(policy: DicomDIMSEAssociationPoolPolicy(
+            maximumIdleServicesPerKey: 4,
+            idleTimeout: 60
+        ))
+
+        DispatchQueue.concurrentPerform(iterations: 100) { _ in
+            let service = pool.service(for: configuration)
+            pool.recycle(service)
+        }
+
+        XCTAssertLessThanOrEqual(pool.idleCount(for: configuration), 4)
+    }
+}
+
+private func skipNetworkSecurityTLS(_ message: String) -> XCTSkip {
+    XCTSkip(DicomTestRuntimePreflight.skipMessage(for: DicomRuntimeStatus(
+        capability: .networkSecurityTLS,
+        kind: .unsupportedFeature,
+        message: message
+    )))
 }
 
 private func makeService(userIdentity: DicomUserIdentity? = nil) -> DicomDIMSEServiceSCU {
     DicomDIMSEServiceSCU(configuration: makeConfiguration(userIdentity: userIdentity))
 }
 
-private func makeConfiguration(tls: DicomTLSConfiguration = .disabled,
+private func makeConfiguration(host: String = "127.0.0.1",
+                               port: UInt16 = 104,
+                               calledAETitle: String = "ARCHIVE",
+                               callingAETitle: String = "VIEWER",
+                               timeout: TimeInterval = 10,
+                               maximumPDULength: UInt32 = 16_384,
+                               tls: DicomTLSConfiguration = .disabled,
                                userIdentity: DicomUserIdentity? = nil,
-                               retryPolicy: DicomNetworkRetryPolicy = .disabled) -> DicomDIMSEConnectionConfiguration {
+                               retryPolicy: DicomNetworkRetryPolicy = .disabled,
+                               circuitBreakerPolicy: DicomCircuitBreakerPolicy? = nil,
+                               transferSyntaxes: [DicomTransferSyntax] = [.explicitVRLittleEndian],
+                               bandwidthLimitBytesPerSecond: Int? = nil) -> DicomDIMSEConnectionConfiguration {
     DicomDIMSEConnectionConfiguration(
-        host: "127.0.0.1",
-        port: 104,
-        calledAETitle: "ARCHIVE",
-        callingAETitle: "VIEWER",
-        transferSyntaxes: [.explicitVRLittleEndian],
+        host: host,
+        port: port,
+        calledAETitle: calledAETitle,
+        callingAETitle: callingAETitle,
+        timeout: timeout,
+        maximumPDULength: maximumPDULength,
+        transferSyntaxes: transferSyntaxes,
         tls: tls,
         userIdentity: userIdentity,
-        retryPolicy: retryPolicy
+        retryPolicy: retryPolicy,
+        circuitBreakerPolicy: circuitBreakerPolicy,
+        bandwidthLimitBytesPerSecond: bandwidthLimitBytesPerSecond
     )
 }
 
@@ -372,6 +1019,62 @@ private func storageDataSet() -> DicomDataSet {
         DicomDataElement(tag: DicomTag.pixelRepresentation.rawValue, vr: .US, value: .unsignedIntegers([0])),
         DicomDataElement(tag: DicomTag.pixelData.rawValue, vr: .OB, value: .bytes(Data([0x7F])))
     ])
+}
+
+private func writableStorageDataSet(sopInstanceUID: String) -> DicomDataSet {
+    DicomDataSet(elements: [
+        element(DicomTag.sopClassUID.rawValue, .UI, DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID),
+        element(DicomTag.sopInstanceUID.rawValue, .UI, sopInstanceUID),
+        element(DicomTag.patientName.rawValue, .PN, "DOE^JANE"),
+        element(DicomTag.studyInstanceUID.rawValue, .UI, "2.25.100"),
+        element(DicomTag.seriesInstanceUID.rawValue, .UI, "2.25.200"),
+        DicomDataElement(tag: DicomTag.samplesPerPixel.rawValue, vr: .US, value: .unsignedIntegers([1])),
+        element(DicomTag.photometricInterpretation.rawValue, .CS, "MONOCHROME2"),
+        DicomDataElement(tag: DicomTag.rows.rawValue, vr: .US, value: .unsignedIntegers([1])),
+        DicomDataElement(tag: DicomTag.columns.rawValue, vr: .US, value: .unsignedIntegers([1])),
+        DicomDataElement(tag: DicomTag.bitsAllocated.rawValue, vr: .US, value: .unsignedIntegers([8])),
+        DicomDataElement(tag: DicomTag.bitsStored.rawValue, vr: .US, value: .unsignedIntegers([8])),
+        DicomDataElement(tag: DicomTag.highBit.rawValue, vr: .US, value: .unsignedIntegers([7])),
+        DicomDataElement(tag: DicomTag.pixelRepresentation.rawValue, vr: .US, value: .unsignedIntegers([0])),
+        DicomDataElement(tag: DicomTag.pixelData.rawValue, vr: .OB, value: .bytes(Data([0x7F])))
+    ])
+}
+
+private func compressedStorageDataSet() -> DicomDataSet {
+    DicomDataSet(elements: [
+        element(DicomTag.sopClassUID.rawValue, .UI, DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID),
+        element(DicomTag.sopInstanceUID.rawValue, .UI, "2.25.2001"),
+        element(DicomTag.patientName.rawValue, .PN, "DOE^JPEG2000"),
+        element(DicomTag.studyInstanceUID.rawValue, .UI, "2.25.100"),
+        element(DicomTag.seriesInstanceUID.rawValue, .UI, "2.25.200"),
+        DicomDataElement(tag: DicomTag.samplesPerPixel.rawValue, vr: .US, value: .unsignedIntegers([1])),
+        element(DicomTag.photometricInterpretation.rawValue, .CS, "MONOCHROME2"),
+        DicomDataElement(tag: DicomTag.rows.rawValue, vr: .US, value: .unsignedIntegers([1])),
+        DicomDataElement(tag: DicomTag.columns.rawValue, vr: .US, value: .unsignedIntegers([1])),
+        DicomDataElement(tag: DicomTag.bitsAllocated.rawValue, vr: .US, value: .unsignedIntegers([8])),
+        DicomDataElement(tag: DicomTag.bitsStored.rawValue, vr: .US, value: .unsignedIntegers([8])),
+        DicomDataElement(tag: DicomTag.highBit.rawValue, vr: .US, value: .unsignedIntegers([7])),
+        DicomDataElement(tag: DicomTag.pixelRepresentation.rawValue, vr: .US, value: .unsignedIntegers([0])),
+        DicomDataElement(tag: DicomTag.pixelData.rawValue, vr: .OB, value: .bytes(encapsulatedPixelData()))
+    ])
+}
+
+private func encapsulatedPixelData() -> Data {
+    var data = Data()
+    appendEncapsulatedItem(Data(), to: &data)
+    appendEncapsulatedItem(Data([0xFF, 0x4F, 0xFF, 0x51]), to: &data)
+    data.append(contentsOf: [0xFE, 0xFF, 0xDD, 0xE0, 0x00, 0x00, 0x00, 0x00])
+    return data
+}
+
+private func appendEncapsulatedItem(_ itemData: Data, to data: inout Data) {
+    data.append(contentsOf: [0xFE, 0xFF, 0x00, 0xE0])
+    let length = UInt32(itemData.count)
+    data.append(UInt8(length & 0xFF))
+    data.append(UInt8((length >> 8) & 0xFF))
+    data.append(UInt8((length >> 16) & 0xFF))
+    data.append(UInt8((length >> 24) & 0xFF))
+    data.append(itemData)
 }
 
 private func worklistDataSet() -> DicomDataSet {
@@ -417,18 +1120,125 @@ private func element(_ tag: Int, _ vr: DicomVR, _ value: String) -> DicomDataEle
     DicomDataElement(tag: tag, vr: vr, value: .strings([value]))
 }
 
-private final class DIMSEScriptedTransport: DicomAssociationTransport {
+#if canImport(Network) && canImport(Security) && os(macOS)
+private enum TLSHandshakeOutcome: Equatable {
+    case ready
+    case failed
+    case timedOut
+}
+
+private func performTLSHandshake(
+    serverTLS: DicomTLSConfiguration,
+    clientTLS: DicomTLSConfiguration
+) throws -> TLSHandshakeOutcome {
+    let queue = DispatchQueue(label: "DicomDIMSEServiceSCUTests.TLS")
+    let serverPrepared = try DicomTLSOptionsFactory.preparedParameters(for: serverTLS, role: .server)
+    let clientPrepared = try DicomTLSOptionsFactory.preparedParameters(for: clientTLS, role: .client)
+    let listener = try NWListener(using: serverPrepared.parameters, on: .any)
+    let listenerSemaphore = DispatchSemaphore(value: 0)
+    let connectionSemaphore = DispatchSemaphore(value: 0)
+    var listenerError: Error?
+    var outcome = TLSHandshakeOutcome.timedOut
+    var acceptedConnections: [NWConnection] = []
+    let acceptedConnectionsLock = NSLock()
+
+    listener.newConnectionHandler = { connection in
+        acceptedConnectionsLock.lock()
+        acceptedConnections.append(connection)
+        acceptedConnectionsLock.unlock()
+        connection.stateUpdateHandler = { state in
+            if case .failed = state {
+                outcome = .failed
+                connectionSemaphore.signal()
+            }
+        }
+        connection.start(queue: queue)
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { _, _, _, _ in }
+    }
+    listener.stateUpdateHandler = { state in
+        switch state {
+        case .ready:
+            listenerSemaphore.signal()
+        case .failed(let error):
+            listenerError = error
+            listenerSemaphore.signal()
+        default:
+            break
+        }
+    }
+    listener.start(queue: queue)
+
+    guard listenerSemaphore.wait(timeout: .now() + 5) == .success else {
+        listener.cancel()
+        return .timedOut
+    }
+    if let listenerError {
+        listener.cancel()
+        throw listenerError
+    }
+    guard let port = listener.port else {
+        listener.cancel()
+        throw DicomNetworkError.networkUnavailable("TLS listener did not publish a port.")
+    }
+
+    let connection = NWConnection(host: "localhost", port: port, using: clientPrepared.parameters)
+    connection.stateUpdateHandler = { state in
+        switch state {
+        case .ready:
+            outcome = .ready
+            connectionSemaphore.signal()
+        case .failed:
+            outcome = .failed
+            connectionSemaphore.signal()
+        default:
+            break
+        }
+    }
+    connection.start(queue: queue)
+    connection.send(content: Data([0x01]), completion: .contentProcessed { error in
+        outcome = error == nil ? .ready : .failed
+        connectionSemaphore.signal()
+    })
+
+    if connectionSemaphore.wait(timeout: .now() + 5) != .success {
+        outcome = .timedOut
+    }
+    connection.cancel()
+    acceptedConnectionsLock.lock()
+    acceptedConnections.forEach { $0.cancel() }
+    acceptedConnectionsLock.unlock()
+    listener.cancel()
+    _ = serverPrepared.tlsContext
+    _ = clientPrepared.tlsContext
+    return outcome
+}
+#endif
+
+private final class DIMSEScriptedTransport: DicomCancellableAssociationTransport {
     private let supportedAbstractSyntaxUIDs: Set<String>
+    private let preferredTransferSyntaxes: [DicomTransferSyntax]
+    private let cancelBeforeReturningCommandFields: Set<UInt16>
     private var responses: [Data] = []
     private var acceptedContextsByID: [UInt8: DicomAcceptedPresentationContext] = [:]
     private var lastRequestCommand: DicomDIMSECommandSet?
+    private var didTriggerCancellation = false
+    private var isClosed = false
 
     private(set) var associationRequests: [DicomAssociationRequest] = []
     private(set) var writtenCommands: [DicomDIMSECommandSet] = []
     private(set) var writtenDataSets: [DicomDataSet] = []
+    private(set) var writtenDataSetPayloads: [Data] = []
+    private(set) var closeCount = 0
+    var cancelHandler: (() -> Void)?
 
-    init(supportedAbstractSyntaxUIDs: Set<String>) {
+    init(
+        supportedAbstractSyntaxUIDs: Set<String>,
+        preferredTransferSyntaxes: [DicomTransferSyntax] = [.explicitVRLittleEndian],
+        cancelBeforeReturningCommandFields: Set<UInt16> = []
+    ) {
         self.supportedAbstractSyntaxUIDs = supportedAbstractSyntaxUIDs
+        self.preferredTransferSyntaxes = preferredTransferSyntaxes
+        self.cancelBeforeReturningCommandFields = cancelBeforeReturningCommandFields
     }
 
     func writePDU(_ data: Data) throws {
@@ -438,7 +1248,7 @@ private final class DIMSEScriptedTransport: DicomAssociationTransport {
             let accept = DicomAssociationNegotiator.accept(
                 request,
                 supportedAbstractSyntaxUIDs: supportedAbstractSyntaxUIDs,
-                preferredTransferSyntaxes: [.explicitVRLittleEndian]
+                preferredTransferSyntaxes: preferredTransferSyntaxes
             )
             acceptedContextsByID = accept.presentationContexts.reduce(into: [:]) { partial, accepted in
                 guard accepted.result == .acceptance,
@@ -463,10 +1273,20 @@ private final class DIMSEScriptedTransport: DicomAssociationTransport {
     }
 
     func readPDU() throws -> Data {
+        if isClosed {
+            throw DicomNetworkError.networkUnavailable("Transport closed.")
+        }
         guard !responses.isEmpty else {
             throw DicomNetworkError.invalidPDULength(expected: 1, actual: 0)
         }
-        return responses.removeFirst()
+        let response = responses.removeFirst()
+        triggerCancellationIfNeeded(for: response)
+        return response
+    }
+
+    func close() {
+        closeCount += 1
+        isClosed = true
     }
 
     private func handlePData(_ pdvs: [DicomPDV]) throws {
@@ -477,6 +1297,7 @@ private final class DIMSEScriptedTransport: DicomAssociationTransport {
                 lastRequestCommand = command
                 try handleCommand(command, presentationContextID: pdv.presentationContextID)
             } else {
+                writtenDataSetPayloads.append(pdv.data)
                 let transferSyntax = acceptedContextsByID[pdv.presentationContextID]?.transferSyntax ?? .explicitVRLittleEndian
                 let dataSet = try DicomDataSetParser.dataSet(from: pdv.data, transferSyntax: transferSyntax)
                 writtenDataSets.append(dataSet)
@@ -638,6 +1459,23 @@ private final class DIMSEScriptedTransport: DicomAssociationTransport {
                     data: try DicomDataSetWriter.dataSetData(from: dataSet,
                                                              transferSyntax: .explicitVRLittleEndian))
         ])))
+    }
+
+    private func triggerCancellationIfNeeded(for response: Data) {
+        guard !didTriggerCancellation,
+              !cancelBeforeReturningCommandFields.isEmpty,
+              case .pData(let pdvs) = try? DicomPDUCodec.decode(response) else {
+            return
+        }
+        for pdv in pdvs where pdv.isCommand {
+            guard let command = try? DicomDIMSECommandSet.decode(pdv.data),
+                  cancelBeforeReturningCommandFields.contains(command.commandField) else {
+                continue
+            }
+            didTriggerCancellation = true
+            cancelHandler?()
+            return
+        }
     }
 }
 

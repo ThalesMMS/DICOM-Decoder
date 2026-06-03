@@ -93,6 +93,194 @@ public struct DicomDIMSEOperationResult: Equatable, Sendable {
     }
 }
 
+public enum DicomStoreRequestError: Error, Equatable, Sendable {
+    case invalidPart10File(String)
+    case missingTransferSyntaxUID
+    case unsupportedTransferSyntaxUID(String)
+    case missingSOPClassUID
+    case missingSOPInstanceUID
+    case emptyDataSet
+}
+
+extension DicomStoreRequestError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .invalidPart10File(let reason):
+            return "Invalid DICOM Part 10 file: \(reason)"
+        case .missingTransferSyntaxUID:
+            return "DICOM Part 10 file is missing Transfer Syntax UID."
+        case .unsupportedTransferSyntaxUID(let uid):
+            return "DICOM Part 10 file uses unsupported transfer syntax \(uid)."
+        case .missingSOPClassUID:
+            return "DICOM Part 10 file is missing Media Storage SOP Class UID."
+        case .missingSOPInstanceUID:
+            return "DICOM Part 10 file is missing Media Storage SOP Instance UID."
+        case .emptyDataSet:
+            return "DICOM Part 10 file does not contain a dataset payload."
+        }
+    }
+}
+
+public struct DicomStoreRequest: Equatable, Sendable {
+    public var sopClassUID: String
+    public var sopInstanceUID: String
+    public var transferSyntax: DicomTransferSyntax
+    public var dataSetData: Data
+
+    public init(
+        sopClassUID: String,
+        sopInstanceUID: String,
+        transferSyntax: DicomTransferSyntax,
+        dataSetData: Data
+    ) throws {
+        let trimmedSOPClassUID = Self.dicomTrimmedValue(sopClassUID)
+        let trimmedSOPInstanceUID = Self.dicomTrimmedValue(sopInstanceUID)
+        guard !trimmedSOPClassUID.isEmpty else {
+            throw DicomStoreRequestError.missingSOPClassUID
+        }
+        guard !trimmedSOPInstanceUID.isEmpty else {
+            throw DicomStoreRequestError.missingSOPInstanceUID
+        }
+        guard !dataSetData.isEmpty else {
+            throw DicomStoreRequestError.emptyDataSet
+        }
+        self.sopClassUID = trimmedSOPClassUID
+        self.sopInstanceUID = trimmedSOPInstanceUID
+        self.transferSyntax = transferSyntax
+        self.dataSetData = dataSetData
+    }
+
+    public init(part10FileAt url: URL) throws {
+        try self.init(part10Data: Data(contentsOf: url))
+    }
+
+    public init(part10Data: Data) throws {
+        let extracted = try Self.extractPart10StorePayload(from: part10Data)
+        try self.init(
+            sopClassUID: extracted.sopClassUID,
+            sopInstanceUID: extracted.sopInstanceUID,
+            transferSyntax: extracted.transferSyntax,
+            dataSetData: extracted.dataSetData
+        )
+    }
+
+    private static func extractPart10StorePayload(
+        from data: Data
+    ) throws -> (sopClassUID: String, sopInstanceUID: String, transferSyntax: DicomTransferSyntax, dataSetData: Data) {
+        guard data.count >= 132 else {
+            throw DicomStoreRequestError.invalidPart10File("file is shorter than the DICOM preamble")
+        }
+        guard data[128] == 0x44, data[129] == 0x49, data[130] == 0x43, data[131] == 0x4D else {
+            throw DicomStoreRequestError.invalidPart10File("missing DICM prefix")
+        }
+
+        var offset = 132
+        var sopClassUID: String?
+        var sopInstanceUID: String?
+        var transferSyntaxUID: String?
+
+        while offset + 8 <= data.count {
+            let elementOffset = offset
+            let group = try readUInt16(from: data, at: offset)
+            let element = try readUInt16(from: data, at: offset + 2)
+            guard group == 0x0002 else {
+                offset = elementOffset
+                break
+            }
+
+            let vr = String(bytes: data[(offset + 4)..<(offset + 6)], encoding: .ascii) ?? ""
+            let valueOffset: Int
+            let length: Int
+            if uses32BitLength(vr) {
+                guard offset + 12 <= data.count else {
+                    throw DicomStoreRequestError.invalidPart10File("truncated file meta element")
+                }
+                valueOffset = offset + 12
+                length = Int(try readUInt32(from: data, at: offset + 8))
+            } else {
+                valueOffset = offset + 8
+                length = Int(try readUInt16(from: data, at: offset + 6))
+            }
+
+            guard length >= 0, valueOffset + length <= data.count else {
+                throw DicomStoreRequestError.invalidPart10File("file meta element length exceeds file size")
+            }
+
+            let value = dicomStringValue(data[valueOffset..<(valueOffset + length)])
+            let tag = (Int(group) << 16) | Int(element)
+            switch tag {
+            case 0x0002_0002:
+                sopClassUID = value
+            case 0x0002_0003:
+                sopInstanceUID = value
+            case DicomTag.transferSyntaxUID.rawValue:
+                transferSyntaxUID = value
+            default:
+                break
+            }
+            offset = valueOffset + length
+        }
+
+        guard offset < data.count else {
+            throw DicomStoreRequestError.emptyDataSet
+        }
+        guard let transferSyntaxUID, !transferSyntaxUID.isEmpty else {
+            throw DicomStoreRequestError.missingTransferSyntaxUID
+        }
+        guard let transferSyntax = DicomTransferSyntax(uid: transferSyntaxUID) else {
+            throw DicomStoreRequestError.unsupportedTransferSyntaxUID(transferSyntaxUID)
+        }
+        guard let sopClassUID, !sopClassUID.isEmpty else {
+            throw DicomStoreRequestError.missingSOPClassUID
+        }
+        guard let sopInstanceUID, !sopInstanceUID.isEmpty else {
+            throw DicomStoreRequestError.missingSOPInstanceUID
+        }
+
+        return (
+            sopClassUID,
+            sopInstanceUID,
+            transferSyntax,
+            Data(data[offset..<data.count])
+        )
+    }
+
+    private static func uses32BitLength(_ vr: String) -> Bool {
+        switch vr {
+        case "OB", "OD", "OF", "OL", "OW", "SQ", "UC", "UN", "UR", "UT":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func readUInt16(from data: Data, at offset: Int) throws -> UInt16 {
+        guard offset + 2 <= data.count else {
+            throw DicomStoreRequestError.invalidPart10File("truncated UInt16 value")
+        }
+        return UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+    }
+
+    private static func readUInt32(from data: Data, at offset: Int) throws -> UInt32 {
+        guard offset + 4 <= data.count else {
+            throw DicomStoreRequestError.invalidPart10File("truncated UInt32 value")
+        }
+        return UInt32(data[offset]) |
+            (UInt32(data[offset + 1]) << 8) |
+            (UInt32(data[offset + 2]) << 16) |
+            (UInt32(data[offset + 3]) << 24)
+    }
+
+    private static func dicomStringValue(_ data: Data.SubSequence) -> String {
+        String(data: Data(data), encoding: .utf8)?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\0 ").union(.whitespacesAndNewlines)) ?? ""
+    }
+
+    private static func dicomTrimmedValue(_ value: String) -> String {
+        value.trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines))
+    }
+}
+
 public struct DicomCFindResult: Equatable, Sendable {
     public var operation: DicomDIMSEOperationResult
     public var matches: [DicomDataSet]
@@ -139,23 +327,28 @@ public struct DicomDIMSEServiceSCU {
     public var auditLogger: DicomNetworkAuditLogging?
     private let circuitBreaker: DicomNetworkCircuitBreaker?
     private let transportFactory: (() throws -> DicomAssociationTransport)?
+    private let operationHandle: DicomDIMSEOperationHandle?
 
     public init(configuration: DicomDIMSEConnectionConfiguration,
                 auditLogger: DicomNetworkAuditLogging? = nil,
-                circuitBreaker: DicomNetworkCircuitBreaker? = nil) {
+                circuitBreaker: DicomNetworkCircuitBreaker? = nil,
+                operationHandle: DicomDIMSEOperationHandle? = nil) {
         self.init(configuration: configuration,
                   auditLogger: auditLogger,
                   circuitBreaker: circuitBreaker,
+                  operationHandle: operationHandle,
                   transportFactory: nil)
     }
 
     init(configuration: DicomDIMSEConnectionConfiguration,
          auditLogger: DicomNetworkAuditLogging? = nil,
          circuitBreaker: DicomNetworkCircuitBreaker? = nil,
+         operationHandle: DicomDIMSEOperationHandle? = nil,
          transportFactory: (() throws -> DicomAssociationTransport)?) {
         self.configuration = configuration
         self.auditLogger = auditLogger
         self.transportFactory = transportFactory
+        self.operationHandle = operationHandle
         if let circuitBreaker {
             self.circuitBreaker = circuitBreaker
         } else if let policy = configuration.circuitBreakerPolicy {
@@ -163,6 +356,20 @@ public struct DicomDIMSEServiceSCU {
         } else {
             self.circuitBreaker = nil
         }
+    }
+
+    func replacingRuntimeDependencies(
+        auditLogger: DicomNetworkAuditLogging?,
+        circuitBreaker: DicomNetworkCircuitBreaker?,
+        operationHandle: DicomDIMSEOperationHandle?
+    ) -> DicomDIMSEServiceSCU {
+        DicomDIMSEServiceSCU(
+            configuration: configuration,
+            auditLogger: auditLogger,
+            circuitBreaker: circuitBreaker,
+            operationHandle: operationHandle,
+            transportFactory: transportFactory
+        )
     }
 
     public func verify(progress: ((DicomDIMSEProgress) -> Void)? = nil) throws -> DicomDIMSEOperationResult {
@@ -261,6 +468,10 @@ public struct DicomDIMSEServiceSCU {
                         association: association,
                         transport: transport)
         progress?(.requestSent(operation: operation, messageID: messageID))
+        installCancelRequestAction(messageID: messageID,
+                                   presentationContextID: context.id,
+                                   association: association,
+                                   transport: transport)
 
         let reader = DicomDIMSEMessageReader()
         var matches: [DicomDataSet] = []
@@ -278,6 +489,7 @@ public struct DicomDIMSEServiceSCU {
                                                                   transferSyntax: transferSyntax))
                 }
                 progressPending(operation: operation, response: response, progress: progress)
+                try operationHandle?.checkCancellation(operation: operation)
                 continue
             }
             try validateSuccessStatus(response)
@@ -364,6 +576,10 @@ public struct DicomDIMSEServiceSCU {
                         association: association,
                         transport: transport)
         progress?(.requestSent(operation: operation, messageID: messageID))
+        installCancelRequestAction(messageID: messageID,
+                                   presentationContextID: context.id,
+                                   association: association,
+                                   transport: transport)
 
         let reader = DicomDIMSEMessageReader()
         while true {
@@ -372,6 +588,7 @@ public struct DicomDIMSEServiceSCU {
             let status = response.status ?? 0
             if isPending(status) {
                 progressPending(operation: operation, response: response, progress: progress)
+                try operationHandle?.checkCancellation(operation: operation)
                 continue
             }
             try validateSuccessStatus(response)
@@ -428,6 +645,10 @@ public struct DicomDIMSEServiceSCU {
                         association: association,
                         transport: transport)
         progress?(.requestSent(operation: operation, messageID: messageID))
+        installCancelRequestAction(messageID: messageID,
+                                   presentationContextID: context.id,
+                                   association: association,
+                                   transport: transport)
 
         let reader = DicomDIMSEMessageReader()
         var retrieved: [DicomRetrievedInstance] = []
@@ -441,10 +662,12 @@ public struct DicomDIMSEServiceSCU {
                                                      reader: reader)
                 retrieved.append(stored)
                 progress?(.storeReceived(sopInstanceUID: stored.sopInstanceUID))
+                try operationHandle?.checkCancellation(operation: operation)
             case DicomDIMSECommandField.cGetRSP:
                 let status = response.status ?? 0
                 if isPending(status) {
                     progressPending(operation: operation, response: response, progress: progress)
+                    try operationHandle?.checkCancellation(operation: operation)
                     continue
                 }
                 try validateSuccessStatus(response)
@@ -508,6 +731,62 @@ public struct DicomDIMSEServiceSCU {
                         presentationContextID: context.id,
                         association: association,
                         transport: transport)
+        progress?(.requestSent(operation: operation, messageID: messageID))
+
+        let reader = DicomDIMSEMessageReader()
+        let response = try readCommand(using: transport, reader: reader)
+        try expect(response, commandField: DicomDIMSECommandField.cStoreRSP)
+        try validateSuccessStatus(response)
+        let result = operationResult(from: response)
+        progress?(.completed(operation: operation, status: result.status))
+        return result
+    }
+
+    public func store(request: DicomStoreRequest,
+                      progress: ((DicomDIMSEProgress) -> Void)? = nil) throws -> DicomDIMSEOperationResult {
+        try performWithResilience(operation: .store, progress: progress) { transport in
+            try store(request: request, using: transport, progress: progress)
+        }
+    }
+
+    public func store(request: DicomStoreRequest,
+                      using transport: DicomAssociationTransport,
+                      progress: ((DicomDIMSEProgress) -> Void)? = nil) throws -> DicomDIMSEOperationResult {
+        let operation = DicomDIMSEOperation.store
+        let association = try openAssociation(
+            for: operation,
+            abstractSyntaxUIDs: [request.sopClassUID],
+            transferSyntaxes: [request.transferSyntax],
+            using: transport,
+            progress: progress
+        )
+        defer { try? release(operation: operation, using: transport, progress: progress) }
+
+        let context = try acceptedContext(request.sopClassUID, in: association)
+        guard context.transferSyntaxUID == request.transferSyntax.rawValue else {
+            throw DicomNetworkError.transferSyntaxMismatch(
+                expected: request.transferSyntax.rawValue,
+                actual: context.transferSyntaxUID
+            )
+        }
+
+        let messageID: UInt16 = 1
+        let command = DicomDIMSECommandSet(
+            affectedSOPClassUID: request.sopClassUID,
+            commandField: DicomDIMSECommandField.cStoreRQ,
+            messageID: messageID,
+            commandDataSetType: DicomDIMSECommandDataSetType.hasDataSet,
+            priority: 0,
+            affectedSOPInstanceUID: request.sopInstanceUID
+        )
+        try sendCommand(command,
+                        presentationContextID: context.id,
+                        association: association,
+                        transport: transport)
+        try sendDataSetData(request.dataSetData,
+                            presentationContextID: context.id,
+                            association: association,
+                            transport: transport)
         progress?(.requestSent(operation: operation, messageID: messageID))
 
         let reader = DicomDIMSEMessageReader()
@@ -721,6 +1000,7 @@ private extension DicomDIMSEServiceSCU {
         _ body: (DicomAssociationTransport) throws -> Result
     ) throws -> Result {
         try validateSecureUserIdentityTransport()
+        try operationHandle?.checkCancellation(operation: operation)
 
         let retryPolicy = configuration.retryPolicy
         var lastError: Error?
@@ -740,8 +1020,18 @@ private extension DicomDIMSEServiceSCU {
                         attempt: attempt)
             do {
                 let transport = try makeTransport()
-                defer { closeIfNeeded(transport) }
+                if let cancellable = transport as? DicomCancellableAssociationTransport {
+                    operationHandle?.setCancelAction {
+                        cancellable.close()
+                    }
+                }
+                defer {
+                    operationHandle?.clearCancelAction()
+                    closeIfNeeded(transport)
+                }
+                try operationHandle?.checkCancellation(operation: operation)
                 let result = try body(transport)
+                try operationHandle?.checkCancellation(operation: operation)
                 circuitBreaker?.recordSuccess()
                 recordAudit(operation: operation,
                             outcome: .succeeded,
@@ -749,6 +1039,13 @@ private extension DicomDIMSEServiceSCU {
                             status: statusCode(from: result))
                 return result
             } catch {
+                if let cancelled = cancellationError(for: error, operation: operation) {
+                    recordAudit(operation: operation,
+                                outcome: .failed,
+                                attempt: attempt,
+                                error: cancelled)
+                    throw cancelled
+                }
                 circuitBreaker?.recordFailure()
                 lastError = error
                 let shouldRetry = attempt < retryPolicy.maxAttempts
@@ -763,6 +1060,20 @@ private extension DicomDIMSEServiceSCU {
         }
 
         throw lastError ?? DicomNetworkError.networkUnavailable("DIMSE operation failed without an underlying error.")
+    }
+
+    func cancellationError(for error: Error, operation: DicomDIMSEOperation) -> Error? {
+        if operationHandle?.isCancelled == true {
+            return DicomNetworkError.operationCancelled(operation.rawValue)
+        }
+        if error is CancellationError {
+            return error
+        }
+        if let networkError = error as? DicomNetworkError,
+           case .operationCancelled = networkError {
+            return networkError
+        }
+        return nil
     }
 
     func makeTransport() throws -> DicomAssociationTransport {
@@ -786,13 +1097,12 @@ private extension DicomDIMSEServiceSCU {
     }
 
     func closeIfNeeded(_ transport: DicomAssociationTransport) {
-        #if canImport(Network)
-        (transport as? DicomTCPAssociationTransport)?.close()
-        #endif
+        (transport as? DicomCancellableAssociationTransport)?.close()
     }
 
     func openAssociation(for operation: DicomDIMSEOperation,
                          abstractSyntaxUIDs: [String],
+                         transferSyntaxes: [DicomTransferSyntax]? = nil,
                          using transport: DicomAssociationTransport,
                          progress: ((DicomDIMSEProgress) -> Void)?) throws -> DicomAssociation {
         try validateSecureUserIdentityTransport()
@@ -802,7 +1112,10 @@ private extension DicomDIMSEServiceSCU {
         let request = DicomAssociationRequest(
             calledAETitle: configuration.calledAETitle,
             callingAETitle: configuration.callingAETitle,
-            presentationContexts: presentationContexts(for: abstractSyntaxUIDs),
+            presentationContexts: presentationContexts(
+                for: abstractSyntaxUIDs,
+                transferSyntaxes: transferSyntaxes ?? configuration.transferSyntaxes
+            ),
             maximumPDULength: configuration.maximumPDULength,
             userIdentity: configuration.userIdentity
         )
@@ -882,6 +1195,8 @@ private extension DicomDIMSEServiceSCU {
             return "Malformed DIMSE command set."
         case .missingAcceptedPresentationContext:
             return "Missing accepted presentation context."
+        case .transferSyntaxMismatch:
+            return "Transfer syntax mismatch."
         case .unexpectedDIMSECommand:
             return "Unexpected DIMSE command."
         case .dimseStatusFailure(let status):
@@ -890,14 +1205,21 @@ private extension DicomDIMSEServiceSCU {
             return "Network timeout while \(operation)."
         case .networkUnavailable:
             return "Network transport unavailable."
+        case .tlsConfigurationInvalid:
+            return "TLS configuration invalid."
+        case .tlsTrustEvaluationFailed:
+            return "TLS trust evaluation failed."
         case .circuitBreakerOpen:
             return "Circuit breaker open."
         case .insecureUserIdentityTransport:
             return "User identity requires TLS."
+        case .operationCancelled(let operation):
+            return "DIMSE operation cancelled: \(operation)."
         }
     }
 
-    func presentationContexts(for abstractSyntaxUIDs: [String]) -> [DicomPresentationContextRequest] {
+    func presentationContexts(for abstractSyntaxUIDs: [String],
+                              transferSyntaxes: [DicomTransferSyntax]) -> [DicomPresentationContextRequest] {
         var nextID: UInt8 = 1
         var seen: Set<String> = []
         var contexts: [DicomPresentationContextRequest] = []
@@ -906,7 +1228,7 @@ private extension DicomDIMSEServiceSCU {
             contexts.append(DicomPresentationContextRequest(
                 id: nextID,
                 abstractSyntaxUID: uid,
-                transferSyntaxes: configuration.transferSyntaxes
+                transferSyntaxes: transferSyntaxes
             ))
             nextID += 2
         }
@@ -945,6 +1267,23 @@ private extension DicomDIMSEServiceSCU {
         try transport.writePDU(DicomPDUCodec.encode(pdu))
     }
 
+    func installCancelRequestAction(messageID: UInt16,
+                                    presentationContextID: UInt8,
+                                    association: DicomAssociation,
+                                    transport: DicomAssociationTransport) {
+        operationHandle?.setCancelAction {
+            let command = DicomDIMSECommandSet(
+                commandField: DicomDIMSECommandField.cCancelRQ,
+                messageIDBeingRespondedTo: messageID,
+                commandDataSetType: DicomDIMSECommandDataSetType.noDataSet
+            )
+            if let pdu = try? association.commandPData(command, presentationContextID: presentationContextID) {
+                try? transport.writePDU(DicomPDUCodec.encode(pdu))
+            }
+            (transport as? DicomCancellableAssociationTransport)?.close()
+        }
+    }
+
     func sendDataSet(_ dataSet: DicomDataSet,
                      transferSyntax: DicomTransferSyntax,
                      presentationContextID: UInt8,
@@ -952,6 +1291,16 @@ private extension DicomDIMSEServiceSCU {
                      transport: DicomAssociationTransport) throws {
         let data = try DicomDataSetWriter.dataSetData(from: dataSet,
                                                       transferSyntax: transferSyntax)
+        try sendDataSetData(data,
+                            presentationContextID: presentationContextID,
+                            association: association,
+                            transport: transport)
+    }
+
+    func sendDataSetData(_ data: Data,
+                         presentationContextID: UInt8,
+                         association: DicomAssociation,
+                         transport: DicomAssociationTransport) throws {
         let pdu = try association.dataSetPData(data,
                                                presentationContextID: presentationContextID)
         try transport.writePDU(DicomPDUCodec.encode(pdu))
@@ -1264,44 +1613,44 @@ final class DicomDIMSEMessageReader {
 }
 
 #if canImport(Network)
-public final class DicomTCPAssociationTransport: DicomAssociationTransport {
+public final class DicomTCPAssociationTransport: DicomCancellableAssociationTransport {
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "DicomTCPAssociationTransport")
     private let timeout: TimeInterval
+    private let tlsContext: DicomAppliedTLSContext?
+    private let tlsSetupError: Error?
 
     public init(host: String,
                 port: UInt16,
                 timeout: TimeInterval = 10,
                 tls: DicomTLSConfiguration = .disabled) {
         let nwPort = NWEndpoint.Port(rawValue: port) ?? 104
-        let parameters: NWParameters
-        switch tls.mode {
-        case .disabled:
-            parameters = .tcp
-        case .enabled:
-            let tlsOptions = NWProtocolTLS.Options()
-            #if canImport(Security)
-            if let serverName = tls.serverName {
-                serverName.withCString {
-                    sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, $0)
-                }
-            }
-            #endif
-            parameters = NWParameters(tls: tlsOptions,
-                                      tcp: NWProtocolTCP.Options())
+        let prepared: DicomPreparedNetworkParameters
+        do {
+            prepared = try DicomTLSOptionsFactory.preparedParameters(for: tls, role: .client)
+            tlsSetupError = nil
+        } catch {
+            prepared = DicomPreparedNetworkParameters(parameters: .tcp, tlsContext: nil)
+            tlsSetupError = error
         }
         self.connection = NWConnection(host: NWEndpoint.Host(host),
                                        port: nwPort,
-                                       using: parameters)
+                                       using: prepared.parameters)
         self.timeout = timeout
+        self.tlsContext = prepared.tlsContext
     }
 
     public init(acceptedConnection: NWConnection, timeout: TimeInterval = 10) {
         self.connection = acceptedConnection
         self.timeout = timeout
+        self.tlsContext = nil
+        self.tlsSetupError = nil
     }
 
     public func open() throws {
+        if let tlsSetupError {
+            throw tlsSetupError
+        }
         let semaphore = DispatchSemaphore(value: 0)
         var result: Result<Void, Error>?
         connection.stateUpdateHandler = { state in

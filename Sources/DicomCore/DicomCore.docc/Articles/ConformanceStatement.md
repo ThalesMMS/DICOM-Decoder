@@ -4,11 +4,11 @@ Comprehensive DICOM conformance documentation detailing supported transfer synta
 
 ## Overview
 
-This DICOM Conformance Statement describes the capabilities and limitations of the DicomCore library (version 1.2.0) in accordance with DICOM Part 2: Conformance. DicomCore is a pure Swift DICOM file library for iOS 13+ and macOS 12+ that parses DICOM medical imaging files, extracts metadata, provides pixel data access with optional GPU-accelerated image processing, and writes controlled Part 10 datasets.
+This DICOM Conformance Statement describes the capabilities and limitations of the DicomCore library (version 1.2.0) in accordance with DICOM Part 2: Conformance. DicomCore is a pure Swift DICOM file library for iOS 13+ and macOS 12+ that parses DICOM medical imaging files, extracts metadata, provides pixel data access with optional GPU-accelerated image processing, writes controlled Part 10 datasets, and exposes transport-injected DICOMweb service helpers covered by package tests.
 
-**Implementation Type:** DICOM File Decoder/Writer Library with transport-injected JPIP progressive pixel streaming
+**Implementation Type:** DICOM File Decoder/Writer Library with transport-injected DICOMweb helpers and JPIP progressive pixel streaming
 
-**Primary Use Case:** Local DICOM file parsing, metadata extraction, media-directory import, dataset writing, image processing, and progressive JPIP pixel update integration for iOS and macOS applications
+**Primary Use Case:** Local DICOM file parsing, metadata extraction, media-directory import, dataset writing, image processing, scoped DICOMweb client/server helper tests, and progressive JPIP pixel update integration for iOS and macOS applications
 
 **Regulatory Status:** This library is provided for development purposes and explicitly disclaims medical diagnostic use. Organizations integrating this library into medical devices are responsible for their own regulatory compliance and validation.
 
@@ -18,7 +18,7 @@ This DICOM Conformance Statement describes the capabilities and limitations of t
 
 ### 1.1 Application Data Flow
 
-DicomCore operates primarily as a file-level DICOM decoder. JPIP progressive pixel delivery is exposed through a transport-injected client so applications can provide their own network stack:
+DicomCore operates primarily as a file-level DICOM decoder. DICOMweb and JPIP helpers are opt-in surfaces with injected transports so applications can provide their own network stack:
 
 ```
 DICOM File(s) → DCMDecoder → Metadata Extraction
@@ -27,7 +27,8 @@ DICOM File(s) → DCMDecoder → Metadata Extraction
 ```
 
 **Key Characteristics:**
-- **Local file access by default** - no DIMSE support
+- **Local file access by default** - no production PACS server, persistent archive, TLS termination, authorization policy, or audit trail is implemented by the package
+- **Scoped DICOMweb helpers** - QIDO-RS, WADO-RS, WADO-URI, STOW-RS, BulkDataURI, auth-header, pagination, multipart, and stable-error behavior are described by ``DicomWebConformanceMatrix``
 - **JPIP referenced pixel data** - metadata parsing recognizes Pixel Data Provider URL and streams progressive updates through caller-provided transport
 - **Controlled write operations** - Part 10 dataset writing and DICOMDIR writing for native and deflated local media workflows
 - **Native image frame access** - optimized for CT/MR single-frame images and uncompressed Enhanced Multi-frame metadata/frame workflows
@@ -41,9 +42,10 @@ DicomCore provides the following functional capabilities:
 |------------|-------------|--------|
 | **File Format Parsing** | Read DICOM Part 10 files with preamble and File Meta Information | ✅ Supported |
 | **Metadata Extraction** | Extract DICOM data elements by tag ID | ✅ Supported |
+| **Sequence Element Parsing** | Parse explicit/undefined SQ values, nested items, and delimiter errors | ✅ SQ |
 | **Pixel Data Decoding** | Decompress and decode pixel data to raw buffers | ✅ Supported |
 | **Image Processing** | Apply window/level transformations with CPU or GPU | ✅ Supported |
-| **Series Loading** | Load and order multi-slice series into 3D volumes | ✅ Supported |
+| **Series Loading** | Load/order package-only single-frame uncompressed 8/16/32-bit MONOCHROME1/2 grayscale series into `Int16` volumes; reject compressed/color/multiframe inputs with pixel context | Scoped grayscale matrix |
 | **DICOMDIR Media Import** | Read/write DICOMDIR records and resolve local file references | ✅ Supported |
 | **Enhanced Multi-frame Functional Groups** | Parse shared/per-frame geometry, timing, pixel measures, and source references | ✅ Supported for uncompressed native pixel data |
 | **Quantitative Values** | Parse Real World Value Mapping linear/LUT items and calculate PET SUV variants when required metadata is present | ✅ Supported for uncompressed native pixel data |
@@ -51,7 +53,7 @@ DicomCore provides the following functional capabilities:
 | **DICOM Segmentation** | Parse binary/fractional SEG frames, preserve segment/source/geometry metadata, and build synthetic SEG datasets | ✅ Synthetic binary and fractional |
 | **Radiotherapy Objects** | Parse RTSTRUCT contours, RTDOSE scaled volumes, and RTPLAN beam/control point metadata | ✅ Synthetic RT objects |
 | **Parametric Map** | Parse integer, Float Pixel Data, and Double Float Pixel Data scalar maps with units, quantity definitions, RWV, geometry, and source references | ✅ Synthetic PM |
-| **Structured Reports and Key Objects** | Parse SR/KOS content trees, measurements, ROI/source references, CAD findings, and key image references; build controlled SR/KOS datasets | ✅ Synthetic SR/KOS |
+| **Structured Reports and Key Objects** | Parse SR/KOS content trees, measurements, ROI/source references, CAD findings, and key image references; build controlled SR/KOS datasets; validate Enhanced/Comprehensive SR TID 1500 and KOS references through an explicit support matrix | ✅ Synthetic SR/KOS with scoped semantics |
 | **Secondary Capture Objects** | Build RGB/monochrome snapshot datasets, parse SC metadata/source references, and write Part 10 SC files | ✅ Synthetic SC |
 | **Inference Output Objects** | Build external inference outputs as SR findings, SEG masks, GSPS graphics, and derived images with source references and tracking identifiers | ✅ Synthetic SR/SEG/GSPS |
 | **Encapsulated Documents** | Build, parse, and export Encapsulated PDF/CDA/STL payloads with MIME, title, concept, and source instance metadata | ✅ Synthetic DOC |
@@ -59,11 +61,89 @@ DicomCore provides the following functional capabilities:
 | **Video Objects** | Build and parse Video Endoscopic/Microscopic/Photographic objects, preserving MPEG-2/H.264/H.265 streams and timing metadata for player handoff | ✅ Synthetic video |
 | **JPEG 2000 Part 2 Volume Documents** | Decode multi-component component collections into `DicomSeriesVolume` buffers with geometry metadata | ⚠️ Best-Effort OpenJPEG runtime |
 | **JPIP Progressive Pixel Data** | Recognize referenced pixel URLs and expose ordered progressive volume update streams with cancellation/backpressure | ⚠️ Transport-injected client |
-| **Transfer Syntax Conversion** | Plan safe conversion paths with codec diagnostics; compressed encoders are not implemented | Planning API only |
-| **Network Communication** | DICOM C-STORE, C-FIND, C-MOVE, etc. | ❌ Not Supported |
-| **DICOM File Creation** | Write native and Deflated Explicit VR Little Endian Part 10 datasets, DICOMDIR files, and encapsulated caller-provided video streams | ✅ Supported |
+| **Transfer Syntax Conversion** | Plan safe conversion paths with codec diagnostics; compressed encoders and recompression are not implemented | Planning API plus writer guards |
+| **DICOMweb Service Helpers** | Serialize and test scoped QIDO-RS, WADO-RS, WADO-URI, STOW-RS, BulkDataURI, auth-header, pagination, multipart, and stable-error behavior | Scoped matrix |
+| **Production PACS Networking** | Persistent archive, full UPS, server-side rendered frames, JPIP proxying, authorization policy, PHI audit logging, TLS termination, and zero-copy large-payload streaming | ❌ Not Supported |
+| **DICOM File Creation** | Write native/Deflated Part 10 datasets, referenced JPIP metadata, DICOMDIR files, and caller-provided encapsulated pixel/video streams without recompression | ✅ Supported with scoped writer matrix |
 
-### 1.3 Sequencing of Real-World Activities
+### 1.3 DICOMweb Service Helper Matrix
+
+The DICOMweb surface is a helper API, not a complete production PACS client or
+server. The authoritative runtime matrix is
+``DicomWebConformanceMatrix/packageDefault`` and is exposed by
+``DicomWebServer`` at `/dicom-web/conformance`.
+
+| Feature | Client | Server | Responsibility | Notes |
+| --- | --- | --- | --- | --- |
+| QIDO-RS | supported | study-level supported | `DicomWebClient`/`DicomWebServer` | Study search supports tested metadata filters plus `limit`/`offset` pagination. |
+| WADO-RS metadata | supported | supported | `DicomWebClient`/`DicomWebServer` | Client parses DICOM JSON; server emits DICOM JSON or XML. |
+| WADO-RS instance | supported | supported | `DicomWebClient`/`DicomWebServer` | Instance retrieval uses `multipart/related` `application/dicom` payloads. |
+| WADO-RS frame | transport-injected | stable 501 | Remote DICOMweb service or caller transport | Client serializes frame retrieval; in-memory server returns `DICOMWEB_FRAME_RETRIEVAL_UNSUPPORTED`. |
+| WADO-RS rendered frame | transport-injected | stable 501 | Remote DICOMweb service or caller renderer | Client serializes rendered-frame retrieval; in-memory server returns `DICOMWEB_RENDERED_FRAME_UNSUPPORTED`. |
+| WADO-URI | supported | supported | `DicomWebClient`/`DicomWebServer` | Object retrieval is covered by HTTP serialization tests. |
+| STOW-RS | supported | supported for Part 10 payloads | `DicomWebClient`/`DicomWebServer` | Multipart boundaries and payload preservation are covered by tests. |
+| UPS-RS | deferred | stable 501 | Deferred P2 work | UPS routes return `DICOMWEB_UPS_DEFERRED`. |
+| BulkDataURI | transport-injected | unsupported | `DicomWebClient` or caller transport | DICOM JSON values are preserved; `retrieveBulkData` fetches absolute or relative URIs through the configured transport. |
+| JPIP | caller-supplied transport | unsupported | `DicomJPIPClient` with `DicomJPIPTransport` | JPIP progressive pixel delivery is not proxied through `DicomWebServer`. |
+| Multipart | supported | supported | `DicomWebMultipartParser` and STOW/WADO helpers | `multipart/related` parsing and emission are tested, including large payload preservation. |
+| Authentication | caller headers | optional bearer token | Application security layer | No authorization policy, TLS termination, or PHI audit trail is implemented by the in-memory server. |
+| Pagination | `limit`/`offset` query items | `limit`/`offset` applied | `DicomWebQuery` and server QIDO | Server pagination is deterministic over the in-memory study list. |
+| Error semantics | stable typed errors | stable HTTP status and error-code headers | `DicomWebClientError` and `DicomWebServerErrorCode` | Unsupported routes use `501` plus `X-DICOMweb-Error-Code`; missing resources use HTTP status codes. |
+| Large payload streaming | Data-backed request bodies | Data-backed responses | Caller-provided transport for zero-copy streaming | The package preserves large multipart payloads, but true streaming is outside this helper API. |
+
+### 1.4 DIMSE and Storage SCP Helper Matrix
+
+The DIMSE surface is a package helper for tested SCU/SCP workflows and
+DCMTK-parity validation, not a full managed PACS service. Applications still
+own deployment, archive policy, PHI audit logging, operator authorization, and
+remote archive qualification.
+
+| Feature | Supported Surface | Responsibility | Notes |
+| --- | --- | --- | --- |
+| C-ECHO | Verification SCU | `DicomDIMSEServiceSCU.verify` | Association negotiation, progress, retry, timeout, and success status are covered by package tests. |
+| C-FIND | Study Root and Modality Worklist SCU | `DicomDIMSEServiceSCU.find` and `findModalityWorklist` | Pending identifiers, final status, and scheduled procedure step mapping are tested. |
+| C-GET | Study Root retrieve SCU with C-STORE suboperation handling | `DicomDIMSEServiceSCU.get` | Retrieved instances and C-STORE responses on the same association are tested. |
+| C-MOVE | Study Root retrieve SCU | `DicomDIMSEServiceSCU.move` | Pending/completed suboperation progress and move destination AE title propagation are tested. |
+| C-STORE | Storage SCU and Storage SCP | `DicomDIMSEServiceSCU.store`, `DicomStorageSCPService`, `DicomStorageSCPServer` | Part 10 payload parsing, transfer-syntax mismatch rejection, file cache writes, and association handling are tested. |
+| Storage Commitment | Push-model tracking/report helpers | `DicomStorageCommitmentTracker` and `DicomStorageSCPService` | Commitment event report datasets and partial success reports are tested; production archive policy is caller-owned. |
+| MPPS | N-CREATE and N-SET SCU helpers | `DicomDIMSEServiceSCU.createMPPS` and `updateMPPS` | Modality worklist-derived create/update datasets are covered by package tests. |
+| Basic Grayscale Print | Basic Grayscale Print Management Meta SOP Class | `DicomPrintJob` and `DicomDIMSEServiceSCU.sendPrintJob` | Color print, Presentation LUT service, annotation boxes, printer configuration/status services, and storage commitment remain unsupported. |
+| TLS | Client and Storage SCP listener configuration | `DicomTLSConfiguration` and `DicomTLSOptionsFactory` | Certificate, private-key, trust-store, server-name, BCP 195 profile, and handshake behavior are tested where Network/Security are available. |
+| User identity | Association user identity negotiation | `DicomUserIdentity` | User identity is rejected before association setup when TLS is disabled. |
+| Pooling/retry/cancellation | Association pooling, retry policy, circuit breaker, operation handle, progress, and audit log | `DicomDIMSEAssociationPool`, `DicomNetworkRetryPolicy`, `DicomNetworkCircuitBreaker`, `DicomDIMSEOperationHandle` | Cancellation avoids retries and circuit-breaker trips; pooling keys include node, AE titles, TLS, identity, transfer syntaxes, timeout, and bandwidth settings. |
+| External archive interop | Optional smoke tests and scripts | `DicomInteropSmokeTests` and interop tooling | Orthanc/dcm4che/DCMTK smoke tests require caller-provided endpoints and are not bundled production services. |
+
+### 1.5 Export and Non-Image Object Matrix
+
+Export, Secondary Capture, print, waveform, and video helpers are scoped by
+``DicomExportSupportMatrix/packageDefault``. The package supports controlled
+local export/build/parse helpers; it does not implement full print-service
+operation coverage, native video frame decode, video transcoding, or rendered
+frame generation. Print, waveform, and video helper scope is additionally
+enumerated by ``DicomPrintManagementSupport``, ``DicomWaveformStorageKind``,
+and ``DicomVideoCodec``.
+
+| Feature | Supported IODs | Required Tags | Transfer Syntaxes | Payload Rules | Metadata Preservation | Unsupported Cases | Typed Failure |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Image export | Native pixel-bearing image instances through `DCMDecoder` and `DicomImageExporter` | Pixel Data, Rows, Columns, Samples per Pixel, Photometric Interpretation, Bits Allocated, Bits Stored, High Bit, Pixel Representation | Native uncompressed Part 10 datasets addressable by `DicomPixelDataDescriptor` | `display8` exports PNG/JPEG/TIFF with resize and annotation burn-in; `native16Bit` exports unsigned single-sample TIFF only | Optional non-PHI sidecars preserve frame number, modality, dimensions, windowing, spacing, and transfer syntax context | Native 16-bit RGB, signed `native16Bit` TIFF, resize/annotations in `native16Bit` mode, compressed/video/referenced pixel export | `DicomImageExportError.unsupportedPixelMode` or `invalidPixelData` |
+| Secondary Capture | Secondary Capture Image Storage synthetic snapshots | Clinical export validation requires SOP Instance UID, Study Instance UID, Series Instance UID, Patient Name, Patient ID, Study ID, Study Date, Series Number, Instance Number, and the Image Pixel module | Explicit VR Little Endian Part 10 with native uncompressed Pixel Data | 8/16-bit unsigned MONOCHROME2 or 8-bit interleaved RGB with planar configuration 0 | Patient, study, series, instance, device, derivation, and source image references are preserved when supplied | Signed stored pixels, planar RGB, non-RGB three-sample payloads, unsupported bit depths, missing clinical context in strict export validation | `DicomSecondaryCaptureError.missingRequiredMetadata` or `unsupportedPixelLayout` |
+| Print management | Basic Grayscale Print Management Meta SOP Class with Basic Film Session, Basic Film Box, and Basic Grayscale Image Box | Film session copy/priority/medium/destination, film box layout/orientation/size, image box position, and grayscale 8-bit image pixel attributes | Negotiated DIMSE presentation context, defaulting to Explicit VR Little Endian when absent | Rendered RGB bitmaps and PNG snapshots are converted to 8-bit MONOCHROME2 Basic Grayscale Image Box payloads | Film session label, film box display settings, queue status, and returned image box SOP Instance UIDs are preserved | Color print, Presentation LUT service, annotation boxes, printer configuration/status services, and storage commitment | `DicomPrintManagementError.unsupportedService` |
+| Waveform | 12-lead ECG, General ECG, Ambulatory ECG, General 32-bit ECG, Hemodynamic, Cardiac Electrophysiology, Arterial Pulse, and Respiratory Waveform Storage | Waveform Sequence, Number of Channels, Number of Samples, Sampling Frequency, Channel Definition Sequence, Waveform Bits Allocated, Waveform Sample Interpretation, and Waveform Data | Native dataset and Part 10 writing through `DicomDataSetWriter`; compressed waveform encodings are not implemented | SB, UB, SS, US, SL, and UL integer samples are interleaved by sample then channel with range checks | Channel labels, source concepts, units, sensitivity, filters, timing offsets, and source waveform references are preserved | Float/double samples, audio waveforms, vendor-specific packed encodings, inconsistent channel sample counts, and malformed payload lengths | `DicomWaveformError.unsupportedSampleInterpretation`, `sampleOutOfRange`, or `invalidWaveformData` |
+| Video | Video Endoscopic, Video Microscopic, and Video Photographic Image Storage | SOP Class UID, Rows, Columns, Number of Frames, timing metadata when available, transfer syntax UID, and encapsulated Pixel Data | MPEG-2, MPEG-4 AVC/H.264, and HEVC/H.265 DICOM video transfer syntaxes | Encoded streams and indexed encoded frame fragments are preserved for caller/player handoff; native frame decode and video encoding are not implemented | Codec, timing, frame rate, duration, source references, lossy compression method, and raw stream bytes are preserved | Non-video transfer syntaxes, native video frame decoding, video transcoding, and server-side DICOMweb rendered frames | `DicomVideoError.unsupportedTransferSyntax`, `nativeFrameDecodeUnsupported`, `transcodingUnsupported`, or `DICOMWEB_RENDERED_FRAME_UNSUPPORTED` |
+
+### 1.6 Sequencing of Real-World Activities
+
+`DicomSeriesLoader` declares its volume scope through
+``DicomSeriesLoaderSupportMatrix``. The standard matrix accepts Bits Allocated
+8, 16, or 32; Bits Stored 8, 16, or 32; High Bit from the source metadata;
+Pixel Representation 0 or 1; Samples per Pixel 1; MONOCHROME1 or MONOCHROME2;
+absent Planar Configuration; one frame per file; and native uncompressed pixel
+transfer syntaxes. It preserves rescale slope/intercept, VOI/window metadata,
+pixel spacing, orientation, origin, image instance metadata, and slice ordering
+by Image Position projection, then Instance Number, then localized filename.
+Compressed transfer syntaxes, color/multi-sample data, explicit planar
+configuration, unsupported Bits Stored values, and multiframe images fail with
+typed errors carrying transfer syntax and pixel metadata.
 
 Typical usage sequence:
 
@@ -92,30 +172,41 @@ Use ``DicomTransferSyntaxRegistry`` to inspect encapsulation, fragmentation, dec
 
 ### 2.2 Compressed Transfer Syntaxes
 
-| Transfer Syntax Name | UID | Compression | Support Level |
-|---------------------|-----|-------------|---------------|
-| **Deflated Explicit VR Little Endian** | 1.2.840.10008.1.2.1.99 | Dataset deflate | ✅ Full Support (zlib raw deflate) |
-| **JPEG Lossless, Non-Hierarchical, First-Order Prediction (Process 14, Selection Value 1)** | 1.2.840.10008.1.2.4.70 | JPEG Lossless | ✅ Full Support (Native) |
-| **JPEG Lossless, Non-Hierarchical (Process 14)** | 1.2.840.10008.1.2.4.57 | JPEG Lossless | ✅ Full Support (Native) |
-| **JPEG Baseline (Process 1)** | 1.2.840.10008.1.2.4.50 | JPEG Lossy | ⚠️ Explicit ImageIO backend for 8-bit payloads |
-| **JPEG Extended (Process 2 & 4)** | 1.2.840.10008.1.2.4.51 | JPEG Lossy | ⚠️ Explicit ImageIO backend for <=8-bit payloads; 12-bit rejected with diagnostics |
-| **JPEG-LS Lossless Image Compression** | 1.2.840.10008.1.2.4.80 | JPEG-LS | ⚠️ Best-Effort (CharLS runtime) |
-| **JPEG-LS Lossy (Near-Lossless) Image Compression** | 1.2.840.10008.1.2.4.81 | JPEG-LS | ⚠️ Best-Effort (CharLS runtime) |
-| **JPEG 2000 Image Compression (Lossless Only)** | 1.2.840.10008.1.2.4.90 | JPEG 2000 | ⚠️ Explicit OpenJPEG backend up to 16-bit grayscale; ImageIO 8-bit fallback |
-| **JPEG 2000 Image Compression** | 1.2.840.10008.1.2.4.91 | JPEG 2000 | ⚠️ Explicit OpenJPEG backend up to 16-bit grayscale; ImageIO 8-bit fallback |
-| **JPEG 2000 Part 2 Multi-component Image Compression (Lossless Only)** | 1.2.840.10008.1.2.4.92 | JPEG 2000 Part 2 | ⚠️ Explicit OpenJPEG backend for `DicomJP3DVolumeDocument` |
-| **JPEG 2000 Part 2 Multi-component Image Compression** | 1.2.840.10008.1.2.4.93 | JPEG 2000 Part 2 | ⚠️ Explicit OpenJPEG backend for `DicomJP3DVolumeDocument` |
-| **DICOM JPIP Referenced Transfer Syntax** | 1.2.840.10008.1.2.4.94 | JPIP referenced pixel data | ⚠️ Metadata and progressive stream contract; transport supplied by application |
-| **DICOM JPIP Referenced Deflate Transfer Syntax** | 1.2.840.10008.1.2.4.95 | JPIP referenced pixel data with dataset deflate | ⚠️ Metadata inflation plus progressive stream contract; transport supplied by application |
-| **HTJ2K Image Compression (Lossless Only)** | 1.2.840.10008.1.2.4.201 | HTJ2K | ❌ Not Supported |
-| **HTJ2K Image Compression (Lossless RPCL)** | 1.2.840.10008.1.2.4.202 | HTJ2K | ❌ Not Supported |
-| **HTJ2K Image Compression** | 1.2.840.10008.1.2.4.203 | HTJ2K | ❌ Not Supported |
-| **RLE Lossless** | 1.2.840.10008.1.2.5 | RLE | ✅ Full Support (Native) |
+| Transfer Syntax Name | UID | Compression | Pixel Status | Support Detail |
+|---------------------|-----|-------------|--------------|----------------|
+| **Deflated Explicit VR Little Endian** | 1.2.840.10008.1.2.1.99 | Dataset deflate | out-of-scope | zlib handles dataset compression, not a compressed pixel codec |
+| **JPEG Lossless, Non-Hierarchical, First-Order Prediction (Process 14, Selection Value 1)** | 1.2.840.10008.1.2.4.70 | JPEG Lossless | decoded | Native `JPEGLosslessDecoder`; restart intervals and multi-component frames are tested limitations |
+| **JPEG Lossless, Non-Hierarchical (Process 14)** | 1.2.840.10008.1.2.4.57 | JPEG Lossless | decoded | Native `JPEGLosslessDecoder`; all selection values 0-7 |
+| **JPEG Baseline (Process 1)** | 1.2.840.10008.1.2.4.50 | JPEG Lossy | delegated | ImageIO for platform-supported 8-bit payloads |
+| **JPEG Extended (Process 2 & 4)** | 1.2.840.10008.1.2.4.51 | JPEG Lossy | delegated | ImageIO for <=8-bit payloads; 12-bit rejected with diagnostics |
+| **JPEG-LS Lossless Image Compression** | 1.2.840.10008.1.2.4.80 | JPEG-LS | delegated | Preflighted CharLS runtime |
+| **JPEG-LS Lossy (Near-Lossless) Image Compression** | 1.2.840.10008.1.2.4.81 | JPEG-LS | delegated | Preflighted CharLS runtime |
+| **JPEG 2000 Image Compression (Lossless Only)** | 1.2.840.10008.1.2.4.90 | JPEG 2000 | delegated | Preflighted OpenJPEG up to 16-bit grayscale; ImageIO 8-bit fallback |
+| **JPEG 2000 Image Compression** | 1.2.840.10008.1.2.4.91 | JPEG 2000 | delegated | Preflighted OpenJPEG up to 16-bit grayscale; ImageIO 8-bit fallback |
+| **JPEG 2000 Part 2 Multi-component Image Compression (Lossless Only)** | 1.2.840.10008.1.2.4.92 | JPEG 2000 Part 2 | delegated | Preflighted OpenJPEG through `DicomJP3DVolumeDocument` |
+| **JPEG 2000 Part 2 Multi-component Image Compression** | 1.2.840.10008.1.2.4.93 | JPEG 2000 Part 2 | delegated | Preflighted OpenJPEG through `DicomJP3DVolumeDocument` |
+| **DICOM JPIP Referenced Transfer Syntax** | 1.2.840.10008.1.2.4.94 | JPIP referenced pixel data | streamed-only | Metadata and Pixel Data Provider URL; transport supplied by application |
+| **DICOM JPIP Referenced Deflate Transfer Syntax** | 1.2.840.10008.1.2.4.95 | JPIP referenced pixel data with dataset deflate | streamed-only | Dataset inflate plus Pixel Data Provider URL; transport supplied by application |
+| **MPEG-2 Video Transfer Syntaxes** | 1.2.840.10008.1.2.4.100-.101.1 | MPEG-2 video | streamed-only | Encoded stream exposed for player backend; native frame decode is not implemented |
+| **MPEG-4 AVC/H.264 Video Transfer Syntaxes** | 1.2.840.10008.1.2.4.102-.106.1 | H.264 video | streamed-only | Encoded stream exposed for player backend; native frame decode is not implemented |
+| **HEVC/H.265 Video Transfer Syntaxes** | 1.2.840.10008.1.2.4.107-.108 | HEVC video | streamed-only | Encoded stream exposed for player backend; native frame decode is not implemented |
+| **HTJ2K Image Compression (Lossless Only)** | 1.2.840.10008.1.2.4.201 | HTJ2K | unsupported | Requires an explicit HTJ2K backend; no ImageIO JPEG 2000 fallback |
+| **HTJ2K Image Compression (Lossless RPCL)** | 1.2.840.10008.1.2.4.202 | HTJ2K | unsupported | Requires an explicit HTJ2K backend; no ImageIO JPEG 2000 fallback |
+| **HTJ2K Image Compression** | 1.2.840.10008.1.2.4.203 | HTJ2K | unsupported | Requires an explicit HTJ2K backend; no ImageIO JPEG 2000 fallback |
+| **RLE Lossless** | 1.2.840.10008.1.2.5 | RLE | decoded | Native `DicomRLELosslessDecoder` |
 
-**Support Levels:**
-- **✅ Full Support:** Native implementation, thoroughly tested
-- **⚠️ Best-Effort/Explicit Backend:** Uses a named backend with documented limits; unsupported depth/syntax combinations return diagnostics
-- **❌ Not Supported:** Transfer syntax cannot be decoded
+**Pixel Status Values:** `decoded`, `delegated`, `streamed-only`, `unsupported`, and `out-of-scope`.
+The same rows are available programmatically through
+`DicomTransferSyntaxRegistry.standard.compressedPixelSupportMatrix`.
+
+**Writing Status Values:** `native-dataset`, `deflated-dataset`, `referenced-dataset`,
+`encapsulated-pass-through`, and `unsupported`. Use
+`DicomTransferSyntaxRegistry.standard.writeSupportMatrix` before calling
+`DicomDataSetWriter`. Dataset writing serializes elements for a requested transfer
+syntax, file writing adds Part 10 file meta information, and pixel recompression is
+not performed by the writer. Native pixels cannot be written as compressed transfer
+syntaxes without an encoder, and encapsulated payloads cannot be silently rewritten
+as native pixels.
 
 ### 2.3 JPEG Lossless Implementation Details
 
@@ -136,9 +227,9 @@ DicomCore includes a native JPEG Lossless decoder supporting DICOM's most common
 
 ## 3. SOP Class Support
 
-DicomCore can read and parse DICOM files and can write controlled Part 10 datasets for uncompressed local workflows. Network service classes are not implemented.
+DicomCore can read and parse DICOM files, write controlled Part 10 datasets for uncompressed local workflows, and provide DICOMweb/DIMSE service helpers covered by package tests.
 
-As a file-level decoder library, DicomCore does not implement DICOM Service Class Users (SCU) or Service Class Providers (SCP). However, it can successfully parse and extract data from DICOM files conforming to the following SOP Classes:
+This conformance table focuses on the file-level decoder surface. DicomCore can successfully parse and extract data from DICOM files conforming to the following SOP Classes:
 
 ### 3.1 Image Storage SOP Classes
 
@@ -158,15 +249,15 @@ DicomCore can read files from any DICOM Image Storage SOP Class. The library is 
 | **RT Dose Storage** | 1.2.840.10008.5.1.4.1.1.481.2 | Scaled dose grids | ✅ Synthetic RTDOSE |
 | **RT Plan Storage** | 1.2.840.10008.5.1.4.1.1.481.5 | Beam/control point inspection | ✅ Synthetic RTPLAN |
 | **Parametric Map Storage** | 1.2.840.10008.5.1.4.1.1.30 | Quantitative scalar maps | ✅ Synthetic PM |
-| **Basic Text SR Storage** | 1.2.840.10008.5.1.4.1.1.88.11 | Navigable text SR content trees | ✅ Synthetic SR |
-| **Enhanced SR Storage** | 1.2.840.10008.5.1.4.1.1.88.22 | Navigable SR content trees | ✅ Synthetic SR |
-| **Comprehensive SR Storage** | 1.2.840.10008.5.1.4.1.1.88.33 | TID 1500-style measurements and ROIs | ✅ Synthetic SR |
-| **Comprehensive 3D SR Storage** | 1.2.840.10008.5.1.4.1.1.88.34 | 3D SR content tree metadata | ✅ Synthetic SR |
-| **Extensible SR Storage** | 1.2.840.10008.5.1.4.1.1.88.35 | Extensible SR content tree metadata | ✅ Synthetic SR |
-| **Mammography CAD SR Storage** | 1.2.840.10008.5.1.4.1.1.88.50 | CAD finding containers | ✅ Synthetic SR |
-| **Chest CAD SR Storage** | 1.2.840.10008.5.1.4.1.1.88.65 | CAD finding containers | ✅ Synthetic SR |
-| **Colon CAD SR Storage** | 1.2.840.10008.5.1.4.1.1.88.69 | CAD finding containers | ✅ Synthetic SR |
-| **Key Object Selection Document Storage** | 1.2.840.10008.5.1.4.1.1.88.59 | Key image/object references | ✅ Synthetic KOS |
+| **Basic Text SR Storage** | 1.2.840.10008.5.1.4.1.1.88.11 | Navigable text SR content trees | ⚠️ Syntax only |
+| **Enhanced SR Storage** | 1.2.840.10008.5.1.4.1.1.88.22 | TID 1500 measurements and references | ✅ Synthetic SR + semantic TID 1500 |
+| **Comprehensive SR Storage** | 1.2.840.10008.5.1.4.1.1.88.33 | TID 1500 measurements and ROIs | ✅ Synthetic SR + semantic TID 1500 |
+| **Comprehensive 3D SR Storage** | 1.2.840.10008.5.1.4.1.1.88.34 | 3D SR content tree metadata | ⚠️ Syntax only |
+| **Extensible SR Storage** | 1.2.840.10008.5.1.4.1.1.88.35 | Extensible SR content tree metadata | ⚠️ Syntax only |
+| **Mammography CAD SR Storage** | 1.2.840.10008.5.1.4.1.1.88.50 | CAD finding containers | ⚠️ Syntax and extraction only |
+| **Chest CAD SR Storage** | 1.2.840.10008.5.1.4.1.1.88.65 | CAD finding containers | ⚠️ Syntax and extraction only |
+| **Colon CAD SR Storage** | 1.2.840.10008.5.1.4.1.1.88.69 | CAD finding containers | ⚠️ Syntax and extraction only |
+| **Key Object Selection Document Storage** | 1.2.840.10008.5.1.4.1.1.88.59 | Key image/object references | ✅ Synthetic KOS + semantic references |
 | **Grayscale Softcopy Presentation State Storage** | 1.2.840.10008.5.1.4.1.1.11.1 | Image-relative graphic annotations | ✅ Synthetic GSPS |
 | **Encapsulated PDF Storage** | 1.2.840.10008.5.1.4.1.1.104.1 | Encapsulated PDF documents | ✅ Synthetic DOC |
 | **Encapsulated CDA Storage** | 1.2.840.10008.5.1.4.1.1.104.2 | Encapsulated CDA documents | ✅ Synthetic DOC |
@@ -242,6 +333,12 @@ DicomCore can read files from any DICOM Image Storage SOP Class. The library is 
 
 DicomCore can extract any DICOM attribute present in the file. Commonly accessed attributes include:
 
+SQ values are parsed for both explicit-length and undefined-length encodings,
+including undefined-length items and nested undefined-length sequences. Item and
+sequence delimiter tags must use zero length; malformed nesting, missing
+delimiters, invalid item tags, and unexpected EOF produce parser errors.
+Undefined-length non-SQ element values remain unsupported.
+
 **Patient Module:**
 - Patient Name (0010,0010)
 - Patient ID (0010,0020)
@@ -307,6 +404,11 @@ DicomCore can extract any DICOM attribute present in the file. Commonly accessed
 - Graphic Data (0070,0022)
 - Graphic Type (0070,0023)
 
+SR parsing remains syntactic for every SR SOP Class UID listed above. Semantic validation is explicit and scoped to
+Enhanced SR and Comprehensive SR TID 1500 measurement reports plus Key Object Selection references through
+``DicomSRSupportMatrix`` and ``DicomSRSemanticValidator``. Other templates or relationship patterns return stable
+validation errors instead of partial semantic success.
+
 **Presentation State Modules:**
 - Referenced Series Sequence (0008,1115)
 - Referenced Image Sequence (0008,1140)
@@ -371,16 +473,31 @@ from CSA payloads without coupling renderer code to private tag details.
 
 ## 4. Pixel Data Formats
 
-### 4.1 Supported Photometric Interpretations
+### 4.1 Display Color Conversion Matrix
 
-| Photometric Interpretation | Bits Allocated | Support Level |
-|----------------------------|----------------|---------------|
-| **MONOCHROME1** | 8, 16 | ✅ Full Support |
-| **MONOCHROME2** | 8, 16 | ✅ Full Support |
-| **RGB** | 8 per channel | ✅ Full Support |
-| **PALETTE COLOR** | 8, 16 index | ✅ Display RGB + native CLUT metadata |
-| **YBR_FULL** | 8 per sample | ✅ Display RGB |
-| **YBR_FULL_422** | 8 per sample | ✅ Display RGB |
+Use ``DicomColorDisplayConversionMatrix`` for the display conversion contract.
+This matrix is separate from compressed pixel codec support: transfer syntax
+decoding determines whether native frame bytes are available, while display
+conversion determines whether those native bytes can be converted to RGB8 for
+rendering.
+
+| Photometric Interpretation | Samples / Bits | Planar Configuration | ICC Profile | Display Status |
+|----------------------------|----------------|----------------------|-------------|----------------|
+| **MONOCHROME1** | 1 sample, 8 or 16 bits | Absent | Not applicable | Display RGB, inverted grayscale |
+| **MONOCHROME2** | 1 sample, 8 or 16 bits | Absent | Not applicable | Display RGB, grayscale |
+| **RGB** | 3 samples, 8 bits | Absent, 0, or 1 | Preserved | Display RGB |
+| **PALETTE COLOR** | 1 index, 8 or 16 bits | Absent | Preserved if present | Display RGB with RGB lookup tables |
+| **YBR_FULL** | 3 samples, 8 bits | Absent, 0, or 1 | Preserved | Display RGB |
+| **YBR_FULL_422** | 3 samples, 8 bits | Absent or 0 | Preserved | Display RGB |
+| **YBR_PARTIAL_420** | 3 samples, 8 bits | Absent or 0 | Not preserved | Unsupported |
+| **YBR_RCT** | 3 samples, 8 bits | Absent or 0 | Not preserved | Unsupported |
+| **YBR_ICT** | 3 samples, 8 bits | Absent or 0 | Not preserved | Unsupported |
+
+Unsupported display paths throw
+``DicomColorConversionError/unsupportedColorPath(context:reason:)`` with
+Photometric Interpretation, Samples per Pixel, Planar Configuration, Bits
+Allocated, and Transfer Syntax context. RGB alpha or extra samples are rejected
+explicitly rather than displayed as grayscale.
 
 ### 4.2 Pixel Data Processing
 
@@ -431,14 +548,16 @@ representation groups when present.
 
 ### 6.1 Data Security
 
-DicomCore operates entirely within the application sandbox with no network communication:
+DicomCore file parsing operates within the application sandbox. Network
+activity occurs only when an application uses the opt-in DICOMweb, DIMSE, or
+JPIP helper APIs with caller-configured endpoints and transports:
 
 | Security Aspect | Implementation |
 |-----------------|----------------|
-| **Network Security** | N/A (no network capabilities) |
+| **Network Security** | Caller-owned for configured DICOMweb, DIMSE, and JPIP transports; no TLS termination is implemented by the in-memory DICOMweb server |
 | **File Access** | Application sandbox only, respects iOS/macOS file permissions |
 | **Data Encryption** | Files are read as-is; encryption/decryption is the caller's responsibility |
-| **Authentication** | N/A (local library, no user authentication) |
+| **Authentication** | DICOMweb client accepts caller headers and the in-memory server can require a bearer token; authorization policy remains caller-owned |
 | **Audit Trail** | None (logging is the caller's responsibility) |
 
 ### 6.2 Patient Privacy
@@ -481,6 +600,8 @@ No runtime configuration files are required. Optional features:
 | **Memory Mapping Threshold** | 10 MB | Hard-coded, not configurable |
 | **Metal GPU Acceleration** | Auto-detect | Configurable per-call via `processingMode` parameter |
 | **Tag Caching** | Enabled | Always enabled, not configurable |
+| **CharLS runtime path** | Auto-detect | Optional `DICOM_DECODER_CHARLS_LIBRARY_PATH` override |
+| **OpenJPEG runtime path** | Auto-detect | Optional `DICOM_DECODER_OPENJPEG_LIBRARY_PATH` override |
 
 ### 7.3 Framework Dependencies
 
@@ -492,7 +613,7 @@ DicomCore uses Apple-provided frameworks for its core pipeline:
 - **Accelerate (vDSP):** CPU-based image processing
 - **Metal:** GPU-based image processing (optional)
 
-Deflated Explicit VR Little Endian uses system zlib for raw deflate/inflate. JPEG-LS decoding can use CharLS when that runtime library is available. JPEG 2000 decoding can use OpenJPEG when that runtime library is available. The Swift package does not add SPM dependencies for these codecs; the codec bridges load runtimes dynamically.
+Deflated Explicit VR Little Endian uses system zlib for raw deflate/inflate. JPEG-LS decoding can use CharLS when `DicomCodecRuntimePreflight.status(for: .charLS)` reports availability. JPEG 2000 decoding can use OpenJPEG when `DicomCodecRuntimePreflight.status(for: .openJPEG)` reports availability. The Swift package does not add SPM dependencies for these codecs; the codec bridges load runtimes dynamically and return typed unsupported-transfer-syntax errors when runtimes are absent, invalid, or missing required symbols.
 
 ---
 
@@ -503,9 +624,13 @@ Deflated Explicit VR Little Endian uses system zlib for raw deflate/inflate. JPE
 | Limitation | Impact | Workaround |
 |------------|--------|------------|
 | **Encapsulated multi-frame images** | Frame indexing is supported; full decode depends on codec support for the transfer syntax | Extract frames with `getEncapsulatedFrame(_:)` and decode with a supported codec |
-| **JPEG-LS Runtime Availability** | JPEG-LS requires CharLS to be available at runtime | Install CharLS or convert to a native lossless syntax |
+| **JPEG Lossless Restart Intervals and Multi-component Frames** | Native Process 14 decode rejects DRI/RSTn and multi-component frames with stable diagnostics | Convert to single-component Process 14 without restart intervals or use another validated backend |
+| **JPEG-LS Runtime Availability** | JPEG-LS requires `DicomCodecRuntimePreflight.status(for: .charLS)` to be available | Install CharLS, set `DICOM_DECODER_CHARLS_LIBRARY_PATH`, or convert to a native lossless syntax |
+| **JPEG 2000 Runtime Availability** | JPEG 2000 >8-bit and Part 2 paths require `DicomCodecRuntimePreflight.status(for: .openJPEG)` to be available | Install OpenJPEG, set `DICOM_DECODER_OPENJPEG_LIBRARY_PATH`, or convert to a native supported syntax |
+| **HTJ2K Pixel Decode** | HTJ2K syntaxes are unsupported until an explicit backend is implemented | Convert to a supported transfer syntax |
 | **JPEG Hierarchical** | JPEG processes other than Process 14 unsupported | Convert to supported transfer syntax |
-| **Unsupported color combinations** | `DicomColorConversionError` documents unsupported bit depth, planar layout, or missing CLUT cases | Convert through a supported transfer syntax/color layout |
+| **Unsupported color combinations** | `DicomColorConversionError.unsupportedColorPath` reports photometric interpretation, sample count, planar layout, bit depth, and transfer syntax context | Convert through a supported transfer syntax/color layout |
+| **Undefined-length non-SQ** | Non-SQ undefined values inside sequences throw parser errors | Use explicit lengths |
 | **Incomplete PET SUV metadata** | SUV helpers return no physical value and report missing DICOM tags | Preserve Units, Patient Weight/Size/Sex, radiopharmaceutical dose, decay, and timing metadata |
 | **Large Files** | Files >1GB may consume significant memory | Use memory-efficient workflows, process in chunks |
 
@@ -513,16 +638,42 @@ Deflated Explicit VR Little Endian uses system zlib for raw deflate/inflate. JPE
 
 | Limitation | Impact |
 |------------|--------|
-| **No DICOM Network** | Cannot communicate with PACS, modalities, or workstations |
-| **Limited Writing Scope** | General dataset writing is limited to native or Deflated Explicit VR Little Endian Part 10 datasets and DICOMDIR media records; video builders can also write caller-provided encapsulated MPEG-2/H.264/H.265 streams |
-| **Limited Structured Report Semantics** | SR/KOS trees, measurements, ROI/source references, CAD finding containers, and key image references are parsed, but full template validation is not implemented |
+| **No production DICOMweb/PACS stack** | DICOMweb helpers cover the tested matrix only; persistent storage, full UPS, server-side rendered frames, JPIP proxying, authorization policy, PHI audit logging, TLS termination, and zero-copy streaming are caller-owned or unsupported |
+| **Limited Writing Scope** | General dataset writing is limited to native/Deflated datasets, JPIP metadata references, DICOMDIR media records, and caller-provided encapsulated payload passthrough; pixel recompression is not implemented |
+| **Limited Structured Report Semantics** | Semantic validation is scoped to Enhanced/Comprehensive SR TID 1500 and KOS references; other SR SOP classes/templates parse syntactically and return stable validation errors for semantic use |
 | **Limited Secondary Capture Pixel Inputs** | SC writing supports native unsigned monochrome and interleaved RGB pixel payloads, including CGImage snapshots converted to RGB8 |
 | **Limited Encapsulated Document Scope** | Document object writing is limited to Encapsulated PDF, CDA, and STL Part 10 datasets; embedded document contents are preserved but not rendered or semantically parsed |
 | **Limited Waveform Sample Scope** | Waveform writing/parsing covers linear 8/16/32-bit integer sample interpretations and exposes temporal samples without converting them to image volumes |
 | **Limited Video Scope** | Video writing/parsing encapsulates and exposes caller-provided MPEG-2/H.264/H.265 streams with metadata; native video decoding is delegated to the application/player backend |
 | **Limited Presentation State Scope** | GSPS graphic annotations are parsed/built for object exchange; display application of GSPS transforms remains caller-owned |
 
-### 8.3 Performance Considerations
+### 8.3 Backlog Alignment
+
+Remaining limitations in this conformance statement are explicitly scoped:
+
+- Package-level codec and writer limitations are exposed through
+  `DicomTransferSyntaxRegistry.standard.compressedPixelSupportMatrix` and
+  `DicomTransferSyntaxRegistry.standard.writeSupportMatrix`.
+- DICOMweb limitations are exposed through
+  ``DicomWebConformanceMatrix/packageDefault`` and are intentionally helper
+  scope unless a future issue makes DICOM-Decoder a production PACS stack.
+- DIMSE limitations are limited to archive qualification and production
+  operations policy; package tests cover the listed SCU/SCP helpers, while
+  deployment, audit, authorization, and external archive validation remain
+  caller-owned.
+- Structured Report semantic validation remains scoped through
+  ``DicomSRSupportMatrix`` and ``DicomSRSemanticValidator``.
+- Export, print, waveform, and video limitations are exposed through
+  ``DicomExportSupportMatrix/packageDefault`` and typed unsupported-path errors.
+- SwiftUI preview mocks and sample data are documented as preview-only support
+  API and are not clinical/runtime decoder surfaces.
+- Isis-level DCMTK parity documentation was closed separately in issue #1064;
+  package documentation reconciliation is covered by issue #1077.
+- MTK rendering and viewer workflow limitations are outside DICOM-Decoder
+  package conformance and are tracked by the open MTK issues #1078 through
+  #1090.
+
+### 8.4 Performance Considerations
 
 | Scenario | Expected Performance | Recommendation |
 |----------|---------------------|----------------|
@@ -640,22 +791,25 @@ Complete list of DICOM Transfer Syntax UIDs mentioned in this document:
 |-----|------|---------|
 | 1.2.840.10008.1.2 | Implicit VR Little Endian | ✅ Full |
 | 1.2.840.10008.1.2.1 | Explicit VR Little Endian | ✅ Full |
-| 1.2.840.10008.1.2.1.99 | Deflated Explicit VR Little Endian | ✅ Full |
+| 1.2.840.10008.1.2.1.99 | Deflated Explicit VR Little Endian | out-of-scope for pixel codecs; dataset deflate supported |
 | 1.2.840.10008.1.2.2 | Explicit VR Big Endian | ✅ Full |
-| 1.2.840.10008.1.2.4.50 | JPEG Baseline (Process 1) | ⚠️ Explicit ImageIO 8-bit |
-| 1.2.840.10008.1.2.4.51 | JPEG Extended (Process 2 & 4) | ⚠️ Explicit ImageIO <=8-bit; 12-bit diagnostics |
-| 1.2.840.10008.1.2.4.57 | JPEG Lossless, Non-Hierarchical (Process 14) | ✅ Full |
-| 1.2.840.10008.1.2.4.70 | JPEG Lossless, Non-Hierarchical, First-Order Prediction | ✅ Full |
-| 1.2.840.10008.1.2.4.80 | JPEG-LS Lossless Image Compression | ⚠️ Best-Effort |
-| 1.2.840.10008.1.2.4.81 | JPEG-LS Lossy Near-Lossless Image Compression | ⚠️ Best-Effort |
-| 1.2.840.10008.1.2.4.90 | JPEG 2000 Image Compression (Lossless Only) | ⚠️ Explicit OpenJPEG up to 16-bit grayscale |
-| 1.2.840.10008.1.2.4.91 | JPEG 2000 Image Compression | ⚠️ Explicit OpenJPEG up to 16-bit grayscale |
-| 1.2.840.10008.1.2.4.92 | JPEG 2000 Part 2 Multi-component Image Compression (Lossless Only) | ⚠️ Explicit OpenJPEG volume document |
-| 1.2.840.10008.1.2.4.93 | JPEG 2000 Part 2 Multi-component Image Compression | ⚠️ Explicit OpenJPEG volume document |
-| 1.2.840.10008.1.2.4.201 | HTJ2K Image Compression (Lossless Only) | ❌ Not Supported |
-| 1.2.840.10008.1.2.4.202 | HTJ2K Image Compression (Lossless RPCL) | ❌ Not Supported |
-| 1.2.840.10008.1.2.4.203 | HTJ2K Image Compression | ❌ Not Supported |
-| 1.2.840.10008.1.2.5 | RLE Lossless | ✅ Full |
+| 1.2.840.10008.1.2.4.50 | JPEG Baseline (Process 1) | delegated ImageIO 8-bit |
+| 1.2.840.10008.1.2.4.51 | JPEG Extended (Process 2 & 4) | delegated ImageIO <=8-bit; 12-bit diagnostics |
+| 1.2.840.10008.1.2.4.57 | JPEG Lossless, Non-Hierarchical (Process 14) | decoded native |
+| 1.2.840.10008.1.2.4.70 | JPEG Lossless, Non-Hierarchical, First-Order Prediction | decoded native |
+| 1.2.840.10008.1.2.4.80 | JPEG-LS Lossless Image Compression | delegated preflighted CharLS |
+| 1.2.840.10008.1.2.4.81 | JPEG-LS Lossy Near-Lossless Image Compression | delegated preflighted CharLS |
+| 1.2.840.10008.1.2.4.90 | JPEG 2000 Image Compression (Lossless Only) | delegated OpenJPEG; ImageIO 8-bit fallback |
+| 1.2.840.10008.1.2.4.91 | JPEG 2000 Image Compression | delegated OpenJPEG; ImageIO 8-bit fallback |
+| 1.2.840.10008.1.2.4.92 | JPEG 2000 Part 2 Multi-component Image Compression (Lossless Only) | delegated OpenJPEG volume document |
+| 1.2.840.10008.1.2.4.93 | JPEG 2000 Part 2 Multi-component Image Compression | delegated OpenJPEG volume document |
+| 1.2.840.10008.1.2.4.94 | JPIP Referenced Transfer Syntax | streamed-only |
+| 1.2.840.10008.1.2.4.95 | JPIP Referenced Deflate Transfer Syntax | streamed-only |
+| 1.2.840.10008.1.2.4.100-.108 | MPEG-2/H.264/HEVC video families | streamed-only |
+| 1.2.840.10008.1.2.4.201 | HTJ2K Image Compression (Lossless Only) | unsupported |
+| 1.2.840.10008.1.2.4.202 | HTJ2K Image Compression (Lossless RPCL) | unsupported |
+| 1.2.840.10008.1.2.4.203 | HTJ2K Image Compression | unsupported |
+| 1.2.840.10008.1.2.5 | RLE Lossless | decoded native |
 
 ---
 

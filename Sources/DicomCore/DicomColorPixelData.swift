@@ -7,6 +7,9 @@ public enum DicomPhotometricInterpretation: Equatable, Hashable, Sendable {
     case paletteColor
     case ybrFull
     case ybrFull422
+    case ybrPartial420
+    case ybrRCT
+    case ybrICT
     case unknown(String)
 
     public init(_ value: String) {
@@ -26,6 +29,12 @@ public enum DicomPhotometricInterpretation: Equatable, Hashable, Sendable {
             self = .ybrFull
         case "YBR_FULL_422":
             self = .ybrFull422
+        case "YBR_PARTIAL_420":
+            self = .ybrPartial420
+        case "YBR_RCT":
+            self = .ybrRCT
+        case "YBR_ICT":
+            self = .ybrICT
         default:
             self = .unknown(normalized)
         }
@@ -45,9 +54,219 @@ public enum DicomPhotometricInterpretation: Equatable, Hashable, Sendable {
             return "YBR_FULL"
         case .ybrFull422:
             return "YBR_FULL_422"
+        case .ybrPartial420:
+            return "YBR_PARTIAL_420"
+        case .ybrRCT:
+            return "YBR_RCT"
+        case .ybrICT:
+            return "YBR_ICT"
         case .unknown(let value):
             return value
         }
+    }
+}
+
+/// Display conversion status for a DICOM photometric interpretation row.
+public enum DicomColorDisplayConversionStatus: String, Codable, Equatable, Sendable {
+    /// DicomCore can produce an interleaved 8-bit RGB display buffer.
+    case displayRGB = "display-rgb"
+
+    /// DicomCore recognizes the photometric interpretation but does not convert it for display.
+    case unsupported
+}
+
+/// One row in the DicomCore color display conversion matrix.
+public struct DicomColorDisplayConversionSupport: Equatable, Sendable {
+    /// Photometric interpretation covered by the row.
+    public let photometricInterpretation: DicomPhotometricInterpretation
+
+    /// Display conversion status for this photometric interpretation.
+    public let status: DicomColorDisplayConversionStatus
+
+    /// Accepted Samples per Pixel values.
+    public let supportedSamplesPerPixel: [Int]
+
+    /// True when the Planar Configuration tag may be absent.
+    public let allowsAbsentPlanarConfiguration: Bool
+
+    /// Accepted Planar Configuration values when the tag is present.
+    public let supportedPlanarConfigurations: [Int]
+
+    /// Accepted Bits Allocated values.
+    public let supportedBitsAllocated: [Int]
+
+    /// True when PALETTE COLOR conversion requires RGB lookup tables.
+    public let requiresPaletteColorLookupTable: Bool
+
+    /// True when ICC Profile metadata is carried through to the display buffer.
+    public let preservesICCProfile: Bool
+
+    /// Stable diagnostic for unsupported or constrained conversion rows.
+    public let diagnostic: String
+
+    /// True when this row can produce display RGB data.
+    public var supportsDisplayRGB: Bool {
+        status == .displayRGB
+    }
+
+    /// Creates a color display conversion matrix row.
+    public init(
+        photometricInterpretation: DicomPhotometricInterpretation,
+        status: DicomColorDisplayConversionStatus,
+        supportedSamplesPerPixel: [Int],
+        allowsAbsentPlanarConfiguration: Bool,
+        supportedPlanarConfigurations: [Int],
+        supportedBitsAllocated: [Int],
+        requiresPaletteColorLookupTable: Bool,
+        preservesICCProfile: Bool,
+        diagnostic: String
+    ) {
+        self.photometricInterpretation = photometricInterpretation
+        self.status = status
+        self.supportedSamplesPerPixel = supportedSamplesPerPixel
+        self.allowsAbsentPlanarConfiguration = allowsAbsentPlanarConfiguration
+        self.supportedPlanarConfigurations = supportedPlanarConfigurations
+        self.supportedBitsAllocated = supportedBitsAllocated
+        self.requiresPaletteColorLookupTable = requiresPaletteColorLookupTable
+        self.preservesICCProfile = preservesICCProfile
+        self.diagnostic = diagnostic
+    }
+
+    /// Returns true when the row accepts the supplied Planar Configuration value.
+    public func supports(planarConfiguration: Int?) -> Bool {
+        guard let planarConfiguration else {
+            return allowsAbsentPlanarConfiguration
+        }
+        return supportedPlanarConfigurations.contains(planarConfiguration)
+    }
+}
+
+/// DicomCore's explicit color display conversion support matrix.
+public enum DicomColorDisplayConversionMatrix {
+    /// Standard display conversion support rows for known photometric interpretations.
+    public static let standard: [DicomColorDisplayConversionSupport] = [
+        DicomColorDisplayConversionSupport(
+            photometricInterpretation: .monochrome1,
+            status: .displayRGB,
+            supportedSamplesPerPixel: [1],
+            allowsAbsentPlanarConfiguration: true,
+            supportedPlanarConfigurations: [],
+            supportedBitsAllocated: [8, 16],
+            requiresPaletteColorLookupTable: false,
+            preservesICCProfile: false,
+            diagnostic: "MONOCHROME1 display conversion maps stored samples to inverted grayscale RGB."
+        ),
+        DicomColorDisplayConversionSupport(
+            photometricInterpretation: .monochrome2,
+            status: .displayRGB,
+            supportedSamplesPerPixel: [1],
+            allowsAbsentPlanarConfiguration: true,
+            supportedPlanarConfigurations: [],
+            supportedBitsAllocated: [8, 16],
+            requiresPaletteColorLookupTable: false,
+            preservesICCProfile: false,
+            diagnostic: "MONOCHROME2 display conversion maps stored samples to grayscale RGB."
+        ),
+        DicomColorDisplayConversionSupport(
+            photometricInterpretation: .rgb,
+            status: .displayRGB,
+            supportedSamplesPerPixel: [3],
+            allowsAbsentPlanarConfiguration: true,
+            supportedPlanarConfigurations: [0, 1],
+            supportedBitsAllocated: [8],
+            requiresPaletteColorLookupTable: false,
+            preservesICCProfile: true,
+            diagnostic: "RGB display conversion supports 8-bit three-sample interleaved or planar data; "
+                + "alpha and extra samples are unsupported."
+        ),
+        DicomColorDisplayConversionSupport(
+            photometricInterpretation: .paletteColor,
+            status: .displayRGB,
+            supportedSamplesPerPixel: [1],
+            allowsAbsentPlanarConfiguration: true,
+            supportedPlanarConfigurations: [],
+            supportedBitsAllocated: [8, 16],
+            requiresPaletteColorLookupTable: true,
+            preservesICCProfile: true,
+            diagnostic: "PALETTE COLOR display conversion requires red, green, and blue lookup tables."
+        ),
+        DicomColorDisplayConversionSupport(
+            photometricInterpretation: .ybrFull,
+            status: .displayRGB,
+            supportedSamplesPerPixel: [3],
+            allowsAbsentPlanarConfiguration: true,
+            supportedPlanarConfigurations: [0, 1],
+            supportedBitsAllocated: [8],
+            requiresPaletteColorLookupTable: false,
+            preservesICCProfile: true,
+            diagnostic: "YBR_FULL display conversion supports 8-bit three-sample interleaved or planar data."
+        ),
+        DicomColorDisplayConversionSupport(
+            photometricInterpretation: .ybrFull422,
+            status: .displayRGB,
+            supportedSamplesPerPixel: [3],
+            allowsAbsentPlanarConfiguration: true,
+            supportedPlanarConfigurations: [0],
+            supportedBitsAllocated: [8],
+            requiresPaletteColorLookupTable: false,
+            preservesICCProfile: true,
+            diagnostic: "YBR_FULL_422 display conversion supports packed 4:2:2 data with absent or zero "
+                + "Planar Configuration."
+        ),
+        DicomColorDisplayConversionSupport(
+            photometricInterpretation: .ybrPartial420,
+            status: .unsupported,
+            supportedSamplesPerPixel: [3],
+            allowsAbsentPlanarConfiguration: true,
+            supportedPlanarConfigurations: [0],
+            supportedBitsAllocated: [8],
+            requiresPaletteColorLookupTable: false,
+            preservesICCProfile: false,
+            diagnostic: "YBR_PARTIAL_420 display conversion is not implemented; convert to RGB or YBR_FULL "
+                + "before display."
+        ),
+        DicomColorDisplayConversionSupport(
+            photometricInterpretation: .ybrRCT,
+            status: .unsupported,
+            supportedSamplesPerPixel: [3],
+            allowsAbsentPlanarConfiguration: true,
+            supportedPlanarConfigurations: [0],
+            supportedBitsAllocated: [8],
+            requiresPaletteColorLookupTable: false,
+            preservesICCProfile: false,
+            diagnostic: "YBR_RCT reversible color transform display conversion is not implemented."
+        ),
+        DicomColorDisplayConversionSupport(
+            photometricInterpretation: .ybrICT,
+            status: .unsupported,
+            supportedSamplesPerPixel: [3],
+            allowsAbsentPlanarConfiguration: true,
+            supportedPlanarConfigurations: [0],
+            supportedBitsAllocated: [8],
+            requiresPaletteColorLookupTable: false,
+            preservesICCProfile: false,
+            diagnostic: "YBR_ICT irreversible color transform display conversion is not implemented."
+        )
+    ]
+
+    /// Returns the matrix row for a photometric interpretation.
+    public static func support(
+        for photometricInterpretation: DicomPhotometricInterpretation
+    ) -> DicomColorDisplayConversionSupport {
+        if let support = standard.first(where: { $0.photometricInterpretation == photometricInterpretation }) {
+            return support
+        }
+        return DicomColorDisplayConversionSupport(
+            photometricInterpretation: photometricInterpretation,
+            status: .unsupported,
+            supportedSamplesPerPixel: [],
+            allowsAbsentPlanarConfiguration: true,
+            supportedPlanarConfigurations: [],
+            supportedBitsAllocated: [],
+            requiresPaletteColorLookupTable: false,
+            preservesICCProfile: false,
+            diagnostic: "\(photometricInterpretation.rawValue) display conversion is not implemented."
+        )
     }
 }
 
@@ -149,6 +368,7 @@ public enum DicomColorConversionError: Error, Equatable, LocalizedError, Sendabl
     case unsupportedSamplesPerPixel(Int)
     case unsupportedBitsAllocated(Int)
     case unsupportedPlanarConfiguration(Int?)
+    case unsupportedColorPath(context: DicomColorConversionContext, reason: String)
     case missingPaletteColorLookupTable
     case invalidPixelData(String)
 
@@ -165,11 +385,56 @@ public enum DicomColorConversionError: Error, Equatable, LocalizedError, Sendabl
         case .unsupportedPlanarConfiguration(let value):
             let text = value.map(String.init) ?? "absent"
             return "Unsupported Planar Configuration: \(text)."
+        case .unsupportedColorPath(let context, let reason):
+            return "Unsupported color display conversion: \(reason) (\(context.diagnosticDescription))."
         case .missingPaletteColorLookupTable:
             return "PALETTE COLOR conversion requires red, green, and blue lookup tables."
         case .invalidPixelData(let reason):
             return "Invalid Pixel Data: \(reason)."
         }
+    }
+}
+
+/// Diagnostic context included when a color display path is rejected.
+public struct DicomColorConversionContext: Equatable, Sendable {
+    /// DICOM Photometric Interpretation value used for display conversion.
+    public let photometricInterpretation: String
+
+    /// DICOM Samples per Pixel value.
+    public let samplesPerPixel: Int
+
+    /// DICOM Planar Configuration value, or nil when absent.
+    public let planarConfiguration: Int?
+
+    /// DICOM Bits Allocated value.
+    public let bitsAllocated: Int
+
+    /// DICOM Transfer Syntax UID used when reading the pixel data.
+    public let transferSyntaxUID: String
+
+    /// Stable single-line description for logs and tests.
+    public var diagnosticDescription: String {
+        let planar = planarConfiguration.map(String.init) ?? "absent"
+        return "Photometric Interpretation=\(photometricInterpretation), "
+            + "Samples per Pixel=\(samplesPerPixel), "
+            + "Planar Configuration=\(planar), "
+            + "Bits Allocated=\(bitsAllocated), "
+            + "Transfer Syntax=\(transferSyntaxUID)"
+    }
+
+    /// Creates color conversion diagnostic context.
+    public init(
+        photometricInterpretation: String,
+        samplesPerPixel: Int,
+        planarConfiguration: Int?,
+        bitsAllocated: Int,
+        transferSyntaxUID: String
+    ) {
+        self.photometricInterpretation = photometricInterpretation
+        self.samplesPerPixel = samplesPerPixel
+        self.planarConfiguration = planarConfiguration
+        self.bitsAllocated = bitsAllocated
+        self.transferSyntaxUID = transferSyntaxUID
     }
 }
 
@@ -189,20 +454,27 @@ extension DCMDecoder {
             }
 
             let metadata = makeNativeColorMetadataUnsafe(descriptor: descriptor)
+            let context = makeColorConversionContextUnsafe(metadata: metadata)
             let rgbData: Data
             switch metadata.photometricInterpretation {
             case .monochrome1, .monochrome2:
-                rgbData = try makeMonochromeDisplayRGB(frame: frame, metadata: metadata)
+                rgbData = try makeMonochromeDisplayRGB(frame: frame, metadata: metadata, context: context)
             case .rgb:
-                rgbData = try makeRGBDisplayData(frame: frame)
+                rgbData = try makeRGBDisplayData(frame: frame, context: context)
             case .paletteColor:
-                rgbData = try makePaletteDisplayRGB(frame: frame, metadata: metadata)
+                rgbData = try makePaletteDisplayRGB(frame: frame, metadata: metadata, context: context)
             case .ybrFull:
-                rgbData = try makeYBRFullDisplayRGB(frame: frame)
+                rgbData = try makeYBRFullDisplayRGB(frame: frame, context: context)
             case .ybrFull422:
-                rgbData = try makeYBRFull422DisplayRGB(frame: frame)
+                rgbData = try makeYBRFull422DisplayRGB(frame: frame, context: context)
+            case .ybrPartial420, .ybrRCT, .ybrICT:
+                let support = DicomColorDisplayConversionMatrix.support(for: metadata.photometricInterpretation)
+                throw DicomColorConversionError.unsupportedColorPath(context: context, reason: support.diagnostic)
             case .unknown(let value):
-                throw DicomColorConversionError.unsupportedPhotometricInterpretation(value)
+                throw DicomColorConversionError.unsupportedColorPath(
+                    context: context,
+                    reason: "\(value) display conversion is not implemented."
+                )
             }
 
             return DicomDisplayPixelBuffer(
@@ -235,6 +507,22 @@ extension DCMDecoder {
         )
     }
 
+    private func makeColorConversionContextUnsafe(
+        metadata: DicomNativeColorMetadata
+    ) -> DicomColorConversionContext {
+        let transferSyntax = transferSyntaxUID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return DicomColorConversionContext(
+            photometricInterpretation: metadata.photometricInterpretation.rawValue,
+            samplesPerPixel: metadata.samplesPerPixel,
+            planarConfiguration: metadata.planarConfiguration,
+            bitsAllocated: metadata.bitsAllocated,
+            transferSyntaxUID: transferSyntax.isEmpty
+                ? DicomTransferSyntax.explicitVRLittleEndian.rawValue
+                : transferSyntax
+        )
+    }
+
     private func makePaletteColorLookupTableUnsafe() -> DicomPaletteColorLookupTable? {
         guard let reds, let greens, let blues else {
             return nil
@@ -260,13 +548,22 @@ extension DCMDecoder {
 
     private func makeMonochromeDisplayRGB(
         frame: DicomPixelFrame,
-        metadata: DicomNativeColorMetadata
+        metadata: DicomNativeColorMetadata,
+        context: DicomColorConversionContext
     ) throws -> Data {
         guard frame.descriptor.samplesPerPixel == 1 else {
-            throw DicomColorConversionError.unsupportedSamplesPerPixel(frame.descriptor.samplesPerPixel)
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: "\(metadata.photometricInterpretation.rawValue) display conversion requires "
+                    + "Samples per Pixel 1."
+            )
         }
         guard frame.descriptor.bytesPerSample <= 2 else {
-            throw DicomColorConversionError.unsupportedBitsAllocated(frame.descriptor.bitsAllocated)
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: "\(metadata.photometricInterpretation.rawValue) display conversion supports only "
+                    + "8-bit or 16-bit samples."
+            )
         }
 
         let pixelsPerFrame = frame.descriptor.rows * frame.descriptor.columns
@@ -294,30 +591,48 @@ extension DCMDecoder {
         return Data(output)
     }
 
-    private func makeRGBDisplayData(frame: DicomPixelFrame) throws -> Data {
-        try validateThreeSample8BitFrame(frame)
+    private func makeRGBDisplayData(
+        frame: DicomPixelFrame,
+        context: DicomColorConversionContext
+    ) throws -> Data {
+        try validateThreeSample8BitFrame(frame, context: context, colorSpaceName: "RGB")
         return try makeThreeSampleDisplayRGB(frame: frame) { red, green, blue in
             (red, green, blue)
         }
     }
 
-    private func makeYBRFullDisplayRGB(frame: DicomPixelFrame) throws -> Data {
-        try validateThreeSample8BitFrame(frame)
+    private func makeYBRFullDisplayRGB(
+        frame: DicomPixelFrame,
+        context: DicomColorConversionContext
+    ) throws -> Data {
+        try validateThreeSample8BitFrame(frame, context: context, colorSpaceName: "YBR_FULL")
         return try makeThreeSampleDisplayRGB(frame: frame) { y, cb, cr in
             Self.ybrToRgb(y: y, cb: cb, cr: cr)
         }
     }
 
-    private func makeYBRFull422DisplayRGB(frame: DicomPixelFrame) throws -> Data {
+    private func makeYBRFull422DisplayRGB(
+        frame: DicomPixelFrame,
+        context: DicomColorConversionContext
+    ) throws -> Data {
         let descriptor = frame.descriptor
         guard descriptor.samplesPerPixel == 3 else {
-            throw DicomColorConversionError.unsupportedSamplesPerPixel(descriptor.samplesPerPixel)
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: "YBR_FULL_422 display conversion requires Samples per Pixel 3."
+            )
         }
         guard descriptor.bitsAllocated == 8 else {
-            throw DicomColorConversionError.unsupportedBitsAllocated(descriptor.bitsAllocated)
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: "YBR_FULL_422 display conversion supports only 8-bit samples."
+            )
         }
         guard descriptor.planarConfiguration == nil || descriptor.planarConfiguration == 0 else {
-            throw DicomColorConversionError.unsupportedPlanarConfiguration(descriptor.planarConfiguration)
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: "YBR_FULL_422 display conversion supports absent or zero Planar Configuration."
+            )
         }
         guard descriptor.columns % 2 == 0 else {
             throw DicomColorConversionError.invalidPixelData("YBR_FULL_422 requires an even column count.")
@@ -350,17 +665,27 @@ extension DCMDecoder {
 
     private func makePaletteDisplayRGB(
         frame: DicomPixelFrame,
-        metadata: DicomNativeColorMetadata
+        metadata: DicomNativeColorMetadata,
+        context: DicomColorConversionContext
     ) throws -> Data {
         let descriptor = frame.descriptor
         guard descriptor.samplesPerPixel == 1 else {
-            throw DicomColorConversionError.unsupportedSamplesPerPixel(descriptor.samplesPerPixel)
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: "PALETTE COLOR display conversion requires Samples per Pixel 1."
+            )
         }
         guard descriptor.bytesPerSample <= 2 else {
-            throw DicomColorConversionError.unsupportedBitsAllocated(descriptor.bitsAllocated)
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: "PALETTE COLOR display conversion supports only 8-bit or 16-bit palette indexes."
+            )
         }
         guard let palette = metadata.paletteColorLookupTable else {
-            throw DicomColorConversionError.missingPaletteColorLookupTable
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: "PALETTE COLOR display conversion requires red, green, and blue lookup tables."
+            )
         }
 
         let pixelsPerFrame = descriptor.rows * descriptor.columns
@@ -387,7 +712,10 @@ extension DCMDecoder {
                     for: storedValue,
                     availableEntryCount: palette.blue.count
                   ) else {
-                throw DicomColorConversionError.missingPaletteColorLookupTable
+                throw DicomColorConversionError.unsupportedColorPath(
+                    context: context,
+                    reason: "PALETTE COLOR display conversion requires valid red, green, and blue lookup table entries."
+                )
             }
 
             let base = pixelIndex * 3
@@ -399,18 +727,35 @@ extension DCMDecoder {
         return Data(output)
     }
 
-    private func validateThreeSample8BitFrame(_ frame: DicomPixelFrame) throws {
+    private func validateThreeSample8BitFrame(
+        _ frame: DicomPixelFrame,
+        context: DicomColorConversionContext,
+        colorSpaceName: String
+    ) throws {
         let descriptor = frame.descriptor
         guard descriptor.samplesPerPixel == 3 else {
-            throw DicomColorConversionError.unsupportedSamplesPerPixel(descriptor.samplesPerPixel)
+            let reason = descriptor.samplesPerPixel > 3
+                ? "\(colorSpaceName) display conversion supports exactly 3 samples; "
+                    + "alpha and extra samples are unsupported."
+                : "\(colorSpaceName) display conversion requires Samples per Pixel 3."
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: reason
+            )
         }
         guard descriptor.bitsAllocated == 8 else {
-            throw DicomColorConversionError.unsupportedBitsAllocated(descriptor.bitsAllocated)
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: "\(colorSpaceName) display conversion supports only 8-bit samples."
+            )
         }
         guard descriptor.planarConfiguration == nil
                 || descriptor.planarConfiguration == 0
                 || descriptor.planarConfiguration == 1 else {
-            throw DicomColorConversionError.unsupportedPlanarConfiguration(descriptor.planarConfiguration)
+            throw DicomColorConversionError.unsupportedColorPath(
+                context: context,
+                reason: "\(colorSpaceName) display conversion supports absent, zero, or one Planar Configuration."
+            )
         }
     }
 
@@ -546,7 +891,24 @@ public extension DicomDecoderProtocol {
     }
 
     func displayRGBPixelBuffer(frame: Int) throws -> DicomDisplayPixelBuffer {
-        throw DicomColorConversionError.unsupportedPhotometricInterpretation(photometricInterpretation)
+        let photometric = DicomPhotometricInterpretation(
+            photometricInterpretation.isEmpty ? "MONOCHROME2" : photometricInterpretation
+        )
+        let transferSyntax = info(for: .transferSyntaxUID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let context = DicomColorConversionContext(
+            photometricInterpretation: photometric.rawValue,
+            samplesPerPixel: samplesPerPixel,
+            planarConfiguration: nil,
+            bitsAllocated: bitDepth,
+            transferSyntaxUID: transferSyntax.isEmpty
+                ? DicomTransferSyntax.explicitVRLittleEndian.rawValue
+                : transferSyntax
+        )
+        throw DicomColorConversionError.unsupportedColorPath(
+            context: context,
+            reason: "\(photometric.rawValue) display conversion is not implemented by this decoder."
+        )
     }
 
     func displayRGBPixelBuffer() throws -> DicomDisplayPixelBuffer {

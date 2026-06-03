@@ -1,4 +1,5 @@
 import XCTest
+import DicomTestSupport
 @testable import DicomCore
 
 /// Performance tests for DCMWindowingProcessor to verify Metal GPU acceleration
@@ -70,11 +71,8 @@ final class DCMWindowingProcessorPerformanceTests: XCTestCase {
 
     /// Benchmarks GPU-based window/level processing using Metal.
     /// Tests Metal acceleration across various image sizes.
-    func testMetalWindowingPerformance() {
-        guard MetalWindowingProcessor.isMetalAvailable else {
-            print("Metal not available, skipping Metal performance tests")
-            return
-        }
+    func testMetalWindowingPerformance() throws {
+        try DicomTestRuntimePreflight.require(.metalDevice)
 
         let testCases: [(width: Int, height: Int, description: String)] = [
             (256, 256, "Small (256×256)"),
@@ -135,11 +133,8 @@ final class DCMWindowingProcessorPerformanceTests: XCTestCase {
 
     /// Compares Metal and vDSP performance side-by-side.
     /// Acceptance criteria: Metal shows speedup (≥2x) for large images (≥800×800).
-    func testMetalVsVDSPSpeedup() {
-        guard MetalWindowingProcessor.isMetalAvailable else {
-            print("Metal not available, skipping Metal vs vDSP comparison")
-            return
-        }
+    func testMetalVsVDSPSpeedup() throws {
+        try DicomTestRuntimePreflight.require(.metalDevice)
 
         let testCases: [(width: Int, height: Int, description: String, expectSpeedup: Bool)] = [
             (256, 256, "Small (256×256)", false),  // Metal overhead may dominate
@@ -278,11 +273,8 @@ final class DCMWindowingProcessorPerformanceTests: XCTestCase {
 
     /// Verifies that Metal and vDSP produce identical results.
     /// This is critical to ensure GPU acceleration maintains correctness.
-    func testMetalVDSPCorrectness() {
-        guard MetalWindowingProcessor.isMetalAvailable else {
-            print("Metal not available, skipping correctness verification")
-            return
-        }
+    func testMetalVDSPCorrectness() throws {
+        try DicomTestRuntimePreflight.require(.metalDevice)
 
         let testCases: [(width: Int, height: Int, center: Double, windowWidth: Double)] = [
             (256, 256, 2048.0, 4096.0),

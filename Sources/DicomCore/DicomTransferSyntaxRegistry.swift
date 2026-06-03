@@ -58,6 +58,133 @@ public enum DicomCodecSupport: Equatable, Sendable {
     }
 }
 
+/// Explicit package behavior for a compressed or referenced pixel transfer syntax.
+public enum DicomCompressedPixelSupportStatus: String, Codable, Equatable, Sendable {
+    /// DicomCore decodes the compressed frame natively.
+    case decoded
+
+    /// DicomCore delegates decode to a platform or optional runtime backend.
+    case delegated
+
+    /// DicomCore exposes encoded or referenced data, but does not decode native frames.
+    case streamedOnly = "streamed-only"
+
+    /// DicomCore rejects native frame decode with a stable unsupported-transfer diagnostic.
+    case unsupported
+
+    /// The syntax is compressed at the dataset level, not a compressed pixel codec.
+    case outOfScope = "out-of-scope"
+}
+
+/// Support matrix row for a compressed, referenced, or video pixel transfer syntax.
+public struct DicomCompressedPixelSupport: Equatable, Sendable {
+    /// Transfer syntax covered by this row.
+    public let syntax: DicomTransferSyntax
+
+    /// DICOM transfer syntax name.
+    public let name: String
+
+    /// Codec family used by the transfer syntax.
+    public let codec: DicomTransferSyntaxCodec
+
+    /// Pixel support status.
+    public let status: DicomCompressedPixelSupportStatus
+
+    /// Stable diagnostic describing the backend or limitation.
+    public let diagnostic: String
+
+    /// Transfer syntax UID.
+    public var uid: String {
+        syntax.rawValue
+    }
+
+    /// Creates a compressed pixel support matrix row.
+    public init(
+        syntax: DicomTransferSyntax,
+        name: String,
+        codec: DicomTransferSyntaxCodec,
+        status: DicomCompressedPixelSupportStatus,
+        diagnostic: String
+    ) {
+        self.syntax = syntax
+        self.name = name
+        self.codec = codec
+        self.status = status
+        self.diagnostic = diagnostic
+    }
+}
+
+/// Explicit package behavior for writing a dataset with a transfer syntax.
+public enum DicomTransferSyntaxWriteStatus: String, Codable, Equatable, Sendable {
+    /// DicomCore writes native uncompressed dataset elements directly.
+    case nativeDataset = "native-dataset"
+
+    /// DicomCore writes explicit VR little endian dataset elements and deflates the dataset payload.
+    case deflatedDataset = "deflated-dataset"
+
+    /// DicomCore preserves caller-provided encapsulated Pixel Data without encoding compressed frames.
+    case encapsulatedPassThrough = "encapsulated-pass-through"
+
+    /// DicomCore writes referenced pixel metadata without generating local pixel payloads.
+    case referencedDataset = "referenced-dataset"
+
+    /// DicomCore cannot write this transfer syntax.
+    case unsupported
+}
+
+/// Support matrix row for writing a DICOM dataset with a transfer syntax.
+public struct DicomTransferSyntaxWriteSupport: Equatable, Sendable {
+    /// Transfer syntax covered by this row.
+    public let syntax: DicomTransferSyntax
+
+    /// DICOM transfer syntax name.
+    public let name: String
+
+    /// Codec family used by the transfer syntax.
+    public let codec: DicomTransferSyntaxCodec
+
+    /// Writer support status.
+    public let status: DicomTransferSyntaxWriteStatus
+
+    /// Encoder availability advertised by the registry.
+    public let encoderSupport: DicomCodecSupport
+
+    /// Stable diagnostic describing what the writer can and cannot do.
+    public let diagnostic: String
+
+    /// Transfer syntax UID.
+    public var uid: String {
+        syntax.rawValue
+    }
+
+    /// True when `DicomDataSetWriter` can write this syntax under the documented conditions.
+    public var supportsFileWriting: Bool {
+        status != .unsupported
+    }
+
+    /// True when writing requires an already encapsulated Pixel Data element.
+    public var requiresEncapsulatedPixelData: Bool {
+        status == .encapsulatedPassThrough
+    }
+
+    /// Creates a transfer syntax writer support matrix row.
+    public init(
+        syntax: DicomTransferSyntax,
+        name: String,
+        codec: DicomTransferSyntaxCodec,
+        status: DicomTransferSyntaxWriteStatus,
+        encoderSupport: DicomCodecSupport,
+        diagnostic: String
+    ) {
+        self.syntax = syntax
+        self.name = name
+        self.codec = codec
+        self.status = status
+        self.encoderSupport = encoderSupport
+        self.diagnostic = diagnostic
+    }
+}
+
 public struct DicomTransferSyntaxRegistryEntry: Equatable, Sendable {
     public let syntax: DicomTransferSyntax
     public let name: String
@@ -198,6 +325,28 @@ public struct DicomTransferSyntaxRegistry: Sendable {
         return entry(for: syntax)
     }
 
+    /// Matrix of compressed, referenced, and video pixel transfer syntax behavior.
+    public var compressedPixelSupportMatrix: [DicomCompressedPixelSupport] {
+        entries.compactMap(DicomCompressedPixelSupport.init(entry:))
+    }
+
+    /// Returns the compressed pixel support row for a transfer syntax, if applicable.
+    public func compressedPixelSupport(for syntax: DicomTransferSyntax) -> DicomCompressedPixelSupport? {
+        guard let entry = entry(for: syntax) else { return nil }
+        return DicomCompressedPixelSupport(entry: entry)
+    }
+
+    /// Matrix of dataset and Part 10 file writing behavior for every transfer syntax.
+    public var writeSupportMatrix: [DicomTransferSyntaxWriteSupport] {
+        entries.map(DicomTransferSyntaxWriteSupport.init(entry:))
+    }
+
+    /// Returns the writer support row for a transfer syntax.
+    public func writeSupport(for syntax: DicomTransferSyntax) -> DicomTransferSyntaxWriteSupport? {
+        guard let entry = entry(for: syntax) else { return nil }
+        return DicomTransferSyntaxWriteSupport(entry: entry)
+    }
+
     public func canTranscode(from source: DicomTransferSyntax, to destination: DicomTransferSyntax) -> Bool {
         transcodePlan(from: source, to: destination).canTranscode
     }
@@ -315,6 +464,19 @@ public extension DicomTransferSyntax {
         registryEntry.encoderSupport
     }
 
+    /// Compressed pixel support matrix row for this transfer syntax, if applicable.
+    var compressedPixelSupport: DicomCompressedPixelSupport? {
+        DicomTransferSyntaxRegistry.standard.compressedPixelSupport(for: self)
+    }
+
+    /// Dataset and Part 10 file writing support row for this transfer syntax.
+    var writeSupport: DicomTransferSyntaxWriteSupport {
+        guard let support = DicomTransferSyntaxRegistry.standard.writeSupport(for: self) else {
+            preconditionFailure("DicomTransferSyntaxRegistry.standard must cover every DicomTransferSyntax case.")
+        }
+        return support
+    }
+
     static func canTranscode(from source: DicomTransferSyntax, to destination: DicomTransferSyntax) -> Bool {
         DicomTransferSyntaxRegistry.standard.canTranscode(from: source, to: destination)
     }
@@ -342,6 +504,124 @@ private struct CodecRequirement {
     let kind: CodecRequirementKind
     let support: DicomCodecSupport
     let syntaxName: String
+}
+
+private extension DicomTransferSyntaxWriteSupport {
+    init(entry: DicomTransferSyntaxRegistryEntry) {
+        self.init(
+            syntax: entry.syntax,
+            name: entry.name,
+            codec: entry.codec,
+            status: Self.status(for: entry),
+            encoderSupport: entry.encoderSupport,
+            diagnostic: Self.diagnostic(for: entry)
+        )
+    }
+
+    static func status(for entry: DicomTransferSyntaxRegistryEntry) -> DicomTransferSyntaxWriteStatus {
+        if entry.syntax.usesDataSetDeflate && entry.pixelEncoding == .native {
+            return .deflatedDataset
+        }
+
+        switch entry.pixelEncoding {
+        case .native:
+            return .nativeDataset
+        case .encapsulated:
+            return .encapsulatedPassThrough
+        case .referenced:
+            return .referencedDataset
+        }
+    }
+
+    static func diagnostic(for entry: DicomTransferSyntaxRegistryEntry) -> String {
+        switch status(for: entry) {
+        case .nativeDataset:
+            return "DicomDataSetWriter serializes native uncompressed dataset elements directly; "
+                + "it does not preserve encapsulated compressed Pixel Data as native pixels."
+        case .deflatedDataset:
+            return "DicomDataSetWriter serializes explicit VR little endian dataset elements and "
+                + "deflates the dataset payload with zlib; this is dataset compression, not pixel recompression."
+        case .encapsulatedPassThrough:
+            return "DicomDataSetWriter does not encode compressed frames; it preserves already encapsulated "
+                + "Pixel Data for this transfer syntax and rejects native pixels."
+        case .referencedDataset:
+            return "DicomDataSetWriter serializes referenced pixel metadata and Pixel Data Provider URL; "
+                + "it does not generate JPIP transport payloads or rewrite local Pixel Data."
+        case .unsupported:
+            return "DicomDataSetWriter cannot write this transfer syntax."
+        }
+    }
+}
+
+private extension DicomCompressedPixelSupport {
+    init?(entry: DicomTransferSyntaxRegistryEntry) {
+        guard entry.isCompressed || entry.pixelEncoding == .referenced else {
+            return nil
+        }
+
+        self.init(
+            syntax: entry.syntax,
+            name: entry.name,
+            codec: entry.codec,
+            status: Self.status(for: entry),
+            diagnostic: Self.diagnostic(for: entry)
+        )
+    }
+
+    static func status(for entry: DicomTransferSyntaxRegistryEntry) -> DicomCompressedPixelSupportStatus {
+        switch entry.codec {
+        case .deflate:
+            return .outOfScope
+        case .jpegLossless, .rle:
+            return .decoded
+        case .jpegBaseline, .jpegExtended, .jpegLS, .jpeg2000, .jpeg2000Part2:
+            return .delegated
+        case .jpip, .mpeg2, .h264, .hevc:
+            return .streamedOnly
+        case .htj2k:
+            return .unsupported
+        case .native:
+            return .outOfScope
+        }
+    }
+
+    static func diagnostic(for entry: DicomTransferSyntaxRegistryEntry) -> String {
+        switch entry.codec {
+        case .deflate:
+            return "Dataset deflate is handled by DicomDeflatedDataSetCodec; "
+                + "it is not a compressed pixel codec."
+        case .jpegLossless:
+            return "Decoded natively by JPEGLosslessDecoder; restart intervals "
+                + "and multi-component frames are rejected with stable diagnostics."
+        case .rle:
+            return "Decoded natively by DicomRLELosslessDecoder."
+        case .jpegBaseline:
+            return "Delegated to ImageIO for platform-supported 8-bit JPEG Baseline frames."
+        case .jpegExtended:
+            return "Delegated to ImageIO only for <=8-bit frames; "
+                + "12-bit frames are rejected to avoid precision loss."
+        case .jpegLS:
+            return "Delegated to the preflighted CharLS runtime when "
+                + "DicomCodecRuntimePreflight reports it available."
+        case .jpeg2000:
+            return "Delegated to the preflighted OpenJPEG runtime up to 16-bit "
+                + "grayscale; ImageIO fallback is limited to 8-bit frames."
+        case .jpeg2000Part2:
+            return "Delegated to DicomJP3DVolumeDocument with the preflighted "
+                + "OpenJPEG runtime for volume buffers."
+        case .jpip:
+            return "Metadata and Pixel Data Provider URL are parsed; "
+                + "progressive frame data is streamed through caller-provided transport."
+        case .mpeg2, .h264, .hevc:
+            return "Encoded video payload is exposed for a player backend; "
+                + "DicomCore does not decode native video frames."
+        case .htj2k:
+            return "Unsupported until an explicit HTJ2K backend is implemented; "
+                + "ImageIO JPEG 2000 fallback is not used."
+        case .native:
+            return "Native uncompressed transfer syntax is outside the compressed pixel codec matrix."
+        }
+    }
 }
 
 private extension DicomTransferSyntaxRegistry {

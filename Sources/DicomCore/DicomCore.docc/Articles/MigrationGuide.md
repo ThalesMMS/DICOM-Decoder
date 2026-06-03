@@ -737,45 +737,23 @@ do {
 | `getDownsampledPixels16Async()` | `getDownsampledPixels16()` (synchronous) | Path 6 |
 | `getDownsampledPixels8Async()` | `getDownsampledPixels8()` (synchronous) | Path 6 |
 
-### Migration Checklist (Before v2.0.0)
+### Migration Status Before v2.0.0
 
-**File Loading (Path 1):**
-- [ ] Replace `setDicomFilename()` with throwing initializers
-- [ ] Replace `dicomFileReadSuccess` checks with `do-catch`
-- [ ] Replace `loadDICOMFileAsync()` with async throwing initializers
-- [ ] Update error handling to catch specific `DICOMError` cases
+This table records the migration actions consumers should complete before
+upgrading to the planned v2.0.0 API break. It is intentionally not an open
+project checklist; current package documentation reconciliation is tracked by
+issue #1077, and the Isis-level DCMTK parity documentation was closed by issue
+#1064.
 
-**Type-Safe Tags (Path 2):**
-- [ ] Replace hex tag values with `DicomTag` enum cases
-- [ ] Update all `0x00XXXXXX` to semantic enum names
-
-**Dictionary (Path 3):**
-- [ ] Replace `DCMDictionary.shared` with `DCMDictionary()` instances
-- [ ] Update static method calls to instance methods
-- [ ] Implement dependency injection where appropriate
-
-**Value Types (Path 4):**
-- [ ] Replace `windowSettings` with `windowSettingsV2`
-- [ ] Replace `pixelSpacing` with `pixelSpacingV2`
-- [ ] Replace `rescaleParameters` with `rescaleParametersV2`
-- [ ] Replace `calculateOptimalWindow()` with `calculateOptimalWindowV2()`
-
-**Windowing Methods (Path 5):**
-- [ ] Replace `calculateOptimalWindowLevel()` with V2 variant
-- [ ] Replace `getPresetValues()` with V2 variants
-- [ ] Replace `batchCalculateOptimalWindowLevel()` with V2 variant
-- [ ] Replace `getPresetName(center:width:)` with `getPresetName(settings:)`
-
-**Async Pixels (Path 6):**
-- [ ] Replace `getPixels16Async()` with synchronous `getPixels16()`
-- [ ] Replace `getPixels8Async()` with synchronous `getPixels8()`
-- [ ] Replace `getPixels24Async()` with synchronous `getPixels24()`
-- [ ] Replace downsampled async methods with synchronous equivalents
-
-**Final Verification:**
-- [ ] Build without deprecation warnings on v1.x
-- [ ] All tests pass
-- [ ] Ready for the v2.0.0 compatibility break
+| Area | Consumer Action | Current Package Status |
+| --- | --- | --- |
+| File Loading (Path 1) | Replace `setDicomFilename()`, `dicomFileReadSuccess`, and `loadDICOMFileAsync()` with throwing initializers, async throwing initializers, and `do-catch` handling for specific `DICOMError` cases. | Recommended APIs are available and documented. |
+| Type-Safe Tags (Path 2) | Replace standard hex tag values with `DicomTag` enum cases; keep raw hex only for private or custom tags. | `DicomTag` remains the preferred public API for standard tags. |
+| Dictionary (Path 3) | Replace `DCMDictionary.shared` and static calls with `DCMDictionary()` instances and dependency injection where appropriate. | Instance-based dictionary APIs are available and documented. |
+| Value Types (Path 4) | Replace tuple properties such as `windowSettings`, `pixelSpacing`, `rescaleParameters`, and `calculateOptimalWindow()` with their V2 value-type APIs. | V2 value-type APIs are available and documented. |
+| Windowing Methods (Path 5) | Replace tuple-returning windowing helpers with V2 variants such as `calculateOptimalWindowLevelV2()`, `getPresetValuesV2(...)`, `batchCalculateOptimalWindowLevelV2()`, and `getPresetName(settings:)`. | V2 windowing methods are available and documented. |
+| Async Pixels (Path 6) | Replace async pixel convenience methods with synchronous pixel/downsample accessors and move threading decisions to the caller. | Synchronous pixel APIs are available and documented. |
+| Final Verification | Build without v1.x deprecation warnings, run tests, and confirm readiness for the v2.0.0 compatibility break. | Verification remains a consumer integration responsibility. |
 
 ### Need Help?
 

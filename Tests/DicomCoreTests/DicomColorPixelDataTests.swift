@@ -2,6 +2,89 @@ import XCTest
 @testable import DicomCore
 
 final class DicomColorPixelDataTests: XCTestCase {
+    func testDisplayConversionMatrixDocumentsSupportedAndUnsupportedPhotometricRows() throws {
+        let rows = Dictionary(
+            uniqueKeysWithValues: DicomColorDisplayConversionMatrix.standard.map {
+                ($0.photometricInterpretation, $0)
+            }
+        )
+
+        XCTAssertEqual(Set(rows.keys), Set([
+            .monochrome1,
+            .monochrome2,
+            .rgb,
+            .paletteColor,
+            .ybrFull,
+            .ybrFull422,
+            .ybrPartial420,
+            .ybrRCT,
+            .ybrICT
+        ]))
+
+        let monochrome1 = try XCTUnwrap(rows[.monochrome1])
+        XCTAssertEqual(monochrome1.status, .displayRGB)
+        XCTAssertEqual(monochrome1.supportedSamplesPerPixel, [1])
+        XCTAssertEqual(monochrome1.supportedBitsAllocated, [8, 16])
+        XCTAssertTrue(monochrome1.supports(planarConfiguration: nil))
+
+        let rgb = try XCTUnwrap(rows[.rgb])
+        XCTAssertEqual(rgb.status, .displayRGB)
+        XCTAssertEqual(rgb.supportedSamplesPerPixel, [3])
+        XCTAssertEqual(rgb.supportedBitsAllocated, [8])
+        XCTAssertTrue(rgb.supports(planarConfiguration: nil))
+        XCTAssertTrue(rgb.supports(planarConfiguration: 0))
+        XCTAssertTrue(rgb.supports(planarConfiguration: 1))
+        XCTAssertTrue(rgb.preservesICCProfile)
+
+        let paletteColor = try XCTUnwrap(rows[.paletteColor])
+        XCTAssertEqual(paletteColor.status, .displayRGB)
+        XCTAssertTrue(paletteColor.requiresPaletteColorLookupTable)
+        XCTAssertEqual(paletteColor.supportedSamplesPerPixel, [1])
+
+        let ybrFull422 = try XCTUnwrap(rows[.ybrFull422])
+        XCTAssertTrue(ybrFull422.supports(planarConfiguration: nil))
+        XCTAssertTrue(ybrFull422.supports(planarConfiguration: 0))
+        XCTAssertFalse(ybrFull422.supports(planarConfiguration: 1))
+
+        XCTAssertEqual(rows[.ybrPartial420]?.status, .unsupported)
+        XCTAssertEqual(rows[.ybrRCT]?.status, .unsupported)
+        XCTAssertEqual(rows[.ybrICT]?.status, .unsupported)
+    }
+
+    func testMonochromeDisplayConversionsProduceExpectedRGB() throws {
+        let monochrome2URL = try makeTemporaryDICOM(
+            photometricInterpretation: "MONOCHROME2",
+            samplesPerPixel: 1,
+            width: 2,
+            height: 1,
+            bitsAllocated: 8,
+            pixelBytes: [0, 255]
+        )
+        defer { try? FileManager.default.removeItem(at: monochrome2URL) }
+
+        let monochrome1URL = try makeTemporaryDICOM(
+            photometricInterpretation: "MONOCHROME1",
+            samplesPerPixel: 1,
+            width: 2,
+            height: 1,
+            bitsAllocated: 8,
+            pixelBytes: [0, 255]
+        )
+        defer { try? FileManager.default.removeItem(at: monochrome1URL) }
+
+        let monochrome2 = try DCMDecoder(contentsOf: monochrome2URL).displayRGBPixelBuffer()
+        let monochrome1 = try DCMDecoder(contentsOf: monochrome1URL).displayRGBPixelBuffer()
+
+        XCTAssertEqual(monochrome2.rgbData, Data([
+            0, 0, 0,
+            255, 255, 255
+        ]))
+        XCTAssertEqual(monochrome1.rgbData, Data([
+            255, 255, 255,
+            0, 0, 0
+        ]))
+    }
+
     func testRGBInterleavedAndICCProfileExposeDisplayBufferAndMetadata() throws {
         let iccProfile = Data([0x01, 0x02, 0x03, 0x04])
         let pixelBytes: [UInt8] = [255, 0, 0, 0, 128, 255]
@@ -152,7 +235,92 @@ final class DicomColorPixelDataTests: XCTestCase {
         let decoder = try DCMDecoder(contentsOf: url)
 
         XCTAssertThrowsError(try decoder.displayRGBPixelBuffer()) { error in
-            XCTAssertEqual(error as? DicomColorConversionError, .unsupportedBitsAllocated(16))
+            assertUnsupportedColorPath(
+                error,
+                photometricInterpretation: "RGB",
+                samplesPerPixel: 3,
+                planarConfiguration: 0,
+                bitsAllocated: 16,
+                reasonContains: "only 8-bit"
+            )
+        }
+    }
+
+    func testUnsupportedYBRPartial420ReportsStableDisplayContext() throws {
+        let url = try makeTemporaryDICOM(
+            photometricInterpretation: "YBR_PARTIAL_420",
+            samplesPerPixel: 3,
+            planarConfiguration: 0,
+            width: 2,
+            height: 1,
+            bitsAllocated: 8,
+            pixelBytes: [0, 0, 0, 0, 0, 0]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let decoder = try DCMDecoder(contentsOf: url)
+
+        XCTAssertThrowsError(try decoder.displayRGBPixelBuffer()) { error in
+            assertUnsupportedColorPath(
+                error,
+                photometricInterpretation: "YBR_PARTIAL_420",
+                samplesPerPixel: 3,
+                planarConfiguration: 0,
+                bitsAllocated: 8,
+                reasonContains: "not implemented"
+            )
+        }
+    }
+
+    func testRGBAlphaSamplesReportStableDisplayContext() throws {
+        let url = try makeTemporaryDICOM(
+            photometricInterpretation: "RGB",
+            samplesPerPixel: 4,
+            planarConfiguration: 0,
+            width: 1,
+            height: 1,
+            bitsAllocated: 8,
+            pixelBytes: [10, 20, 30, 255]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let decoder = try DCMDecoder(contentsOf: url)
+
+        XCTAssertThrowsError(try decoder.displayRGBPixelBuffer()) { error in
+            assertUnsupportedColorPath(
+                error,
+                photometricInterpretation: "RGB",
+                samplesPerPixel: 4,
+                planarConfiguration: 0,
+                bitsAllocated: 8,
+                reasonContains: "alpha and extra samples"
+            )
+        }
+    }
+
+    func testYBRFull422PlanarConfigurationReportsStableDisplayContext() throws {
+        let url = try makeTemporaryDICOM(
+            photometricInterpretation: "YBR_FULL_422",
+            samplesPerPixel: 3,
+            planarConfiguration: 1,
+            width: 2,
+            height: 1,
+            bitsAllocated: 8,
+            pixelBytes: [10, 20, 128, 128]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let decoder = try DCMDecoder(contentsOf: url)
+
+        XCTAssertThrowsError(try decoder.displayRGBPixelBuffer()) { error in
+            assertUnsupportedColorPath(
+                error,
+                photometricInterpretation: "YBR_FULL_422",
+                samplesPerPixel: 3,
+                planarConfiguration: 1,
+                bitsAllocated: 8,
+                reasonContains: "Planar Configuration"
+            )
         }
     }
 
@@ -270,5 +438,40 @@ final class DicomColorPixelDataTests: XCTestCase {
         data.append(contentsOf: [0x00, 0x00])
         data.append(contentsOf: withUnsafeBytes(of: UInt32(padded.count).littleEndian) { Array($0) })
         data.append(contentsOf: padded)
+    }
+
+    private func assertUnsupportedColorPath(
+        _ error: Error,
+        photometricInterpretation: String,
+        samplesPerPixel: Int,
+        planarConfiguration: Int?,
+        bitsAllocated: Int,
+        reasonContains: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard case let DicomColorConversionError.unsupportedColorPath(context, reason) = error else {
+            return XCTFail("Expected unsupportedColorPath, got \(error)", file: file, line: line)
+        }
+
+        XCTAssertEqual(context.photometricInterpretation, photometricInterpretation, file: file, line: line)
+        XCTAssertEqual(context.samplesPerPixel, samplesPerPixel, file: file, line: line)
+        XCTAssertEqual(context.planarConfiguration, planarConfiguration, file: file, line: line)
+        XCTAssertEqual(context.bitsAllocated, bitsAllocated, file: file, line: line)
+        XCTAssertEqual(
+            context.transferSyntaxUID,
+            DicomTransferSyntax.explicitVRLittleEndian.rawValue,
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(reason.contains(reasonContains), reason, file: file, line: line)
+
+        let description = (error as? LocalizedError)?.errorDescription ?? ""
+        XCTAssertTrue(description.contains("Photometric Interpretation=\(photometricInterpretation)"), description)
+        XCTAssertTrue(description.contains("Samples per Pixel=\(samplesPerPixel)"), description)
+        XCTAssertTrue(
+            description.contains("Transfer Syntax=\(DicomTransferSyntax.explicitVRLittleEndian.rawValue)"),
+            description
+        )
     }
 }

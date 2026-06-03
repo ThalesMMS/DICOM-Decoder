@@ -51,6 +51,9 @@ internal final class DCMTagParser {
     /// ``getLength()`` during tag parsing.
     private(set) var elementLength: Int = 0
 
+    /// True when the current element used the DICOM undefined-length marker.
+    private(set) var elementLengthIsUndefined: Bool = false
+
     /// Flag indicating whether we are currently inside a sequence
     private var inSequence: Bool = false
 
@@ -141,6 +144,7 @@ internal final class DCMTagParser {
             }
         }
 
+        elementLengthIsUndefined = retValue == -1 || retValue == 0xFFFFFFFF
         elementLength = retValue
         return retValue
     }
@@ -412,6 +416,7 @@ internal final class DCMTagParser {
     internal func reset() {
         vr = .unknown
         elementLength = 0
+        elementLengthIsUndefined = false
         inSequence = false
         oddLocations = false
     }
@@ -424,6 +429,11 @@ internal final class DCMTagParser {
     /// Returns the current element length
     internal var currentElementLength: Int {
         return elementLength
+    }
+
+    /// Returns true when the current element length was undefined.
+    internal var currentElementLengthIsUndefined: Bool {
+        return elementLengthIsUndefined
     }
 
     /// Returns the current Value Representation

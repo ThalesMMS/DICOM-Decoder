@@ -124,6 +124,8 @@ import DicomCore
 /// - ``PreviewSize``
 /// - ``PreviewConfiguration``
 /// - ``PreviewHelpers``
+/// - ``DicomSampleData``
+/// - ``MockDicomDecoderForPreviews``
 ///
 /// ### Utilities
 ///

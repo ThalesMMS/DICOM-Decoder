@@ -108,10 +108,16 @@ struct ContentView: View {
     /// macOS document picker for file import
     #if os(macOS)
     private var documentPickerView: some View {
-        MacOSDocumentPicker(onPick: { urls in
-            handleImportedFiles(urls)
-            showingImportPicker = false
-        })
+        DocumentPickerView(
+            configuration: .mixed,
+            onPick: { urls in
+                handleImportedFiles(urls)
+                showingImportPicker = false
+            },
+            onCancel: {
+                showingImportPicker = false
+            }
+        )
     }
     #endif
 
@@ -348,51 +354,6 @@ struct ComponentExamplesView: View {
         }
     }
 }
-
-// MARK: - macOS Document Picker
-
-#if os(macOS)
-import AppKit
-
-/// macOS document picker using NSOpenPanel
-struct MacOSDocumentPicker: View {
-    let onPick: ([URL]) -> Void
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "doc.badge.plus")
-                .font(.system(size: 60))
-                .foregroundColor(.blue)
-
-            Text("Import DICOM Files")
-                .font(.title2)
-
-            Text("Select DICOM files or folders to import")
-                .font(.callout)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-
-            Button("Select Files") {
-                let panel = NSOpenPanel()
-                panel.allowsMultipleSelection = true
-                panel.canChooseDirectories = true
-                panel.canChooseFiles = true
-                panel.allowedContentTypes = [.item]
-                panel.message = "Select DICOM files or folders to import"
-                panel.prompt = "Import"
-
-                if panel.runModal() == .OK {
-                    onPick(panel.urls)
-                }
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .padding(40)
-        .frame(minWidth: 400, minHeight: 300)
-    }
-}
-#endif
 
 // MARK: - Previews
 

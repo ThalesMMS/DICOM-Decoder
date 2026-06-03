@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import DicomTestSupport
 @testable import DicomCore
 
 final class DicomInteropSmokeTests: XCTestCase {
@@ -21,7 +22,10 @@ final class DicomInteropSmokeTests: XCTestCase {
         let fixture = try fixture()
         let archives = try configuredArchives().filter { $0.capabilities.contains(.dicomweb) }
         guard !archives.isEmpty else {
-            throw XCTSkip("No configured archive declares DICOMweb support.")
+            throw DicomTestRuntimePreflight.skip(
+                .networkInteropSmoke,
+                detail: "No configured archive declares DICOMweb support."
+            )
         }
 
         for archive in archives {
@@ -62,7 +66,10 @@ final class DicomInteropSmokeTests: XCTestCase {
         let fixture = try fixture()
         let archives = try configuredArchives().filter { $0.hasDIMSE }
         guard !archives.isEmpty else {
-            throw XCTSkip("No configured archive declares DIMSE support.")
+            throw DicomTestRuntimePreflight.skip(
+                .networkInteropSmoke,
+                detail: "No configured archive declares DIMSE support."
+            )
         }
 
         for archive in archives {
@@ -165,7 +172,8 @@ final class DicomInteropSmokeTests: XCTestCase {
     private func configuredArchives() throws -> [InteropArchive] {
         let env = ProcessInfo.processInfo.environment
         guard env["DICOM_INTEROP_SMOKE"] == "1" else {
-            throw XCTSkip("Set DICOM_INTEROP_SMOKE=1 or run Scripts/interop/run_interop_smoke.sh.")
+            try DicomTestRuntimePreflight.require(.networkInteropSmoke, environment: env)
+            return []
         }
 
         let requested = Set((env["DICOM_INTEROP_ARCHIVES"] ?? "orthanc,dcm4chee")
@@ -180,7 +188,11 @@ final class DicomInteropSmokeTests: XCTestCase {
             .filter { requested.contains($0.id) }
 
         guard !archives.isEmpty else {
-            throw XCTSkip("No interop archives selected by DICOM_INTEROP_ARCHIVES.")
+            throw XCTSkip(
+                "DICOM interop smoke has no selected archive [capability="
+                    + "\(DicomRuntimeCapability.networkInteropSmoke.manifestID), classification=missing-optional-runtime]. "
+                    + "Set DICOM_INTEROP_ARCHIVES to orthanc, dcm4chee, or both."
+            )
         }
         return archives
     }
@@ -257,7 +269,10 @@ final class DicomInteropSmokeTests: XCTestCase {
         service: DicomDIMSEServiceSCU
     ) throws {
         guard archive.capabilities.contains(.storageSCP) else {
-            throw XCTSkip("\(archive.id) declares C-MOVE without storage-scp capability.")
+            throw DicomTestRuntimePreflight.skip(
+                .networkInteropSmoke,
+                detail: "\(archive.id) declares C-MOVE without storage-scp capability."
+            )
         }
         guard let destination = archive.moveDestinationAETitle else {
             XCTFail("\(archive.id) declares C-MOVE but has no move destination AE title.")
@@ -292,7 +307,11 @@ final class DicomInteropSmokeTests: XCTestCase {
             .appendingPathComponent(DicomFileStorageCache.fileName(for: fixture.sopInstanceUID))
         XCTAssertTrue(FileManager.default.fileExists(atPath: storedURL.path), archive.id)
         #else
-        throw XCTSkip("Network framework is unavailable on this platform.")
+        throw XCTSkip(DicomTestRuntimePreflight.skipMessage(for: DicomRuntimeStatus(
+            capability: .networkInteropSmoke,
+            kind: .unsupportedFeature,
+            message: "Network framework is unavailable on this platform."
+        )))
         #endif
     }
 

@@ -5,7 +5,10 @@ public enum DicomVideoError: Error, Equatable, LocalizedError, Sendable {
     case invalidDimensions(columns: Int, rows: Int)
     case invalidNumberOfFrames(Int)
     case invalidFrameTiming
+    case invalidFrameIndex(index: Int, frameCount: Int)
     case unsupportedTransferSyntax(String)
+    case nativeFrameDecodeUnsupported(codec: String)
+    case transcodingUnsupported(source: String, destination: String)
     case missingPixelData
 
     public var errorDescription: String? {
@@ -18,15 +21,21 @@ public enum DicomVideoError: Error, Equatable, LocalizedError, Sendable {
             return "Invalid video frame count: \(count)."
         case .invalidFrameTiming:
             return "Video frame timing values must be positive finite numbers."
+        case .invalidFrameIndex(let index, let frameCount):
+            return "Invalid video frame \(index). Frame count is \(frameCount)."
         case .unsupportedTransferSyntax(let uid):
             return "Unsupported video transfer syntax: \(uid)."
+        case .nativeFrameDecodeUnsupported(let codec):
+            return "Native DICOM video frame decode is not implemented for \(codec)."
+        case .transcodingUnsupported(let source, let destination):
+            return "DICOM video transcoding from \(source) to \(destination) is not implemented."
         case .missingPixelData:
             return "Video DICOM object has no encapsulated Pixel Data."
         }
     }
 }
 
-public enum DicomVideoStorageKind: Equatable, Hashable, Sendable {
+public enum DicomVideoStorageKind: CaseIterable, Equatable, Hashable, Sendable {
     case endoscopic
     case microscopic
     case photographic
@@ -67,7 +76,7 @@ public enum DicomVideoStorageKind: Equatable, Hashable, Sendable {
     }
 }
 
-public enum DicomVideoCodec: String, Equatable, Hashable, Sendable {
+public enum DicomVideoCodec: String, CaseIterable, Equatable, Hashable, Sendable {
     case mpeg2
     case h264
     case hevc
@@ -439,6 +448,33 @@ public struct DicomVideo: Equatable, Sendable {
     public func framePayload(at index: Int) -> Data? {
         guard indexedFramePayloads.indices.contains(index) else { return nil }
         return indexedFramePayloads[index]
+    }
+
+    public func encodedFramePayload(at index: Int) throws -> Data {
+        guard index >= 0, index < numberOfFrames else {
+            throw DicomVideoError.invalidFrameIndex(index: index, frameCount: numberOfFrames)
+        }
+        guard let payload = framePayload(at: index) else {
+            throw DicomVideoError.nativeFrameDecodeUnsupported(codec: codec.displayName)
+        }
+        return payload
+    }
+
+    public func decodedFrame(at index: Int) throws -> Data {
+        guard index >= 0, index < numberOfFrames else {
+            throw DicomVideoError.invalidFrameIndex(index: index, frameCount: numberOfFrames)
+        }
+        throw DicomVideoError.nativeFrameDecodeUnsupported(codec: codec.displayName)
+    }
+
+    public func transcodeStream(to destination: DicomTransferSyntax) throws -> Data {
+        if let transferSyntax, destination == transferSyntax {
+            return streamData
+        }
+        throw DicomVideoError.transcodingUnsupported(
+            source: transferSyntax?.rawValue ?? transferSyntaxUID,
+            destination: destination.rawValue
+        )
     }
 }
 

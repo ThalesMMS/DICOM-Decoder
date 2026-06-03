@@ -231,8 +231,10 @@ public final class BufferPool {
                 }
 
             default:
-                // For unsupported types, allocate directly without pooling
-                fatalError("Unsupported buffer type: \(T.self). Use explicit type-specific pools.")
+                poolHit = false
+                var unpooled: [T] = []
+                unpooled.reserveCapacity(count)
+                buffer = unpooled
             }
 
             // Update statistics

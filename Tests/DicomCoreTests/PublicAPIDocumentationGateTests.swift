@@ -56,11 +56,26 @@ final class PublicAPIDocumentationGateTests: XCTestCase {
     }
 
     private var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        try! Self.packageRoot(callerFile: #filePath)
+    }
+
+    private static func packageRoot(callerFile: String) throws -> URL {
+        var directory = URL(fileURLWithPath: callerFile).deletingLastPathComponent()
+        let fileManager = FileManager.default
+
+        while directory.path != "/" {
+            let candidate = directory.appendingPathComponent("Package.swift")
+            if fileManager.fileExists(atPath: candidate.path) {
+                return directory
+            }
+            directory.deleteLastPathComponent()
+        }
+
+        throw NSError(
+            domain: "PublicAPIDocumentationGateTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Could not locate package root from \(callerFile)."]
+        )
     }
 }
 

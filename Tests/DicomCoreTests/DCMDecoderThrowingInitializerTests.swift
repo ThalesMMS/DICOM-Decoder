@@ -120,9 +120,10 @@ final class DCMDecoderThrowingInitializerTests: XCTestCase {
         XCTAssertEqual(dimensions.width, decoder.width, "imageDimensions should match width")
         XCTAssertEqual(dimensions.height, decoder.height, "imageDimensions should match height")
 
-        guard !decoder.info(for: .pixelSpacing).isEmpty else {
-            throw XCTSkip("Fixture does not include Pixel Spacing metadata")
-        }
+        XCTAssertFalse(
+            decoder.info(for: .pixelSpacing).isEmpty,
+            "Required bundled fixture must include Pixel Spacing metadata."
+        )
 
         // Verify pixel spacing metadata is accessible when present in the fixture
         let spacing = decoder.pixelSpacingV2

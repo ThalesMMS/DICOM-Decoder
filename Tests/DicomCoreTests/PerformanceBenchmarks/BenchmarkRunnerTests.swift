@@ -10,6 +10,7 @@
 //
 
 import XCTest
+import DicomTestSupport
 @testable import DicomCore
 
 /// Tests for BenchmarkRunner
@@ -154,10 +155,7 @@ final class BenchmarkRunnerTests: XCTestCase {
 
     /// Test Metal windowing benchmark (if available)
     func testWindowingMetalBenchmark() throws {
-        guard MetalWindowingProcessor.isMetalAvailable else {
-            print("Metal not available, skipping Metal benchmark test")
-            return
-        }
+        try DicomTestRuntimePreflight.require(.metalDevice)
 
         let config = BenchmarkConfig(
             warmupIterations: 5,

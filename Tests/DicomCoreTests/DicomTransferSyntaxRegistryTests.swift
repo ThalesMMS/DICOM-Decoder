@@ -57,6 +57,30 @@ final class DicomTransferSyntaxRegistryTests: XCTestCase {
         XCTAssertEqual(htj2k.decoderSupport, .unavailable("HTJ2K decoding requires an explicit HTJ2K backend; ImageIO JPEG 2000 fallback is not used."))
     }
 
+    func testWriteSupportMatrixCoversAllRecognizedTransferSyntaxes() throws {
+        let registry = DicomTransferSyntaxRegistry.standard
+        let matrix = registry.writeSupportMatrix
+        let statusesBySyntax = Dictionary(uniqueKeysWithValues: matrix.map { ($0.syntax, $0.status) })
+
+        XCTAssertEqual(Set(statusesBySyntax.keys), Set(DicomTransferSyntax.allCases))
+        XCTAssertEqual(statusesBySyntax[.explicitVRLittleEndian], .nativeDataset)
+        XCTAssertEqual(statusesBySyntax[.implicitVRLittleEndian], .nativeDataset)
+        XCTAssertEqual(statusesBySyntax[.explicitVRBigEndian], .nativeDataset)
+        XCTAssertEqual(statusesBySyntax[.deflatedExplicitVRLittleEndian], .deflatedDataset)
+        XCTAssertEqual(statusesBySyntax[.jpipReferenced], .referencedDataset)
+        XCTAssertEqual(statusesBySyntax[.jpipReferencedDeflate], .referencedDataset)
+
+        let encapsulatedRows = matrix.filter { support in
+            registry.entry(for: support.syntax)?.pixelEncoding == .encapsulated
+        }
+        XCTAssertFalse(encapsulatedRows.isEmpty)
+        for support in encapsulatedRows {
+            XCTAssertEqual(support.status, .encapsulatedPassThrough, support.name)
+            XCTAssertTrue(support.requiresEncapsulatedPixelData, support.name)
+            XCTAssertTrue(support.diagnostic.contains("does not encode compressed frames"), support.name)
+        }
+    }
+
     func testCanTranscodeSupportsNativeRewrite() {
         let plan = DicomTransferSyntax.transcodePlan(
             from: .implicitVRLittleEndian,

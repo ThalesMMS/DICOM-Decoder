@@ -44,7 +44,7 @@ import DicomCore
 /// - Slice counter display (e.g., "3 / 150")
 /// - Interactive slider for direct navigation
 /// - First/Last jump buttons
-/// - Slice shortcut strip in expanded layout
+/// - Thumbnail-backed slice shortcut strip in expanded layout
 /// - Customizable layout (compact or expanded)
 /// - Dark mode support
 /// - Full accessibility support for VoiceOver
@@ -157,8 +157,9 @@ public struct SeriesNavigatorView: View {
         /// Full layout with all controls and labels.
         ///
         /// Provides standard spacing (16pt), full-size fonts (.title2, .headline),
-        /// labeled buttons, progress percentage, and a slice shortcut strip. Best for primary
-        /// navigation contexts where space is not constrained.
+        /// labeled buttons, progress percentage, and a thumbnail-backed slice
+        /// shortcut strip. Best for primary navigation contexts where space is
+        /// not constrained.
         case expanded
 
         /// Compact layout for embedded use.

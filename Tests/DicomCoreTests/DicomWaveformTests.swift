@@ -176,6 +176,31 @@ final class DicomWaveformTests: XCTestCase {
         XCTAssertEqual(decodedGroup.channels.map(\.samples), [[1, 2, 3], [-1, -2, -3]])
     }
 
+    func testWaveformScopeListsSupportedStorageKindsAndSampleInterpretations() throws {
+        XCTAssertEqual(
+            DicomWaveformStorageKind.allCases.map(\.storageSOPClassUID),
+            [
+                DicomWaveform.twelveLeadECGWaveformStorageSOPClassUID,
+                DicomWaveform.generalECGWaveformStorageSOPClassUID,
+                DicomWaveform.ambulatoryECGWaveformStorageSOPClassUID,
+                DicomWaveform.general32BitECGWaveformStorageSOPClassUID,
+                DicomWaveform.hemodynamicWaveformStorageSOPClassUID,
+                DicomWaveform.cardiacElectrophysiologyWaveformStorageSOPClassUID,
+                DicomWaveform.arterialPulseWaveformStorageSOPClassUID,
+                DicomWaveform.respiratoryWaveformStorageSOPClassUID
+            ]
+        )
+        XCTAssertEqual(
+            DicomWaveformSampleInterpretation.allCases.map(\.rawValue),
+            ["SB", "UB", "SS", "US", "SL", "UL"]
+        )
+
+        let matrixRow = try XCTUnwrap(DicomExportSupportMatrix.packageDefault.row(feature: "Waveform"))
+        XCTAssertTrue(matrixRow.requiredTags.contains("Waveform Sequence"))
+        XCTAssertTrue(matrixRow.unsupportedCases.contains("Float/double samples"))
+        XCTAssertTrue(matrixRow.typedFailure.contains("DicomWaveformError"))
+    }
+
     func testSeriesLoaderSkipsWaveformAsNonImageVolumeInput() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("waveform_series_\(UUID().uuidString)", isDirectory: true)

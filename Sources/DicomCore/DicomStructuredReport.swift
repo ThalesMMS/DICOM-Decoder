@@ -253,6 +253,11 @@ public struct DicomSRDocument: Equatable, Sendable {
         DicomSRExtraction.cadFindings(in: root)
     }
 
+    /// Validates this document against the declared DicomCore SR semantic support matrix.
+    public var semanticValidation: DicomSRSemanticValidationResult {
+        DicomSRSemanticValidator.validate(self)
+    }
+
     public var keyObjectReferences: [DicomKeyObjectReference] {
         let contentReferences = root.allSourceImageReferences.map {
             DicomKeyObjectReference(
@@ -292,6 +297,22 @@ extension DCMDecoder {
 
 /// Serializes SR document models into controlled Part 10-ready datasets.
 public enum DicomStructuredReportBuilder {
+    /// Serializes a semantically supported SR document, throwing stable validation errors otherwise.
+    public static func validatedDataSet(
+        from document: DicomSRDocument,
+        studyInstanceUID: String,
+        seriesInstanceUID: String,
+        sopInstanceUID: String? = nil
+    ) throws -> DicomDataSet {
+        try DicomSRSemanticValidator.validateForSemanticUse(document)
+        return dataSet(
+            from: document,
+            studyInstanceUID: studyInstanceUID,
+            seriesInstanceUID: seriesInstanceUID,
+            sopInstanceUID: sopInstanceUID
+        )
+    }
+
     public static func dataSet(
         from document: DicomSRDocument,
         studyInstanceUID: String,

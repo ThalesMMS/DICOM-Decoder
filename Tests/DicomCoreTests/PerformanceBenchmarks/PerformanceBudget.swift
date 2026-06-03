@@ -156,7 +156,7 @@ enum PerformanceBudgetManifestLoader {
         let fileManager = FileManager.default
 
         while directory.path != "/" {
-            let candidate = directory.appendingPathComponent("ISSUE-ORDER.txt")
+            let candidate = directory.appendingPathComponent("Package.swift")
             if fileManager.fileExists(atPath: candidate.path) {
                 return directory
             }

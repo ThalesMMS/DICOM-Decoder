@@ -171,6 +171,8 @@ private final class CharLSLibrary {
     typealias GetErrorMessage = @convention(c) (Int32) -> UnsafePointer<CChar>?
 
     let handle: UnsafeMutableRawPointer?
+    let runtimeStatus: DicomCodecRuntimeStatus
+    let missingSymbols: [String]
 
     let decoderCreate: DecoderCreate
     let decoderDestroy: DecoderDestroy
@@ -193,31 +195,143 @@ private final class CharLSLibrary {
     let getErrorMessage: GetErrorMessage
 
     var isAvailable: Bool {
-        handle != nil
+        runtimeStatus.isAvailable && missingSymbols.isEmpty
     }
 
     private init() {
-        handle = Self.openLibrary()
+        let resolution = DicomCodecRuntimePreflight.resolve(for: .charLS, retainHandle: true)
+        handle = resolution.handle
+        runtimeStatus = resolution.status
+        var unresolvedSymbols: [String] = []
 
-        decoderCreate = Self.load("charls_jpegls_decoder_create", from: handle, as: DecoderCreate.self)
-        decoderDestroy = Self.load("charls_jpegls_decoder_destroy", from: handle, as: DecoderDestroy.self)
-        decoderSetSourceBuffer = Self.load("charls_jpegls_decoder_set_source_buffer", from: handle, as: DecoderSetSourceBuffer.self)
-        decoderReadHeader = Self.load("charls_jpegls_decoder_read_header", from: handle, as: DecoderReadHeader.self)
-        decoderGetFrameInfo = Self.load("charls_jpegls_decoder_get_frame_info", from: handle, as: DecoderGetFrameInfo.self)
-        decoderGetNearLossless = Self.load("charls_jpegls_decoder_get_near_lossless", from: handle, as: DecoderGetNearLossless.self)
-        decoderGetDestinationSize = Self.load("charls_jpegls_decoder_get_destination_size", from: handle, as: DecoderGetDestinationSize.self)
-        decoderDecodeToBuffer = Self.load("charls_jpegls_decoder_decode_to_buffer", from: handle, as: DecoderDecodeToBuffer.self)
+        decoderCreate = Self.load(
+            "charls_jpegls_decoder_create",
+            from: handle,
+            as: DecoderCreate.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableDecoderCreate
+        )
+        decoderDestroy = Self.load(
+            "charls_jpegls_decoder_destroy",
+            from: handle,
+            as: DecoderDestroy.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableDecoderDestroy
+        )
+        decoderSetSourceBuffer = Self.load(
+            "charls_jpegls_decoder_set_source_buffer",
+            from: handle,
+            as: DecoderSetSourceBuffer.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableDecoderSetSourceBuffer
+        )
+        decoderReadHeader = Self.load(
+            "charls_jpegls_decoder_read_header",
+            from: handle,
+            as: DecoderReadHeader.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableDecoderReadHeader
+        )
+        decoderGetFrameInfo = Self.load(
+            "charls_jpegls_decoder_get_frame_info",
+            from: handle,
+            as: DecoderGetFrameInfo.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableDecoderGetFrameInfo
+        )
+        decoderGetNearLossless = Self.load(
+            "charls_jpegls_decoder_get_near_lossless",
+            from: handle,
+            as: DecoderGetNearLossless.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableDecoderGetNearLossless
+        )
+        decoderGetDestinationSize = Self.load(
+            "charls_jpegls_decoder_get_destination_size",
+            from: handle,
+            as: DecoderGetDestinationSize.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableDecoderGetDestinationSize
+        )
+        decoderDecodeToBuffer = Self.load(
+            "charls_jpegls_decoder_decode_to_buffer",
+            from: handle,
+            as: DecoderDecodeToBuffer.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableDecoderDecodeToBuffer
+        )
 
-        encoderCreate = Self.load("charls_jpegls_encoder_create", from: handle, as: EncoderCreate.self)
-        encoderDestroy = Self.load("charls_jpegls_encoder_destroy", from: handle, as: EncoderDestroy.self)
-        encoderSetFrameInfo = Self.load("charls_jpegls_encoder_set_frame_info", from: handle, as: EncoderSetFrameInfo.self)
-        encoderSetNearLossless = Self.load("charls_jpegls_encoder_set_near_lossless", from: handle, as: EncoderSetNearLossless.self)
-        encoderSetInterleaveMode = Self.load("charls_jpegls_encoder_set_interleave_mode", from: handle, as: EncoderSetInterleaveMode.self)
-        encoderGetEstimatedDestinationSize = Self.load("charls_jpegls_encoder_get_estimated_destination_size", from: handle, as: EncoderGetEstimatedDestinationSize.self)
-        encoderSetDestinationBuffer = Self.load("charls_jpegls_encoder_set_destination_buffer", from: handle, as: EncoderSetDestinationBuffer.self)
-        encoderEncodeFromBuffer = Self.load("charls_jpegls_encoder_encode_from_buffer", from: handle, as: EncoderEncodeFromBuffer.self)
-        encoderGetBytesWritten = Self.load("charls_jpegls_encoder_get_bytes_written", from: handle, as: EncoderGetBytesWritten.self)
-        getErrorMessage = Self.load("charls_get_error_message", from: handle, as: GetErrorMessage.self)
+        encoderCreate = Self.load(
+            "charls_jpegls_encoder_create",
+            from: handle,
+            as: EncoderCreate.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableEncoderCreate
+        )
+        encoderDestroy = Self.load(
+            "charls_jpegls_encoder_destroy",
+            from: handle,
+            as: EncoderDestroy.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableEncoderDestroy
+        )
+        encoderSetFrameInfo = Self.load(
+            "charls_jpegls_encoder_set_frame_info",
+            from: handle,
+            as: EncoderSetFrameInfo.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableEncoderSetFrameInfo
+        )
+        encoderSetNearLossless = Self.load(
+            "charls_jpegls_encoder_set_near_lossless",
+            from: handle,
+            as: EncoderSetNearLossless.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableEncoderSetNearLossless
+        )
+        encoderSetInterleaveMode = Self.load(
+            "charls_jpegls_encoder_set_interleave_mode",
+            from: handle,
+            as: EncoderSetInterleaveMode.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableEncoderSetInterleaveMode
+        )
+        encoderGetEstimatedDestinationSize = Self.load(
+            "charls_jpegls_encoder_get_estimated_destination_size",
+            from: handle,
+            as: EncoderGetEstimatedDestinationSize.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableEncoderGetEstimatedDestinationSize
+        )
+        encoderSetDestinationBuffer = Self.load(
+            "charls_jpegls_encoder_set_destination_buffer",
+            from: handle,
+            as: EncoderSetDestinationBuffer.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableEncoderSetDestinationBuffer
+        )
+        encoderEncodeFromBuffer = Self.load(
+            "charls_jpegls_encoder_encode_from_buffer",
+            from: handle,
+            as: EncoderEncodeFromBuffer.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableEncoderEncodeFromBuffer
+        )
+        encoderGetBytesWritten = Self.load(
+            "charls_jpegls_encoder_get_bytes_written",
+            from: handle,
+            as: EncoderGetBytesWritten.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableEncoderGetBytesWritten
+        )
+        getErrorMessage = Self.load(
+            "charls_get_error_message",
+            from: handle,
+            as: GetErrorMessage.self,
+            missingSymbols: &unresolvedSymbols,
+            fallback: Self.unavailableGetErrorMessage
+        )
+        missingSymbols = Array(Set(runtimeStatus.missingSymbols + unresolvedSymbols)).sorted()
     }
 
     deinit {
@@ -227,8 +341,13 @@ private final class CharLSLibrary {
     }
 
     func require() throws -> CharLSLibrary {
-        guard isAvailable else {
-            throw DICOMError.unsupportedTransferSyntax(syntax: "JPEG-LS requires the CharLS runtime library")
+        guard handle != nil else {
+            throw DICOMError.unsupportedTransferSyntax(syntax: runtimeStatus.message)
+        }
+        guard missingSymbols.isEmpty else {
+            throw DICOMError.unsupportedTransferSyntax(
+                syntax: "JPEG-LS CharLS runtime is missing required symbols: \(missingSymbols.joined(separator: ", "))"
+            )
         }
         return self
     }
@@ -240,31 +359,39 @@ private final class CharLSLibrary {
         }
     }
 
-    private static func openLibrary() -> UnsafeMutableRawPointer? {
-        let candidates = [
-            "/opt/homebrew/lib/libcharls.2.dylib",
-            "/opt/homebrew/lib/libcharls.dylib",
-            "/usr/local/lib/libcharls.2.dylib",
-            "/usr/local/lib/libcharls.dylib",
-            "libcharls.2.dylib",
-            "libcharls.dylib"
-        ]
-        for candidate in candidates {
-            if let handle = dlopen(candidate, RTLD_NOW | RTLD_LOCAL) {
-                return handle
-            }
+    private static func load<T>(
+        _ name: String,
+        from handle: UnsafeMutableRawPointer?,
+        as type: T.Type,
+        missingSymbols: inout [String],
+        fallback: T
+    ) -> T {
+        guard let handle else {
+            return fallback
         }
-        return nil
-    }
-
-    private static func load<T>(_ name: String, from handle: UnsafeMutableRawPointer?, as type: T.Type) -> T {
-        guard let handle, let symbol = dlsym(handle, name) else {
-            return unsafeBitCast(Self.missingSymbol, to: type)
+        guard let symbol = dlsym(handle, name) else {
+            missingSymbols.append(name)
+            return fallback
         }
         return unsafeBitCast(symbol, to: type)
     }
 
-    private static let missingSymbol: @convention(c) () -> Void = {
-        fatalError("Required CharLS symbol is unavailable")
-    }
+    private static let unavailableDecoderCreate: DecoderCreate = { nil }
+    private static let unavailableDecoderDestroy: DecoderDestroy = { _ in }
+    private static let unavailableDecoderSetSourceBuffer: DecoderSetSourceBuffer = { _, _, _ in -1 }
+    private static let unavailableDecoderReadHeader: DecoderReadHeader = { _ in -1 }
+    private static let unavailableDecoderGetFrameInfo: DecoderGetFrameInfo = { _, _ in -1 }
+    private static let unavailableDecoderGetNearLossless: DecoderGetNearLossless = { _, _, _ in -1 }
+    private static let unavailableDecoderGetDestinationSize: DecoderGetDestinationSize = { _, _, _ in -1 }
+    private static let unavailableDecoderDecodeToBuffer: DecoderDecodeToBuffer = { _, _, _, _ in -1 }
+    private static let unavailableEncoderCreate: EncoderCreate = { nil }
+    private static let unavailableEncoderDestroy: EncoderDestroy = { _ in }
+    private static let unavailableEncoderSetFrameInfo: EncoderSetFrameInfo = { _, _ in -1 }
+    private static let unavailableEncoderSetNearLossless: EncoderSetNearLossless = { _, _ in -1 }
+    private static let unavailableEncoderSetInterleaveMode: EncoderSetInterleaveMode = { _, _ in -1 }
+    private static let unavailableEncoderGetEstimatedDestinationSize: EncoderGetEstimatedDestinationSize = { _, _ in -1 }
+    private static let unavailableEncoderSetDestinationBuffer: EncoderSetDestinationBuffer = { _, _, _ in -1 }
+    private static let unavailableEncoderEncodeFromBuffer: EncoderEncodeFromBuffer = { _, _, _, _ in -1 }
+    private static let unavailableEncoderGetBytesWritten: EncoderGetBytesWritten = { _, _ in -1 }
+    private static let unavailableGetErrorMessage: GetErrorMessage = { _ in nil }
 }

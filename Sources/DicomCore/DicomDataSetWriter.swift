@@ -22,6 +22,8 @@ public struct DicomPart10WriterOptions: Equatable, Sendable {
 
 public enum DicomDataSetWriterError: Error, Equatable, Sendable {
     case compressedTransferSyntaxUnsupported(String)
+    case transferSyntaxWriteUnsupported(uid: String, reason: String)
+    case pixelRecompressionUnsupported(source: String, destination: String, reason: String)
     case invalidUID(String)
     case elementLengthTooLarge(tag: Int, length: Int)
     case unsupportedValue(tag: Int, vr: DicomVR, reason: String)
@@ -32,6 +34,10 @@ extension DicomDataSetWriterError: LocalizedError {
         switch self {
         case .compressedTransferSyntaxUnsupported(let uid):
             return "Writing compressed transfer syntax \(uid) is not supported."
+        case .transferSyntaxWriteUnsupported(let uid, let reason):
+            return "Writing transfer syntax \(uid) is not supported: \(reason)"
+        case .pixelRecompressionUnsupported(let source, let destination, let reason):
+            return "Cannot transcode \(source) to transfer syntax \(destination): \(reason)"
         case .invalidUID(let uid):
             return "Invalid DICOM UID: \(uid)"
         case .elementLengthTooLarge(let tag, let length):
@@ -69,11 +75,7 @@ public enum DicomDataSetWriter {
 
     public static func part10Data(from dataSet: DicomDataSet,
                                   options: DicomPart10WriterOptions = DicomPart10WriterOptions()) throws -> Data {
-        guard !options.transferSyntax.isCompressed ||
-                options.transferSyntax == .deflatedExplicitVRLittleEndian ||
-                hasEncapsulatedPixelData(in: dataSet) else {
-            throw DicomDataSetWriterError.compressedTransferSyntaxUnsupported(options.transferSyntax.rawValue)
-        }
+        try validateWriteSupport(for: dataSet, transferSyntax: options.transferSyntax)
 
         var data = Data(count: 128)
         data.append(contentsOf: "DICM".utf8)
@@ -95,11 +97,7 @@ public enum DicomDataSetWriter {
 
     public static func dataSetData(from dataSet: DicomDataSet,
                                    transferSyntax: DicomTransferSyntax = .explicitVRLittleEndian) throws -> Data {
-        guard !transferSyntax.isCompressed ||
-                transferSyntax == .deflatedExplicitVRLittleEndian ||
-                hasEncapsulatedPixelData(in: dataSet) else {
-            throw DicomDataSetWriterError.compressedTransferSyntaxUnsupported(transferSyntax.rawValue)
-        }
+        try validateWriteSupport(for: dataSet, transferSyntax: transferSyntax)
 
         let encodedDataSet = try encodeDataSet(
             dataSet,
@@ -212,9 +210,56 @@ public enum DicomDataSetWriter {
     private static func shouldWriteEncapsulatedPixelData(_ element: DicomDataElement,
                                                          context: EncodingContext) -> Bool {
         element.tag == DicomTag.pixelData.rawValue &&
-            context.transferSyntax.isCompressed &&
-            context.transferSyntax != .deflatedExplicitVRLittleEndian &&
+            context.transferSyntax.writeSupport.status == .encapsulatedPassThrough &&
             hasEncapsulatedPixelData(element)
+    }
+
+    private static func validateWriteSupport(for dataSet: DicomDataSet,
+                                             transferSyntax: DicomTransferSyntax) throws {
+        let support = transferSyntax.writeSupport
+        let pixelData = dataSet.element(for: .pixelData)
+        let hasPixelData = pixelData != nil
+        let hasEncapsulatedPixels = hasEncapsulatedPixelData(in: dataSet)
+
+        switch support.status {
+        case .nativeDataset, .deflatedDataset:
+            if hasEncapsulatedPixels {
+                throw DicomDataSetWriterError.pixelRecompressionUnsupported(
+                    source: "encapsulated Pixel Data",
+                    destination: transferSyntax.rawValue,
+                    reason: "native and deflated dataset writing require native pixel bytes; "
+                        + "decode the compressed frames before writing this transfer syntax."
+                )
+            }
+        case .encapsulatedPassThrough:
+            guard hasEncapsulatedPixels else {
+                throw DicomDataSetWriterError.pixelRecompressionUnsupported(
+                    source: hasPixelData ? "native Pixel Data" : "missing Pixel Data",
+                    destination: transferSyntax.rawValue,
+                    reason: "compressed transfer syntax writing only preserves already encapsulated Pixel Data; "
+                        + "DICOM-Decoder does not encode compressed frames."
+                )
+            }
+        case .referencedDataset:
+            if hasPixelData {
+                throw DicomDataSetWriterError.transferSyntaxWriteUnsupported(
+                    uid: transferSyntax.rawValue,
+                    reason: "referenced transfer syntaxes use Pixel Data Provider URL; "
+                        + "local Pixel Data is not rewritten."
+                )
+            }
+            guard hasPixelDataProviderURL(in: dataSet) else {
+                throw DicomDataSetWriterError.transferSyntaxWriteUnsupported(
+                    uid: transferSyntax.rawValue,
+                    reason: "referenced transfer syntax writing requires Pixel Data Provider URL (0028,7FE0)."
+                )
+            }
+        case .unsupported:
+            throw DicomDataSetWriterError.transferSyntaxWriteUnsupported(
+                uid: transferSyntax.rawValue,
+                reason: support.diagnostic
+            )
+        }
     }
 
     private static func valueData(for element: DicomDataElement,
@@ -323,6 +368,11 @@ public enum DicomDataSetWriter {
     private static func hasEncapsulatedPixelData(in dataSet: DicomDataSet) -> Bool {
         guard let element = dataSet.element(for: .pixelData) else { return false }
         return hasEncapsulatedPixelData(element)
+    }
+
+    private static func hasPixelDataProviderURL(in dataSet: DicomDataSet) -> Bool {
+        guard let url = dataSet.string(for: .pixelDataProviderURL) else { return false }
+        return !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func hasEncapsulatedPixelData(_ element: DicomDataElement) -> Bool {
