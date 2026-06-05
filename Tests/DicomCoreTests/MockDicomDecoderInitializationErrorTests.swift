@@ -56,7 +56,7 @@ final class MockDicomDecoderInitializationErrorTests: XCTestCase {
     }
 
     func testPathScopedInitializationErrorNormalizesEquivalentPaths() throws {
-        let nonStandardPath = "/" + ["tmp", "mock-dicom-fixture", "..", "mock-dicom-normalized.dcm"].joined(separator: "/")
+        let nonStandardPath = "/tmp/mock-dicom-fixture/../mock-dicom-normalized.dcm"
         let normalizedPath = "/tmp/mock-dicom-normalized.dcm"
 
         MockDicomDecoder.setInitializationErrorMode(.fileNotFound, forPath: nonStandardPath)

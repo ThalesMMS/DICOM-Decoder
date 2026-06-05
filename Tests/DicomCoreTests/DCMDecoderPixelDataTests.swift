@@ -369,14 +369,12 @@ final class DCMDecoderPixelDataTests: XCTestCase {
 
     func testPixelDataWithRelativePaths() {
         // Test relative paths
-        let parentPath = ["..", "file.dcm"].joined(separator: "/")
-        let ancestorPath = ["..", "..", "..", "file.dcm"].joined(separator: "/")
         let relativePaths = [
             "./file.dcm",
-            parentPath,
+            "../file.dcm",
             "file.dcm",
             "./nested/path/file.dcm",
-            ancestorPath
+            "../../../file.dcm"
         ]
 
         for path in relativePaths {

@@ -344,8 +344,7 @@ final class DCMDecoderThrowingInitializerTests: XCTestCase {
             XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
         }
 
-        let parentMissingPath = ["..", "nonexistent", "file.dcm"].joined(separator: "/")
-        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: parentMissingPath)) { error in
+        XCTAssertThrowsError(try DCMDecoder(contentsOfFile: "../nonexistent/file.dcm")) { error in
             XCTAssertTrue(error is DICOMError, "Error should be of type DICOMError")
         }
     }
