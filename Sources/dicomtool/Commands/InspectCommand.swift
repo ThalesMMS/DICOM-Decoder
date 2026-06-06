@@ -54,7 +54,6 @@ import DicomCore
 ///
 /// The command displays these tags by default unless `--all` or `--tags` is specified:
 /// - Patient Name
-/// - Patient ID
 /// - Modality
 /// - Study Date
 /// - Series Description
@@ -165,10 +164,6 @@ struct InspectCommand: AsyncParsableCommand {
         let patientName = decoder.info(for: .patientName)
         if !patientName.isEmpty {
             metadata["PatientName"] = patientName
-        }
-        let patientID = decoder.info(for: .patientID)
-        if !patientID.isEmpty {
-            metadata["PatientID"] = patientID
         }
         let patientSex = decoder.info(for: .patientSex)
         if !patientSex.isEmpty {

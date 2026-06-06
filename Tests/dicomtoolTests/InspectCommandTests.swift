@@ -7,6 +7,11 @@
 
 import XCTest
 import ArgumentParser
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 @testable import dicomtool
 import DicomCore
 import DicomTestSupport
@@ -51,6 +56,30 @@ final class InspectCommandTests: XCTestCase {
             try? FileManager.default.removeItem(at: url)
         }
         return url
+    }
+
+    private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
+        let pipe = Pipe()
+        let originalStdout = dup(STDOUT_FILENO)
+        fflush(stdout)
+        dup2(pipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
+
+        do {
+            try await operation()
+            fflush(stdout)
+            dup2(originalStdout, STDOUT_FILENO)
+            close(originalStdout)
+            pipe.fileHandleForWriting.closeFile()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8) ?? ""
+        } catch {
+            fflush(stdout)
+            dup2(originalStdout, STDOUT_FILENO)
+            close(originalStdout)
+            pipe.fileHandleForWriting.closeFile()
+            _ = pipe.fileHandleForReading.readDataToEndOfFile()
+            throw error
+        }
     }
 
     // MARK: - Initialization Tests
@@ -99,6 +128,31 @@ final class InspectCommandTests: XCTestCase {
         } catch {
             XCTFail("Command should execute successfully with JSON format: \(error)")
         }
+    }
+
+    func testInspectCommandDefaultOutputOmitsPatientID() async throws {
+        let fileURL = try createTemporaryFile(named: "inspect_\(UUID().uuidString).dcm")
+        var command = try InspectCommand.parse(["--format", "json", fileURL.path])
+
+        let output = try await captureStandardOutput {
+            try await command.run()
+        }
+
+        XCTAssertTrue(output.contains("PatientName"), "Default metadata should still include patient context")
+        XCTAssertFalse(output.contains("PatientID"), "Default metadata should not emit direct patient identifiers")
+        XCTAssertFalse(output.contains("TEST123"), "Default metadata should not emit direct patient identifier values")
+    }
+
+    func testInspectCommandSpecificPatientIDTagRemainsAvailable() async throws {
+        let fileURL = try createTemporaryFile(named: "inspect_\(UUID().uuidString).dcm")
+        var command = try InspectCommand.parse(["--format", "json", "--tags", "PatientID", fileURL.path])
+
+        let output = try await captureStandardOutput {
+            try await command.run()
+        }
+
+        XCTAssertTrue(output.contains("PatientID"), "Explicit tag selection should include the requested tag")
+        XCTAssertTrue(output.contains("TEST123"), "Explicit tag selection should include the requested value")
     }
 
     func testInspectCommandWithAllFlag() async throws {
