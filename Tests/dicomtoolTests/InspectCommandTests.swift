@@ -143,7 +143,7 @@ final class InspectCommandTests: XCTestCase {
         XCTAssertFalse(output.contains("TEST123"), "Default metadata should not emit direct patient identifier values")
     }
 
-    func testInspectCommandSpecificPatientIDTagRemainsAvailable() async throws {
+    func testInspectCommandSpecificPatientIDTagIsRedacted() async throws {
         let fileURL = try createTemporaryFile(named: "inspect_\(UUID().uuidString).dcm")
         var command = try InspectCommand.parse(["--format", "json", "--tags", "PatientID", fileURL.path])
 
@@ -151,8 +151,9 @@ final class InspectCommandTests: XCTestCase {
             try await command.run()
         }
 
-        XCTAssertTrue(output.contains("PatientID"), "Explicit tag selection should include the requested tag")
-        XCTAssertTrue(output.contains("TEST123"), "Explicit tag selection should include the requested value")
+        XCTAssertTrue(output.contains("PatientID"), "Explicit tag selection should include the requested tag name")
+        XCTAssertTrue(output.contains("(redacted)"), "Direct patient identifiers should be redacted")
+        XCTAssertFalse(output.contains("TEST123"), "Direct patient identifier values should not be emitted")
     }
 
     func testInspectCommandWithAllFlag() async throws {

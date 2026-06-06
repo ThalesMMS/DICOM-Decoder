@@ -307,6 +307,11 @@ struct InspectCommand: AsyncParsableCommand {
 
             // Try to match tag name to DicomTag enum
             if let tag = dicomTagFromName(tagName) {
+                if Self.redactedOutputTags.contains(tag) {
+                    metadata[tagName] = "(redacted)"
+                    continue
+                }
+
                 let value = decoder.info(for: tag)
                 if !value.isEmpty {
                     metadata[tagName] = value
@@ -332,6 +337,10 @@ struct InspectCommand: AsyncParsableCommand {
     }
 
     // MARK: - Tag Name Helpers
+
+    private static let redactedOutputTags: Set<DicomTag> = [
+        .patientID
+    ]
 
     private static let tagDisplayNameMap: [DicomTag: String] = [
         .patientName: "PatientName",
