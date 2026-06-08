@@ -4,7 +4,7 @@ import DicomTestSupport
 
 final class DicomTestRuntimePreflightTests: XCTestCase {
     func testOptionalRuntimeFixtureManifestDeclaresRequiredCapabilitiesAndCoverage() throws {
-        let manifestURL = packageRoot().appendingPathComponent("Roadmap/OptionalRuntimeFixtureManifest.json")
+        let manifestURL = packageRoot().appendingPathComponent("Tests/DicomCoreTests/Resources/ReleaseGates/OptionalRuntimeFixtureManifest.json")
         let manifest = try JSONDecoder().decode(
             OptionalRuntimeFixtureManifest.self,
             from: Data(contentsOf: manifestURL)

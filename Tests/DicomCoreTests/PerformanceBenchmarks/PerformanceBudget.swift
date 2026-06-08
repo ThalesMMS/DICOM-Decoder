@@ -146,7 +146,7 @@ enum PerformanceBudgetEvaluator {
 enum PerformanceBudgetManifestLoader {
     static func loadRepositoryManifest(callerFile: String = #filePath) throws -> PerformanceBudgetManifest {
         let manifestURL = try findRepositoryRoot(callerFile: callerFile)
-            .appendingPathComponent("Roadmap/ClinicalPerformanceBudgetManifest.json")
+            .appendingPathComponent("Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalPerformanceBudgetManifest.json")
         let data = try Data(contentsOf: manifestURL)
         return try JSONDecoder().decode(PerformanceBudgetManifest.self, from: data)
     }

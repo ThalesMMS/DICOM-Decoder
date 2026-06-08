@@ -278,7 +278,7 @@ public enum DicomTestRuntimePreflight {
     public static func skipMessage(for status: DicomRuntimeStatus) -> String {
         "\(status.capability.label) unavailable [capability=\(status.capability.manifestID), "
             + "classification=\(status.kind.rawValue), requireEnv=\(status.capability.requiredEnvironmentVariable)]. "
-            + "\(status.message) See Roadmap/OptionalRuntimeFixtureManifest.json."
+            + "\(status.message) See Tests/DicomCoreTests/Resources/ReleaseGates/OptionalRuntimeFixtureManifest.json."
     }
 
     public static func failureMessage(for status: DicomRuntimeStatus) -> String {

@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "issue": 282,
+  "requiredStages": [
+    "decode",
+    "volumeAssembly",
+    "gpuUpload",
+    "mprRender",
+    "volumeRender",
+    "snapshot",
+    "peakMemory"
+  ],
+  "buildConfigurations": [
+    "debug",
+    "release"
+  ],
+  "warningRatio": 0.9,
+  "comparisonProfile": {
+    "referenceDeviceClass": "Apple Silicon local developer machine",
+    "comparisonRule": "Treat values at or above warningRatio as visible warnings and values above the configured limit as failures.",
+    "requiredResultEnvironmentFields": [
+      "deviceName",
+      "osVersion",
+      "architecture",
+      "modelIdentifier",
+      "buildConfiguration",
+      "benchmarkMode",
+      "fixtureID"
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "dicom-ct-import-small",
+      "component": "DicomCore local clinical import path",
+      "fixtureID": "local-ct-small-non-phi",
+      "fixturePolicy": "Use only local non-PHI representative fixtures committed with the package or generated during tests.",
+      "benchmarkMode": "swift-test-local",
+      "datasetSize": {
+        "rows": 512,
+        "columns": 512,
+        "frames": 32,
+        "bytesPerVoxel": 2
+      },
+      "benchmarkCommand": "swift test --package-path DICOM-Decoder --filter PerformanceBudgetTests",
+      "budgets": [
+        {
+          "stage": "decode",
+          "metric": "meanTimeMilliseconds",
+          "releaseLimit": 250.0,
+          "debugLimit": 500.0
+        },
+        {
+          "stage": "volumeAssembly",
+          "metric": "meanTimeMilliseconds",
+          "releaseLimit": 180.0,
+          "debugLimit": 360.0
+        },
+        {
+          "stage": "gpuUpload",
+          "metric": "meanTimeMilliseconds",
+          "releaseLimit": 120.0,
+          "debugLimit": 240.0
+        },
+        {
+          "stage": "mprRender",
+          "metric": "p95TimeMilliseconds",
+          "releaseLimit": 33.0,
+          "debugLimit": 66.0
+        },
+        {
+          "stage": "volumeRender",
+          "metric": "p95TimeMilliseconds",
+          "releaseLimit": 50.0,
+          "debugLimit": 100.0
+        },
+        {
+          "stage": "snapshot",
+          "metric": "meanTimeMilliseconds",
+          "releaseLimit": 300.0,
+          "debugLimit": 600.0
+        },
+        {
+          "stage": "peakMemory",
+          "metric": "peakMemoryMegabytes",
+          "releaseLimit": 256.0,
+          "debugLimit": 384.0
+        }
+      ]
+    }
+  ]
+}

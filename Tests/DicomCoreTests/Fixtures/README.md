@@ -126,8 +126,8 @@ func testLoadRealCTImage() throws {
 ## File Size and Privacy
 
 - **Do not commit** large or clinical DICOM files to the repository.
-- Small synthetic fixtures listed in `Roadmap/OptionalRuntimeFixtureManifest.json` and
-  `Roadmap/ClinicalParityFixtureManifest.json` are intentionally versioned.
+- Small synthetic fixtures listed in `Tests/DicomCoreTests/Resources/ReleaseGates/OptionalRuntimeFixtureManifest.json` and
+  `Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json` are intentionally versioned.
 - **Never use real patient data** without proper de-identification
 - **Verify license terms** for public datasets
 - Use anonymization tools if handling clinical data (DICOM Anonymizer, dcm4che deid, CTP)

@@ -50,7 +50,7 @@ final class PublicAPIDocumentationPolicyTests: XCTestCase {
 
     func testMatrixMarksDocumentationGateDoneOnlyWithManifestAndTests() throws {
         let manifest = try loadManifest()
-        let matrix = try String(contentsOf: repoRoot.appendingPathComponent("Roadmap/DICOMAdvancedParityMatrix.md"),
+        let matrix = try String(contentsOf: repoRoot.appendingPathComponent("Tests/DicomCoreTests/Resources/ReleaseGates/DICOMAdvancedParityMatrix.md"),
                                 encoding: .utf8)
         let row = try XCTUnwrap(matrix
             .split(separator: "\n")
@@ -64,7 +64,7 @@ final class PublicAPIDocumentationPolicyTests: XCTestCase {
     }
 
     private func loadManifest() throws -> PublicAPIDocumentationManifest {
-        let url = repoRoot.appendingPathComponent("Roadmap/PublicAPIDocumentationManifest.json")
+        let url = repoRoot.appendingPathComponent("Tests/DicomCoreTests/Resources/ReleaseGates/PublicAPIDocumentationManifest.json")
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(PublicAPIDocumentationManifest.self, from: data)
     }

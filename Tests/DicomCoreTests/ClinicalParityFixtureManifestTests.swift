@@ -44,7 +44,7 @@ final class ClinicalParityFixtureManifestTests: XCTestCase {
     ]
 
     func testManifestCoversRequiredClinicalParityFixtures() throws {
-        let manifestURL = repoRoot().appendingPathComponent("Roadmap/ClinicalParityFixtureManifest.json")
+        let manifestURL = repoRoot().appendingPathComponent("Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json")
         let manifest = try JSONDecoder().decode(
             ClinicalParityFixtureManifest.self,
             from: Data(contentsOf: manifestURL)
@@ -88,8 +88,8 @@ final class ClinicalParityFixtureManifestTests: XCTestCase {
     }
 
     func testDoneMatrixFeaturesAreBoundToIssuesAndGoldenTests() throws {
-        let manifestURL = repoRoot().appendingPathComponent("Roadmap/ClinicalParityFixtureManifest.json")
-        let matrixURL = repoRoot().appendingPathComponent("Roadmap/DICOMAdvancedParityMatrix.md")
+        let manifestURL = repoRoot().appendingPathComponent("Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json")
+        let matrixURL = repoRoot().appendingPathComponent("Tests/DicomCoreTests/Resources/ReleaseGates/DICOMAdvancedParityMatrix.md")
         let manifest = try JSONDecoder().decode(
             ClinicalParityFixtureManifest.self,
             from: Data(contentsOf: manifestURL)
@@ -116,7 +116,7 @@ final class ClinicalParityFixtureManifestTests: XCTestCase {
     }
 
     func testManifestDoesNotExposePrivateDataOrLocalPaths() throws {
-        let manifestURL = repoRoot().appendingPathComponent("Roadmap/ClinicalParityFixtureManifest.json")
+        let manifestURL = repoRoot().appendingPathComponent("Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json")
         let manifestText = try String(contentsOf: manifestURL, encoding: .utf8)
         let blockedMarkers = [
             "/" + "Users" + "/",
@@ -297,7 +297,7 @@ final class ClinicalParityFixtureManifestTests: XCTestCase {
     }
 
     private func loadManifest() throws -> ClinicalParityFixtureManifest {
-        let manifestURL = repoRoot().appendingPathComponent("Roadmap/ClinicalParityFixtureManifest.json")
+        let manifestURL = repoRoot().appendingPathComponent("Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json")
         return try JSONDecoder().decode(
             ClinicalParityFixtureManifest.self,
             from: Data(contentsOf: manifestURL)
