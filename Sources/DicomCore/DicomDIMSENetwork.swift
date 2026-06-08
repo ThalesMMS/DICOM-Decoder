@@ -954,8 +954,8 @@ private extension DicomPDUCodec {
             appendUInt32BE(UInt32(pdv.data.count + 2), to: &data)
             data.append(pdv.presentationContextID)
             var control: UInt8 = 0
-            if pdv.isLastFragment { control |= 0x01 }
-            if pdv.isCommand { control |= 0x02 }
+            if pdv.isCommand { control |= 0x01 }
+            if pdv.isLastFragment { control |= 0x02 }
             data.append(control)
             data.append(pdv.data)
         }
@@ -1073,8 +1073,8 @@ private extension DicomPDUCodec {
             let control = try cursor.readUInt8()
             let fragment = try cursor.readData(count: itemLength - 2)
             pdvs.append(DicomPDV(presentationContextID: contextID,
-                                 isCommand: (control & 0x02) != 0,
-                                 isLastFragment: (control & 0x01) != 0,
+                                 isCommand: (control & 0x01) != 0,
+                                 isLastFragment: (control & 0x02) != 0,
                                  data: fragment))
         }
         return pdvs

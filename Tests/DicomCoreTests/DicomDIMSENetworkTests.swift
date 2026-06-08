@@ -146,6 +146,39 @@ final class DicomDIMSENetworkTests: XCTestCase {
         }
     }
 
+    func testPDataMessageControlHeaderUsesDicomBitLayout() throws {
+        let pdu = DicomPDU.pData([
+            DicomPDV(presentationContextID: 1,
+                    isCommand: true,
+                    isLastFragment: false,
+                    data: Data([0xAA])),
+            DicomPDV(presentationContextID: 3,
+                    isCommand: false,
+                    isLastFragment: true,
+                    data: Data([0xBB]))
+        ])
+
+        let encoded = try DicomPDUCodec.encode(pdu)
+
+        XCTAssertEqual(encoded[11], 0x01, "Bit 0 marks Command fragments.")
+        XCTAssertEqual(encoded[18], 0x02, "Bit 1 marks the last fragment.")
+
+        let rawPData = Data([
+            0x04, 0x00, 0x00, 0x00, 0x00, 0x07,
+            0x00, 0x00, 0x00, 0x03, 0x05, 0x02, 0xCC
+        ])
+        guard case .pData(let pdvs) = try DicomPDUCodec.decode(rawPData) else {
+            return XCTFail("Expected P-DATA PDU.")
+        }
+
+        XCTAssertEqual(pdvs, [
+            DicomPDV(presentationContextID: 5,
+                    isCommand: false,
+                    isLastFragment: true,
+                    data: Data([0xCC]))
+        ])
+    }
+
     func testStateMachineCoversReleaseAbortAndPDataErrors() throws {
         var stateMachine = DicomAssociationStateMachine()
         XCTAssertThrowsError(try stateMachine.validatePDataAllowed())

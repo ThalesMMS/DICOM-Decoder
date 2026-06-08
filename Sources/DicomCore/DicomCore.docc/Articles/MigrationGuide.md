@@ -742,7 +742,7 @@ do {
 This table records the migration actions consumers should complete before
 upgrading to the planned v2.0.0 API break. It is intentionally not an open
 project checklist; current package documentation reconciliation is tracked by
-issue #1077, and the Isis-level DCMTK parity documentation was closed by issue
+issue #1077, and the Isis-level decoder parity documentation was closed by issue
 #1064.
 
 | Area | Consumer Action | Current Package Status |

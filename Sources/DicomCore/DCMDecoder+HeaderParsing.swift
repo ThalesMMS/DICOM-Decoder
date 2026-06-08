@@ -234,6 +234,7 @@ extension DCMDecoder {
                         )
                         tagMetadataCache[tag] = metadata
                         location = bounds.endOffset
+                        parser.finishSequenceValue()
                         rebuildParserIfNeeded(afterEndiannessChange: parsedTag.endiannessChanged)
                         continue
                     } catch {

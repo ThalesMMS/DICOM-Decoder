@@ -46,6 +46,9 @@ final class DicomDIMSEServiceSCUTests: XCTestCase {
         XCTAssertEqual(transport.writtenCommands.map(\.commandField), [
             DicomDIMSECommandField.cFindRQ
         ])
+        XCTAssertEqual(transport.writtenCommands.first?.affectedSOPClassUID,
+                       DicomNetworkUID.studyRootQueryRetrieveFind)
+        XCTAssertNil(transport.writtenCommands.first?.requestedSOPClassUID)
         XCTAssertEqual(transport.writtenDataSets.first?.string(for: .patientName), "DOE^JANE")
     }
 
@@ -69,6 +72,9 @@ final class DicomDIMSEServiceSCUTests: XCTestCase {
                                                 completed: 1,
                                                 failed: 0,
                                                 warning: 0)))
+        XCTAssertEqual(transport.writtenCommands.first?.affectedSOPClassUID,
+                       DicomNetworkUID.studyRootQueryRetrieveMove)
+        XCTAssertNil(transport.writtenCommands.first?.requestedSOPClassUID)
         XCTAssertEqual(transport.writtenCommands.first?.moveDestination, "VIEWER")
     }
 
@@ -89,6 +95,9 @@ final class DicomDIMSEServiceSCUTests: XCTestCase {
         XCTAssertTrue(transport.writtenCommands.contains {
             $0.commandField == DicomDIMSECommandField.cStoreRSP && $0.status == 0
         })
+        let cGetRequest = transport.writtenCommands.first { $0.commandField == DicomDIMSECommandField.cGetRQ }
+        XCTAssertEqual(cGetRequest?.affectedSOPClassUID, DicomNetworkUID.studyRootQueryRetrieveGet)
+        XCTAssertNil(cGetRequest?.requestedSOPClassUID)
     }
 
     func testModalityWorklistSCUMapsScheduledProcedureSteps() throws {
@@ -107,8 +116,9 @@ final class DicomDIMSEServiceSCUTests: XCTestCase {
         XCTAssertEqual(result.items[0].patientName, "DOE^JANE")
         XCTAssertEqual(result.items[0].modality, "CT")
         XCTAssertEqual(result.items[0].scheduledProcedureStepID, "SPS-1")
-        XCTAssertEqual(transport.writtenCommands.first?.requestedSOPClassUID,
+        XCTAssertEqual(transport.writtenCommands.first?.affectedSOPClassUID,
                        DicomNetworkUID.modalityWorklistInformationModelFind)
+        XCTAssertNil(transport.writtenCommands.first?.requestedSOPClassUID)
         let scheduledQuery = transport.writtenDataSets.first?
             .element(for: DicomWorkflowTag.scheduledProcedureStepSequence)?
             .sequenceItems.first?.dataSet
@@ -1338,15 +1348,15 @@ private final class DIMSEScriptedTransport: DicomCancellableAssociationTransport
         guard let command = lastRequestCommand else { return }
         switch command.commandField {
         case DicomDIMSECommandField.cFindRQ:
-            let requestedSOPClassUID = command.requestedSOPClassUID ?? DicomNetworkUID.studyRootQueryRetrieveFind
+            let affectedSOPClassUID = command.affectedSOPClassUID ?? DicomNetworkUID.studyRootQueryRetrieveFind
             try enqueueCommand(DicomDIMSECommandSet(
-                requestedSOPClassUID: requestedSOPClassUID,
+                affectedSOPClassUID: affectedSOPClassUID,
                 commandField: DicomDIMSECommandField.cFindRSP,
                 messageIDBeingRespondedTo: command.messageID,
                 commandDataSetType: DicomDIMSECommandDataSetType.hasDataSet,
                 status: 0xFF00
             ), contextID: presentationContextID)
-            if requestedSOPClassUID == DicomNetworkUID.modalityWorklistInformationModelFind {
+            if affectedSOPClassUID == DicomNetworkUID.modalityWorklistInformationModelFind {
                 try enqueueDataSet(worklistDataSet(), contextID: presentationContextID)
             } else {
                 try enqueueDataSet(DicomDataSet(elements: [
@@ -1355,7 +1365,7 @@ private final class DIMSEScriptedTransport: DicomCancellableAssociationTransport
                 ]), contextID: presentationContextID)
             }
             try enqueueCommand(DicomDIMSECommandSet(
-                requestedSOPClassUID: requestedSOPClassUID,
+                affectedSOPClassUID: affectedSOPClassUID,
                 commandField: DicomDIMSECommandField.cFindRSP,
                 messageIDBeingRespondedTo: command.messageID,
                 commandDataSetType: DicomDIMSECommandDataSetType.noDataSet,
@@ -1363,7 +1373,7 @@ private final class DIMSEScriptedTransport: DicomCancellableAssociationTransport
             ), contextID: presentationContextID)
         case DicomDIMSECommandField.cMoveRQ:
             try enqueueCommand(DicomDIMSECommandSet(
-                requestedSOPClassUID: DicomNetworkUID.studyRootQueryRetrieveMove,
+                affectedSOPClassUID: command.affectedSOPClassUID,
                 commandField: DicomDIMSECommandField.cMoveRSP,
                 messageIDBeingRespondedTo: command.messageID,
                 commandDataSetType: DicomDIMSECommandDataSetType.noDataSet,
@@ -1374,7 +1384,7 @@ private final class DIMSEScriptedTransport: DicomCancellableAssociationTransport
                 warningSuboperations: 0
             ), contextID: presentationContextID)
             try enqueueCommand(DicomDIMSECommandSet(
-                requestedSOPClassUID: DicomNetworkUID.studyRootQueryRetrieveMove,
+                affectedSOPClassUID: command.affectedSOPClassUID,
                 commandField: DicomDIMSECommandField.cMoveRSP,
                 messageIDBeingRespondedTo: command.messageID,
                 commandDataSetType: DicomDIMSECommandDataSetType.noDataSet,
@@ -1394,7 +1404,7 @@ private final class DIMSEScriptedTransport: DicomCancellableAssociationTransport
             ), contextID: 3)
             try enqueueDataSet(storageDataSet(), contextID: 3)
             try enqueueCommand(DicomDIMSECommandSet(
-                requestedSOPClassUID: DicomNetworkUID.studyRootQueryRetrieveGet,
+                affectedSOPClassUID: command.affectedSOPClassUID,
                 commandField: DicomDIMSECommandField.cGetRSP,
                 messageIDBeingRespondedTo: command.messageID,
                 commandDataSetType: DicomDIMSECommandDataSetType.noDataSet,

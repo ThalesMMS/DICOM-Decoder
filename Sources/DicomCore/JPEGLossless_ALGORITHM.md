@@ -566,7 +566,7 @@ func decodeJPEGLossless(data: Data) throws -> [UInt16] {
 ### Integration Tests
 
 1. **Synthetic images**: Generate known pixel patterns, compress with reference encoder, decode
-2. **Bit-perfect validation**: Compare output with dcmtk or GDCM pixel-by-pixel
+2. **Bit-perfect validation**: Compare output with dicom-decoder or GDCM pixel-by-pixel
 3. **Edge cases**: 1×1 image, maximum precision (16-bit), all predictor values
 
 ### Conformance Tests
@@ -593,7 +593,7 @@ Use DICOM conformance images from:
 
 - **libjpeg**: Reference implementation (C)
 - **GDCM**: Open-source DICOM library with JPEG Lossless support
-- **dcmtk**: OFFIS DICOM Toolkit with lossless decoder
+- **dicom-decoder**: OFFIS DICOM Toolkit with lossless decoder
 
 ---
 

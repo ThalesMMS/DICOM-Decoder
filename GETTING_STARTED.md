@@ -43,7 +43,6 @@ Before you start, ensure you have:
 
 - Public datasets such as [TCIA](https://www.cancerimagingarchive.net/)
 - [DICOM Sample Images](https://www.dicomlibrary.com/)
-- Generated test files with tools like [dcmtk](https://dicom.offis.de/dcmtk.php.en)
 
 ---
 
@@ -366,4 +365,3 @@ Explore additional materials:
 
 - [DICOM Standard](https://www.dicomstandard.org/) - official specification
 - [Innolitics DICOM Browser](https://dicom.innolitics.com/) - browse tags
-- [DCMTK Tools](https://dicom.offis.de/dcmtk.php.en) - command-line utilities

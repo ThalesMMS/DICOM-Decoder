@@ -32,7 +32,7 @@ final class ClinicalParityFixtureManifestTests: XCTestCase {
         "segment-metadata"
     ]
 
-    private let requiredDCMTKParityCoverage: Set<String> = [
+    private let requiredDecoderParityCoverage: Set<String> = [
         "explicit-vr-little-endian-ct-or-mr",
         "implicit-vr-little-endian",
         "secondary-capture",
@@ -130,18 +130,18 @@ final class ClinicalParityFixtureManifestTests: XCTestCase {
         }
     }
 
-    func testDCMTKParityFixtureManifestListsRequiredMetadataAndFiles() throws {
+    func testDecoderParityFixtureManifestListsRequiredMetadataAndFiles() throws {
         let manifest = try loadManifest()
-        let fixtures = manifest.dcmtkParity.fixtures
+        let fixtures = manifest.decoderParity.fixtures
 
-        XCTAssertEqual(manifest.dcmtkParity.issue, "#1052")
+        XCTAssertEqual(manifest.decoderParity.issue, "#1052")
         XCTAssertGreaterThanOrEqual(fixtures.count, 7)
         XCTAssertEqual(Set(fixtures.map(\.id)).count, fixtures.count, "Fixture IDs must be unique")
 
         let coverage = Set(fixtures.flatMap(\.coverage))
         XCTAssertTrue(
-            requiredDCMTKParityCoverage.isSubset(of: coverage),
-            "Missing coverage: \(requiredDCMTKParityCoverage.subtracting(coverage).sorted())"
+            requiredDecoderParityCoverage.isSubset(of: coverage),
+            "Missing coverage: \(requiredDecoderParityCoverage.subtracting(coverage).sorted())"
         )
 
         for fixture in fixtures {
@@ -170,8 +170,8 @@ final class ClinicalParityFixtureManifestTests: XCTestCase {
         }
     }
 
-    func testDCMTKParityFixtureMetadataMatchesDecoderOutput() throws {
-        for fixture in try loadManifest().dcmtkParity.fixtures {
+    func testDecoderParityFixtureMetadataMatchesDecoderOutput() throws {
+        for fixture in try loadManifest().decoderParity.fixtures {
             let decoder = try DCMDecoder(contentsOf: repoRoot().appendingPathComponent(fixture.path))
 
             XCTAssertEqual(trim(decoder.info(for: .sopClassUID)), fixture.sopClassUID, fixture.id)
@@ -278,8 +278,8 @@ final class ClinicalParityFixtureManifestTests: XCTestCase {
         }
     }
 
-    func testDCMTKParityMTKValidationFixturesExposeGeometryWindowAndRescaleInputs() throws {
-        let parity = try loadManifest().dcmtkParity
+    func testDecoderParityMTKValidationFixturesExposeGeometryWindowAndRescaleInputs() throws {
+        let parity = try loadManifest().decoderParity
         let fixturesByID = Dictionary(uniqueKeysWithValues: parity.fixtures.map { ($0.id, $0) })
 
         XCTAssertFalse(parity.mtkValidation.eligibleFixtureIDs.isEmpty)
@@ -357,7 +357,7 @@ final class ClinicalParityFixtureManifestTests: XCTestCase {
 private struct ClinicalParityFixtureManifest: Decodable {
     var version: Int
     var policy: ClinicalParityFixtureManifestPolicy
-    var dcmtkParity: DCMTKParityFixtureManifest
+    var decoderParity: DecoderParityFixtureManifest
     var features: [ClinicalParityFixtureManifestFeature]
 }
 
@@ -379,19 +379,19 @@ private struct ClinicalParityFixtureManifestFeature: Decodable {
     var ci: String
 }
 
-private struct DCMTKParityFixtureManifest: Decodable {
+private struct DecoderParityFixtureManifest: Decodable {
     var issue: String
     var description: String
     var manifestRoot: String
-    var mtkValidation: DCMTKParityMTKValidation
-    var fixtures: [DCMTKParityFixture]
+    var mtkValidation: DecoderParityMTKValidation
+    var fixtures: [DecoderParityFixture]
 }
 
-private struct DCMTKParityMTKValidation: Decodable {
+private struct DecoderParityMTKValidation: Decodable {
     var eligibleFixtureIDs: [String]
 }
 
-private struct DCMTKParityFixture: Decodable {
+private struct DecoderParityFixture: Decodable {
     var id: String
     var path: String
     var coverage: [String]
@@ -401,27 +401,27 @@ private struct DCMTKParityFixture: Decodable {
     var modality: String
     var specificCharacterSet: String
     var specificCharacterSetPresent: Bool
-    var expectedUIDs: DCMTKParityFixtureUIDs
-    var text: DCMTKParityFixtureText
-    var dates: DCMTKParityFixtureDates
-    var counts: DCMTKParityFixtureCounts
-    var instance: DCMTKParityFixtureInstance
-    var dimensions: DCMTKParityFixtureDimensions
-    var geometry: DCMTKParityFixtureGeometry
-    var window: DCMTKParityFixtureWindow
-    var rescale: DCMTKParityFixtureRescale
-    var pixel: DCMTKParityFixturePixel
-    var status: DCMTKParityFixtureStatus
+    var expectedUIDs: DecoderParityFixtureUIDs
+    var text: DecoderParityFixtureText
+    var dates: DecoderParityFixtureDates
+    var counts: DecoderParityFixtureCounts
+    var instance: DecoderParityFixtureInstance
+    var dimensions: DecoderParityFixtureDimensions
+    var geometry: DecoderParityFixtureGeometry
+    var window: DecoderParityFixtureWindow
+    var rescale: DecoderParityFixtureRescale
+    var pixel: DecoderParityFixturePixel
+    var status: DecoderParityFixtureStatus
 }
 
-private struct DCMTKParityFixtureUIDs: Decodable {
+private struct DecoderParityFixtureUIDs: Decodable {
     var studyInstanceUID: String
     var seriesInstanceUID: String
     var sopInstanceUID: String
     var frameOfReferenceUID: String?
 }
 
-private struct DCMTKParityFixtureText: Decodable {
+private struct DecoderParityFixtureText: Decodable {
     var patientName: String
     var patientID: String
     var studyDescription: String?
@@ -436,7 +436,7 @@ private struct DCMTKParityFixtureText: Decodable {
     var patientAge: String?
 }
 
-private struct DCMTKParityFixtureDates: Decodable {
+private struct DecoderParityFixtureDates: Decodable {
     var studyDate: String?
     var studyTime: String?
     var seriesDate: String?
@@ -445,45 +445,45 @@ private struct DCMTKParityFixtureDates: Decodable {
     var acquisitionTime: String?
 }
 
-private struct DCMTKParityFixtureCounts: Decodable {
+private struct DecoderParityFixtureCounts: Decodable {
     var numberOfStudyRelatedSeries: Int?
     var numberOfStudyRelatedInstances: Int?
     var numberOfSeriesRelatedInstances: Int?
 }
 
-private struct DCMTKParityFixtureInstance: Decodable {
+private struct DecoderParityFixtureInstance: Decodable {
     var seriesNumber: Int?
     var acquisitionNumber: Int?
     var instanceNumber: Int?
 }
 
-private struct DCMTKParityFixtureDimensions: Decodable {
+private struct DecoderParityFixtureDimensions: Decodable {
     var rows: Int
     var columns: Int
     var frames: Int
 }
 
-private struct DCMTKParityFixtureGeometry: Decodable {
+private struct DecoderParityFixtureGeometry: Decodable {
     var pixelSpacing: [Double]
     var imagePositionPatient: [Double]
     var imageOrientationPatient: [Double]
     var sliceThickness: Double
 }
 
-private struct DCMTKParityFixtureWindow: Decodable {
+private struct DecoderParityFixtureWindow: Decodable {
     var present: Bool
     var center: Double?
     var width: Double?
 }
 
-private struct DCMTKParityFixtureRescale: Decodable {
+private struct DecoderParityFixtureRescale: Decodable {
     var present: Bool
     var slope: Double?
     var intercept: Double?
     var type: String?
 }
 
-private struct DCMTKParityFixturePixel: Decodable {
+private struct DecoderParityFixturePixel: Decodable {
     var pixelRepresentation: Int
     var samplesPerPixel: Int
     var photometricInterpretation: String
@@ -494,7 +494,7 @@ private struct DCMTKParityFixturePixel: Decodable {
     var largestImagePixelValue: Int?
 }
 
-private struct DCMTKParityFixtureStatus: Decodable {
+private struct DecoderParityFixtureStatus: Decodable {
     var multiframe: Bool
     var compressed: Bool
 }

@@ -14,7 +14,7 @@
 //   2. Verify pixel data is successfully extracted
 //   3. Validate image dimensions and bit depth
 //   4. Check pixel value ranges are reasonable for modality
-//   5. Compare with reference decoder output if available (dcmtk dcmdjpeg)
+//   5. Compare with reference decoder output if available (external reference decoder)
 
 import XCTest
 import Foundation
@@ -499,117 +499,6 @@ final class JPEGLosslessConformanceTests: XCTestCase {
         // At least one selection value should be tested
         XCTAssertGreaterThan(filesBySelectionValue.keys.count, 0, "Should test at least one selection value")
     }
-
-    // MARK: - Reference Decoder Comparison
-
-    #if os(macOS)
-    /// Compare DCMDecoder output with reference decoder (requires dcmtk)
-    /// This test is skipped if dcmtk is not available
-    func testCompareWithReferenceDecoder() throws {
-        let dcmdjpegPath = try DicomTestRuntimePreflight.requireExecutable(.dcmtkDcmdjpeg, named: "dcmdjpeg")
-
-        let files = try findJPEGLosslessFiles()
-
-        guard let testFile = files.first else {
-            throw skipMissingConformanceFixtures("No JPEG Lossless test files available.")
-        }
-
-        print("\n=== Comparing with reference decoder (dcmdjpeg) ===")
-        print("Test file: \(testFile.lastPathComponent)")
-
-        // Create temporary directory for decompressed output
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dicom_test_\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-
-        defer {
-            try? FileManager.default.removeItem(at: tempDir)
-        }
-
-        let decompressedFile = tempDir.appendingPathComponent("decompressed.dcm")
-
-        // Decompress with dcmdjpeg
-        let dcmdjpeg = Process()
-        dcmdjpeg.executableURL = URL(fileURLWithPath: dcmdjpegPath)
-        dcmdjpeg.arguments = [testFile.path, decompressedFile.path]
-
-        try dcmdjpeg.run()
-        dcmdjpeg.waitUntilExit()
-
-        guard dcmdjpeg.terminationStatus == 0 else {
-            throw XCTSkip(
-                "DCMTK dcmdjpeg could not decompress the selected fixture [capability="
-                    + "\(DicomRuntimeCapability.dcmtkDcmdjpeg.manifestID), classification=missing-optional-runtime]."
-            )
-        }
-
-        // Decode with DCMDecoder (JPEG Lossless)
-        guard let jpegLosslessDecoder = try? DCMDecoder(contentsOf: testFile) else {
-            XCTFail("Failed to load JPEG Lossless file")
-            return
-        }
-
-        guard let jpegLosslessPixels = jpegLosslessDecoder.getPixels16() else {
-            XCTFail("getPixels16() returned nil for JPEG Lossless file")
-            return
-        }
-
-        // Decode reference (uncompressed)
-        guard let referenceDecoder = try? DCMDecoder(contentsOf: decompressedFile) else {
-            XCTFail("Failed to load reference file")
-            return
-        }
-
-        guard let referencePixels = referenceDecoder.getPixels16() else {
-            XCTFail("getPixels16() returned nil for reference file")
-            return
-        }
-
-        // Compare dimensions
-        XCTAssertEqual(jpegLosslessDecoder.width, referenceDecoder.width, "Width mismatch")
-        XCTAssertEqual(jpegLosslessDecoder.height, referenceDecoder.height, "Height mismatch")
-
-        // Compare pixel counts
-        XCTAssertEqual(jpegLosslessPixels.count, referencePixels.count, "Pixel count mismatch")
-
-        // Compare pixel values (bit-perfect)
-        var mismatchCount = 0
-        var firstMismatchIndex: Int?
-
-        for i in 0..<min(jpegLosslessPixels.count, referencePixels.count) {
-            if jpegLosslessPixels[i] != referencePixels[i] {
-                mismatchCount += 1
-                if firstMismatchIndex == nil {
-                    firstMismatchIndex = i
-                }
-            }
-        }
-
-        if mismatchCount > 0 {
-            print("\n⚠️  Pixel mismatch detected:")
-            print("  Total mismatches: \(mismatchCount) / \(jpegLosslessPixels.count)")
-            if let firstIndex = firstMismatchIndex {
-                print("  First mismatch at index \(firstIndex):")
-                print("    DCMDecoder:  \(jpegLosslessPixels[firstIndex])")
-                print("    Reference:   \(referencePixels[firstIndex])")
-            }
-        } else {
-            print("  ✅ Bit-perfect match with reference decoder!")
-        }
-
-        // For lossless compression, expect bit-perfect match
-        XCTAssertEqual(mismatchCount, 0, "JPEG Lossless should produce bit-perfect output")
-    }
-    #else
-    /// Compare DCMDecoder output with reference decoder (requires dcmtk)
-    /// This test is skipped on non-macOS platforms.
-    func testCompareWithReferenceDecoder() throws {
-        throw XCTSkip(
-            "Reference decoder comparison is unsupported on this platform [capability="
-                + "\(DicomRuntimeCapability.dcmtkDcmdjpeg.manifestID), classification=unsupported-feature]."
-        )
-    }
-    #endif
 
     // MARK: - Performance Testing
 

@@ -379,7 +379,7 @@ public final class DicomStorageSCPService {
     }
 
     public func handleAssociation(using transport: DicomAssociationTransport,
-                                  progress: ((DicomStorageSCPProgress) -> Void)? = nil) throws -> DicomStorageSCPAssociationResult {
+                                  progress: (@Sendable (DicomStorageSCPProgress) -> Void)? = nil) throws -> DicomStorageSCPAssociationResult {
         let requestPDU = try DicomPDUCodec.decode(try transport.readPDU())
         guard case .associationRequest(let request) = requestPDU else {
             throw DicomStorageSCPError.associationRequestExpected
@@ -461,7 +461,7 @@ public final class DicomStorageSCPService {
                              association: DicomAssociation,
                              transport: DicomAssociationTransport,
                              reader: DicomDIMSEMessageReader,
-                             progress: ((DicomStorageSCPProgress) -> Void)?) throws -> DicomStoredInstance {
+                             progress: (@Sendable (DicomStorageSCPProgress) -> Void)?) throws -> DicomStoredInstance {
         let payload = try reader.readMessage(from: transport)
         guard !payload.isCommand else {
             throw DicomStorageSCPError.missingCommandDataSet(command.commandField)
@@ -771,7 +771,7 @@ public final class DicomStorageSCPServer {
         self.listener = try NWListener(using: prepared.parameters, on: port)
     }
 
-    public func start(progress: ((DicomStorageSCPProgress) -> Void)? = nil) throws {
+    public func start(progress: (@Sendable (DicomStorageSCPProgress) -> Void)? = nil) throws {
         let semaphore = DispatchSemaphore(value: 0)
         var startupError: Error?
         listener.newConnectionHandler = { [service] connection in

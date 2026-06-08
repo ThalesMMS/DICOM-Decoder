@@ -40,9 +40,10 @@ final class DicomStorageSCPTests: XCTestCase {
             ), contextID: 3),
             try DicomPDUCodec.encode(.releaseRequest)
         ])
-        var progress: [DicomStorageSCPProgress] = []
+        let progressRecorder = DicomStorageSCPProgressRecorder()
 
-        let result = try service.handleAssociation(using: transport) { progress.append($0) }
+        let result = try service.handleAssociation(using: transport) { progressRecorder.append($0) }
+        let progress = progressRecorder.snapshot()
 
         XCTAssertEqual(result.storedInstances.count, 1)
         XCTAssertEqual(result.storedInstances[0].sopInstanceUID, sopInstanceUID)
@@ -237,6 +238,23 @@ private enum QueueFailure: LocalizedError {
     case offline
 
     var errorDescription: String? { "offline" }
+}
+
+private final class DicomStorageSCPProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var progress: [DicomStorageSCPProgress] = []
+
+    func append(_ value: DicomStorageSCPProgress) {
+        lock.lock()
+        defer { lock.unlock() }
+        progress.append(value)
+    }
+
+    func snapshot() -> [DicomStorageSCPProgress] {
+        lock.lock()
+        defer { lock.unlock() }
+        return progress
+    }
 }
 
 private final class StorageSCUTransport: DicomAssociationTransport {

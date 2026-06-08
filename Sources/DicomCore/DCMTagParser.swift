@@ -421,6 +421,12 @@ internal final class DCMTagParser {
         oddLocations = false
     }
 
+    /// Clears sequence-tracking state after callers skip a complete sequence value.
+    internal func finishSequenceValue() {
+        inSequence = false
+        elementLengthIsUndefined = false
+    }
+
     /// Returns true if currently inside a DICOM sequence
     internal var isInSequence: Bool {
         return inSequence

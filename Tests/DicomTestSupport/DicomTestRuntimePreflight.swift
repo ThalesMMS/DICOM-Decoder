@@ -12,7 +12,6 @@ public enum DicomRuntimeCapability: String, CaseIterable, Codable {
     case charLS
     case openJPEG
     case opjCompress
-    case dcmtkDcmdjpeg
     case metalDevice
     case networkSecurityTLS
     case networkInteropSmoke
@@ -31,8 +30,6 @@ public enum DicomRuntimeCapability: String, CaseIterable, Codable {
             return "openjpeg-runtime"
         case .opjCompress:
             return "opj-compress-tool"
-        case .dcmtkDcmdjpeg:
-            return "dcmtk-dcmdjpeg-tool"
         case .metalDevice:
             return "metal-device"
         case .networkSecurityTLS:
@@ -56,8 +53,6 @@ public enum DicomRuntimeCapability: String, CaseIterable, Codable {
             return "OpenJPEG runtime"
         case .opjCompress:
             return "opj_compress tool"
-        case .dcmtkDcmdjpeg:
-            return "DCMTK dcmdjpeg tool"
         case .metalDevice:
             return "Metal device"
         case .networkSecurityTLS:
@@ -81,8 +76,6 @@ public enum DicomRuntimeCapability: String, CaseIterable, Codable {
             return "DICOM_REQUIRE_OPENJPEG"
         case .opjCompress:
             return "DICOM_REQUIRE_OPJ_COMPRESS"
-        case .dcmtkDcmdjpeg:
-            return "DICOM_REQUIRE_DCMTK_DCMDJPEG"
         case .metalDevice:
             return "DICOM_REQUIRE_METAL"
         case .networkSecurityTLS:
@@ -97,7 +90,7 @@ public enum DicomRuntimeCapability: String, CaseIterable, Codable {
         case .bundledSyntheticFixtures:
             return true
         case .largeDicomFixtures, .jpegLosslessConformanceFixtures, .charLS, .openJPEG, .opjCompress,
-             .dcmtkDcmdjpeg, .metalDevice, .networkSecurityTLS, .networkInteropSmoke:
+             .metalDevice, .networkSecurityTLS, .networkInteropSmoke:
             return false
         }
     }
@@ -215,12 +208,6 @@ public enum DicomTestRuntimePreflight {
                 return status(capability, .available, "Found opj_compress at \(path).")
             }
             return status(capability, .missingOptionalRuntime, "opj_compress was not found in PATH or common Homebrew locations.")
-
-        case .dcmtkDcmdjpeg:
-            if let path = executablePath(named: "dcmdjpeg", environment: environment) {
-                return status(capability, .available, "Found dcmdjpeg at \(path).")
-            }
-            return status(capability, .missingOptionalRuntime, "dcmdjpeg was not found in PATH.")
 
         case .metalDevice:
             #if canImport(Metal)

@@ -452,7 +452,7 @@ public struct DicomDIMSEServiceSCU {
         let transferSyntax = context.transferSyntax ?? .explicitVRLittleEndian
         let messageID: UInt16 = 1
         let command = DicomDIMSECommandSet(
-            requestedSOPClassUID: queryModelUID,
+            affectedSOPClassUID: queryModelUID,
             commandField: DicomDIMSECommandField.cFindRQ,
             messageID: messageID,
             commandDataSetType: DicomDIMSECommandDataSetType.hasDataSet,
@@ -559,7 +559,7 @@ public struct DicomDIMSEServiceSCU {
         let transferSyntax = context.transferSyntax ?? .explicitVRLittleEndian
         let messageID: UInt16 = 1
         let command = DicomDIMSECommandSet(
-            requestedSOPClassUID: queryModelUID,
+            affectedSOPClassUID: queryModelUID,
             commandField: DicomDIMSECommandField.cMoveRQ,
             messageID: messageID,
             commandDataSetType: DicomDIMSECommandDataSetType.hasDataSet,
@@ -629,7 +629,7 @@ public struct DicomDIMSEServiceSCU {
         let transferSyntax = context.transferSyntax ?? .explicitVRLittleEndian
         let messageID: UInt16 = 1
         let command = DicomDIMSECommandSet(
-            requestedSOPClassUID: queryModelUID,
+            affectedSOPClassUID: queryModelUID,
             commandField: DicomDIMSECommandField.cGetRQ,
             messageID: messageID,
             commandDataSetType: DicomDIMSECommandDataSetType.hasDataSet,

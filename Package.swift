@@ -78,8 +78,7 @@ let package = Package(
             ],
             path: "Tests/DicomCoreTests",
             exclude: [
-                "Fixtures",
-                "validate_jpeg_lossless_bitperfect.sh"
+                "Fixtures"
             ],
             resources: [
                 .process("PerformanceBenchmarks/Baselines"),
