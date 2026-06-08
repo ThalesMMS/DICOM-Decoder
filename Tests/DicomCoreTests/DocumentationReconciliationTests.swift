@@ -39,7 +39,7 @@ final class DocumentationReconciliationTests: XCTestCase {
     func testDIMSEAndDICOMwebDocsDeclareHelperScope() throws {
         let conformance = try Self.packageText("Sources/DicomCore/DicomCore.docc/Articles/ConformanceStatement.md")
         let readme = try Self.packageText("README.md")
-        let gaps = try Self.packageText("IMPLEMENTATION_GAPS.md")
+        let gaps = try Self.packageText("Tests/DicomCoreTests/Resources/ReleaseGates/IMPLEMENTATION_GAPS.md")
 
         assert(conformance, contains: [
             "C-ECHO",
@@ -100,7 +100,7 @@ final class DocumentationReconciliationTests: XCTestCase {
     }
 
     func testDocumentationGapIsMarkedReconciledAndGuarded() throws {
-        let gaps = try Self.packageText("IMPLEMENTATION_GAPS.md")
+        let gaps = try Self.packageText("Tests/DicomCoreTests/Resources/ReleaseGates/IMPLEMENTATION_GAPS.md")
 
         XCTAssertTrue(gaps.contains("Documentation Drift and Migration Checklist Reconciled"))
         XCTAssertTrue(gaps.contains("Status: reconciled and guarded by #1077."))
