@@ -91,9 +91,9 @@ final class DicomTestRuntimePreflightTests: XCTestCase {
 
     private func packageRoot() -> URL {
         var current = URL(fileURLWithPath: #filePath)
-        while current.lastPathComponent != "DICOM-Decoder" {
+        while current.lastPathComponent != "DICOM-Swift" {
             let next = current.deletingLastPathComponent()
-            precondition(next.path != current.path, "Could not find DICOM-Decoder package root from \(#filePath)")
+            precondition(next.path != current.path, "Could not find DICOM-Swift package root from \(#filePath)")
             current = next
         }
         return current

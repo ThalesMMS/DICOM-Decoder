@@ -10,5 +10,5 @@ and peak-memory stages for both debug and release comparisons.
 Run the budget gate with:
 
 ```bash
-swift test --package-path DICOM-Decoder --filter PerformanceBudgetTests
+swift test --package-path DICOM-Swift --filter PerformanceBudgetTests
 ```

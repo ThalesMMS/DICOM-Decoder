@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "DICOMDecoder",
+    name: "DICOMSwift",
     defaultLocalization: "en",
     platforms: [
         .iOS(.v13),

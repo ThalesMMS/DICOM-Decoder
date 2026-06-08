@@ -563,7 +563,7 @@ Ongoing maintenance:
 
 ## Resources
 
-- [API Documentation](https://thalesmms.github.io/DICOM-Decoder/documentation/dicomcore/)
+- [API Documentation](https://thalesmms.github.io/DICOM-Swift/documentation/dicomcore/)
 - [Getting Started Guide](GETTING_STARTED.md)
 - [Performance Guide](Sources/DicomCore/DicomCore.docc/Articles/PerformanceGuide.md)
 - [Benchmark Source Code](Tests/DicomCoreTests/PerformanceBenchmarks/)
@@ -574,4 +574,4 @@ Ongoing maintenance:
 **Benchmark Version:** 1.0
 **Library Version:** 1.2.0+
 
-For questions or issues related to performance, please [open an issue](https://github.com/ThalesMMS/DICOM-Decoder/issues) with benchmark results attached.
+For questions or issues related to performance, please [open an issue](https://github.com/ThalesMMS/DICOM-Swift/issues) with benchmark results attached.

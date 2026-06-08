@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/macOS-12.0+-blue.svg" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" />
   <br/>
-  <img src="https://github.com/ThalesMMS/DICOM-Decoder/actions/workflows/tests.yml/badge.svg" alt="Tests" />
+  <img src="https://github.com/ThalesMMS/DICOM-Swift/actions/workflows/tests.yml/badge.svg" alt="Tests" />
 </p>
 
 ![UI Screenshot](screenshot/screenshot.png)
@@ -15,8 +15,8 @@ Pure Swift DICOM decoder toolkit for iOS and macOS. Parse DICOM metadata, extrac
 
 Suitable for lightweight DICOM viewers, PACS clients, telemedicine apps, and research tools.
 
-- Development repository: [`ThalesMMS/DICOM-Decoder`](https://github.com/ThalesMMS/DICOM-Decoder)
-- Stable release line: [`ThalesMMS/DICOM-Decoder` releases](https://github.com/ThalesMMS/DICOM-Decoder/releases)
+- Development repository: [`ThalesMMS/DICOM-Swift`](https://github.com/ThalesMMS/DICOM-Swift)
+- Stable release line: [`ThalesMMS/DICOM-Swift` releases](https://github.com/ThalesMMS/DICOM-Swift/releases)
 - Guides: [Getting Started](GETTING_STARTED.md) | [Usage Examples](USAGE_EXAMPLES.md) | [Glossary](DICOM_GLOSSARY.md) | [Troubleshooting](TROUBLESHOOTING.md)
 - API docs: Generate locally with `swift package generate-documentation --target DicomCore`
 - Related projects: [MTK](https://github.com/ThalesMMS/MTK) | [MTKDicomBridge](https://github.com/ThalesMMS/MTKDicomBridge) | [MTK-Demo](https://github.com/ThalesMMS/MTK-Demo)
@@ -204,7 +204,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/ThalesMMS/DICOM-Decoder.git", from: "1.0.0")
+    .package(url: "https://github.com/ThalesMMS/DICOM-Swift.git", from: "1.0.0")
 ]
 ```
 
@@ -326,7 +326,7 @@ See [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md#type-safe-value-types-v2-apis) for det
 ### Via Xcode
 
 1. File -> Add Packages...
-2. Paste `https://github.com/ThalesMMS/DICOM-Decoder.git`
+2. Paste `https://github.com/ThalesMMS/DICOM-Swift.git`
 3. Select version `1.0.0` or later
 4. Add Package
 
@@ -335,13 +335,13 @@ See [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md#type-safe-value-types-v2-apis) for det
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/ThalesMMS/DICOM-Decoder.git", from: "1.0.0")
+    .package(url: "https://github.com/ThalesMMS/DICOM-Swift.git", from: "1.0.0")
 ],
 targets: [
     .target(
         name: "MyApp",
         dependencies: [
-            .product(name: "DicomCore", package: "DICOM-Decoder")
+            .product(name: "DicomCore", package: "DICOM-Swift")
         ]
     )
 ]
@@ -503,8 +503,8 @@ brew install ./dicomtool.rb
 **Build from source:**
 
 ```bash
-git clone https://github.com/ThalesMMS/DICOM-Decoder.git
-cd DICOM-Decoder
+git clone https://github.com/ThalesMMS/DICOM-Swift.git
+cd DICOM-Swift
 swift build -c release
 cp .build/release/dicomtool /usr/local/bin/
 ```
@@ -819,13 +819,13 @@ Add DicomSwiftUI to your SwiftUI project:
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/ThalesMMS/DICOM-Decoder.git", from: "1.0.0")
+    .package(url: "https://github.com/ThalesMMS/DICOM-Swift.git", from: "1.0.0")
 ],
 targets: [
     .target(
         name: "MyApp",
         dependencies: [
-            .product(name: "DicomSwiftUI", package: "DICOM-Decoder")
+            .product(name: "DicomSwiftUI", package: "DICOM-Swift")
         ]
     )
 ]
@@ -1206,7 +1206,7 @@ See [Examples/DicomSwiftUIExample/README.md](Examples/DicomSwiftUIExample/README
 ### Project Structure
 
 ```
-DICOM-Decoder/
+DICOM-Swift/
 |-- Package.swift
 |-- Sources/DicomCore/
 |   |-- DCMDecoder.swift          # Core DICOM parser
@@ -1483,8 +1483,8 @@ This project originates from the Objective-C DICOM decoder by [kesalin](https://
 ## Support
 
 - Documentation: [GETTING_STARTED.md](GETTING_STARTED.md)
-- Bug reports: [GitHub Issues](https://github.com/ThalesMMS/DICOM-Decoder/issues)
-- Discussions: [GitHub Discussions](https://github.com/ThalesMMS/DICOM-Decoder/discussions)
+- Bug reports: [GitHub Issues](https://github.com/ThalesMMS/DICOM-Swift/issues)
+- Discussions: [GitHub Discussions](https://github.com/ThalesMMS/DICOM-Swift/discussions)
 - Email: Please open an issue first
 
 ---

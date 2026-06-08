@@ -32,7 +32,7 @@ public enum DicomSeriesLoaderError: Error {
 
     /// Transfer syntax is unsupported for the volume loading pipeline.
     ///
-    /// The DICOM-Decoder package can decode some compressed single-frame images,
+    /// The DICOM-Swift package can decode some compressed single-frame images,
     /// but the MTK volume pipeline currently only supports *uncompressed* pixel data
     /// for series assembly.
     ///

@@ -39,6 +39,7 @@ final class DocumentationReconciliationTests: XCTestCase {
     func testDIMSEAndDICOMwebDocsDeclareHelperScope() throws {
         let conformance = try Self.packageText("Sources/DicomCore/DicomCore.docc/Articles/ConformanceStatement.md")
         let readme = try Self.packageText("README.md")
+        let gaps = try Self.packageText("IMPLEMENTATION_GAPS.md")
 
         assert(conformance, contains: [
             "C-ECHO",
@@ -60,6 +61,10 @@ final class DocumentationReconciliationTests: XCTestCase {
 
         XCTAssertTrue(readme.contains("DIMSE helpers for tested C-ECHO"))
         XCTAssertTrue(readme.contains("They are not a managed PACS service"))
+
+        XCTAssertTrue(gaps.contains("DIMSE and Network Scope Is Reconciled to Tested Helpers"))
+        XCTAssertTrue(gaps.contains("Status: scoped and guarded"))
+        XCTAssertFalse(gaps.contains("DIMSE and Network Documentation/Parity Need Reconciliation"))
     }
 
     func testRegistryDiagnosticsDoNotClaimUnsupportedFeaturesAreSupported() {
@@ -92,6 +97,15 @@ final class DocumentationReconciliationTests: XCTestCase {
         XCTAssertTrue(migration.contains("Migration Status Before v2.0.0"))
         XCTAssertTrue(migration.contains("project checklist; current package documentation reconciliation"))
         XCTAssertFalse(migration.contains("- [ ]"))
+    }
+
+    func testDocumentationGapIsMarkedReconciledAndGuarded() throws {
+        let gaps = try Self.packageText("IMPLEMENTATION_GAPS.md")
+
+        XCTAssertTrue(gaps.contains("Documentation Drift and Migration Checklist Reconciled"))
+        XCTAssertTrue(gaps.contains("Status: reconciled and guarded by #1077."))
+        XCTAssertTrue(gaps.contains("DocumentationReconciliationTests.swift"))
+        XCTAssertTrue(gaps.contains("None currently tracked in the package audit after #1074."))
     }
 
     private func assert(

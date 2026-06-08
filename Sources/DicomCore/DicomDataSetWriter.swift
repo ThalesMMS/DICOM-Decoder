@@ -237,7 +237,7 @@ public enum DicomDataSetWriter {
                     source: hasPixelData ? "native Pixel Data" : "missing Pixel Data",
                     destination: transferSyntax.rawValue,
                     reason: "compressed transfer syntax writing only preserves already encapsulated Pixel Data; "
-                        + "DICOM-Decoder does not encode compressed frames."
+                        + "DICOM-Swift does not encode compressed frames."
                 )
             }
         case .referencedDataset:

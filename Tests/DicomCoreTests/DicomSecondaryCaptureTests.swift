@@ -58,7 +58,7 @@ final class DicomSecondaryCaptureTests: XCTestCase {
         XCTAssertEqual(secondaryCapture.dateOfSecondaryCapture, "20260528")
         XCTAssertEqual(secondaryCapture.timeOfSecondaryCapture, "120202")
         XCTAssertEqual(secondaryCapture.secondaryCaptureDeviceID, "MTK-DEMO")
-        XCTAssertEqual(secondaryCapture.secondaryCaptureDeviceManufacturer, "DICOM-Decoder")
+        XCTAssertEqual(secondaryCapture.secondaryCaptureDeviceManufacturer, "DICOM-Swift")
         XCTAssertEqual(secondaryCapture.secondaryCaptureDeviceManufacturerModelName, "SnapshotExporter")
         XCTAssertEqual(secondaryCapture.secondaryCaptureDeviceSoftwareVersions, "1")
         XCTAssertEqual(secondaryCapture.sourceImageReferences, [sourceReference])

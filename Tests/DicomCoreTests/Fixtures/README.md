@@ -54,7 +54,7 @@ cp dcm4che/dcm4che-test-data/src/main/data/*.dcm Tests/DicomCoreTests/Fixtures/
 The library supports JPEG Lossless (Process 14, Selection Value 1). To obtain test files:
 
 1. **dcm4che** (recommended): Clone the dcm4che repository above; look for files with transfer syntax `1.2.840.10008.1.2.4.70`
-2. **Convert existing files** using dicom-decoder: `dcmcjpeg +e14 input.dcm output_lossless.dcm`
+2. **Convert existing files** using dicom-swift: `dcmcjpeg +e14 input.dcm output_lossless.dcm`
 3. **Verify**: `dcmdump --print-short file.dcm | grep "TransferSyntaxUID"` should show `1.2.840.10008.1.2.4.70`
 
 ## Directory Structure

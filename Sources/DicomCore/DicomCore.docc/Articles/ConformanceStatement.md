@@ -94,7 +94,7 @@ server. The authoritative runtime matrix is
 ### 1.4 DIMSE and Storage SCP Helper Matrix
 
 The DIMSE surface is a package helper for tested SCU/SCP workflows and
-DICOM-Decoder-parity validation, not a full managed PACS service. Applications still
+DICOM-Swift-parity validation, not a full managed PACS service. Applications still
 own deployment, archive policy, PHI audit logging, operator authorization, and
 remote archive qualification.
 
@@ -111,7 +111,7 @@ remote archive qualification.
 | TLS | Client and Storage SCP listener configuration | `DicomTLSConfiguration` and `DicomTLSOptionsFactory` | Certificate, private-key, trust-store, server-name, BCP 195 profile, and handshake behavior are tested where Network/Security are available. |
 | User identity | Association user identity negotiation | `DicomUserIdentity` | User identity is rejected before association setup when TLS is disabled. |
 | Pooling/retry/cancellation | Association pooling, retry policy, circuit breaker, operation handle, progress, and audit log | `DicomDIMSEAssociationPool`, `DicomNetworkRetryPolicy`, `DicomNetworkCircuitBreaker`, `DicomDIMSEOperationHandle` | Cancellation avoids retries and circuit-breaker trips; pooling keys include node, AE titles, TLS, identity, transfer syntaxes, timeout, and bandwidth settings. |
-| External archive interop | Optional smoke tests and scripts | `DicomInteropSmokeTests` and interop tooling | Orthanc/dcm4che/DICOM-Decoder smoke tests require caller-provided endpoints and are not bundled production services. |
+| External archive interop | Optional smoke tests and scripts | `DicomInteropSmokeTests` and interop tooling | Orthanc/dcm4che/DICOM-Swift smoke tests require caller-provided endpoints and are not bundled production services. |
 
 ### 1.5 Export and Non-Image Object Matrix
 
@@ -656,7 +656,7 @@ Remaining limitations in this conformance statement are explicitly scoped:
   `DicomTransferSyntaxRegistry.standard.writeSupportMatrix`.
 - DICOMweb limitations are exposed through
   ``DicomWebConformanceMatrix/packageDefault`` and are intentionally helper
-  scope unless a future issue makes DICOM-Decoder a production PACS stack.
+  scope unless a future issue makes DICOM-Swift a production PACS stack.
 - DIMSE limitations are limited to archive qualification and production
   operations policy; package tests cover the listed SCU/SCP helpers, while
   deployment, audit, authorization, and external archive validation remain
@@ -669,7 +669,7 @@ Remaining limitations in this conformance statement are explicitly scoped:
   API and are not clinical/runtime decoder surfaces.
 - Isis-level decoder parity documentation was closed separately in issue #1064;
   package documentation reconciliation is covered by issue #1077.
-- MTK rendering and viewer workflow limitations are outside DICOM-Decoder
+- MTK rendering and viewer workflow limitations are outside DICOM-Swift
   package conformance and are tracked by the open MTK issues #1078 through
   #1090.
 

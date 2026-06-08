@@ -155,7 +155,7 @@ public struct DicomWebServerConfiguration: Equatable, Sendable {
     public init(servicePath: String = "/dicom-web",
                 requiredBearerToken: String? = nil,
                 cacheEnabled: Bool = true,
-                serverName: String = "DICOM-Decoder DICOMweb") {
+                serverName: String = "DICOM-Swift DICOMweb") {
         self.servicePath = servicePath.hasPrefix("/") ? servicePath : "/\(servicePath)"
         self.requiredBearerToken = requiredBearerToken
         self.cacheEnabled = cacheEnabled

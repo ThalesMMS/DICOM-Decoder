@@ -464,7 +464,7 @@ extension DicomDecodedSeries {
         return (Int32(floor(bounds.lower))...Int32(ceil(bounds.upper)), [
             DicomDecodedSeriesWarning(
                 code: .usedFallbackWindow,
-                message: "WindowCenter/WindowWidth not found; using DICOM-Decoder soft tissue window."
+                message: "WindowCenter/WindowWidth not found; using DICOM-Swift soft tissue window."
             )
         ])
     }

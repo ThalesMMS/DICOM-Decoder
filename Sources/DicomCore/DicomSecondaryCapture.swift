@@ -176,7 +176,7 @@ public struct DicomSecondaryCaptureBuildOptions: Equatable, Sendable {
         derivationDescription: String? = "Rendered snapshot export",
         sourceImageReferences: [DicomSourceImageReference] = [],
         secondaryCaptureDeviceID: String? = nil,
-        secondaryCaptureDeviceManufacturer: String? = "DICOM-Decoder",
+        secondaryCaptureDeviceManufacturer: String? = "DICOM-Swift",
         secondaryCaptureDeviceManufacturerModelName: String? = nil,
         secondaryCaptureDeviceSoftwareVersions: String? = nil
     ) {

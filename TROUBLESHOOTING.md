@@ -28,7 +28,7 @@ Solution:
 
 ```swift
 import DicomCore  // Correct
-import DICOM-Decoder  // Incorrect
+import DICOM-Swift  // Incorrect
 ```
 
 ### Error: Swift version mismatch
@@ -95,7 +95,7 @@ Cause: The file is not valid DICOM or is corrupted.
 
 Solutions:
 
-1. Check the file with a DICOM tool (e.g., `dcmdump file.dcm` if dicom-decoder is installed).
+1. Check the file with a DICOM tool (e.g., `dcmdump file.dcm` if dicom-swift is installed).
 2. Open the file in a DICOM viewer to confirm it is valid.
 3. Verify the extension (`.dcm`, `.dicom`, `.ima`).
 4. Some DICOM files omit the standard prefix; consider a more permissive parser if needed.
@@ -132,7 +132,7 @@ Solutions:
 **Option 1:** Convert to an uncompressed format
 
 ```bash
-# Using dicom-decoder
+# Using dicom-swift
 dcmconv --write-xfer-little compressed.dcm uncompressed.dcm
 ```
 

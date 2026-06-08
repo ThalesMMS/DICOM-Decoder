@@ -7,7 +7,7 @@ only run when `DICOM_INTEROP_SMOKE=1`.
 ## Local Run
 
 ```bash
-cd DICOM-Decoder
+cd DICOM-Swift
 Scripts/interop/run_interop_smoke.sh
 ```
 
@@ -23,7 +23,7 @@ manual debugging, or `--no-up` to run against services you started yourself.
 The smoke group is safe to add as an opt-in CI job:
 
 ```bash
-cd DICOM-Decoder
+cd DICOM-Swift
 DICOM_INTEROP_SMOKE=1 Scripts/interop/run_interop_smoke.sh
 ```
 

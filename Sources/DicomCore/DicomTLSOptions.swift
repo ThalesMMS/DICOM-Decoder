@@ -329,7 +329,7 @@ final class DicomTemporaryKeychain {
         let keychainURL = directory.appendingPathComponent("identity.keychain-db")
 
         var keychainRef: SecKeychain?
-        let password = "dicom-decoder-tls"
+        let password = "dicom-swift-tls"
         let status = password.withCString {
             SecKeychainCreate(keychainURL.path, UInt32(strlen($0)), $0, false, nil, &keychainRef)
         }

@@ -3,12 +3,12 @@
   "policy": {
     "storage": "Small synthetic DICOM Part 10 fixtures are kept under Tests/DicomCoreTests/Fixtures/DecoderParity. Existing small compressed fixtures remain under Tests/DicomCoreTests/Fixtures/Compressed.",
     "privacy": "Fixtures are synthetic and non-PHI. Patient names and identifiers use PARITY or TEST placeholders only.",
-    "ci": "Validate with swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests and the Isis all-target test script."
+    "ci": "Validate with swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests and the Isis all-target test script."
   },
   "decoderParity": {
     "issue": "#1052",
-    "description": "Golden fixture manifest shared by Isis tests and the repository-local DICOM-Decoder package for decoder parity proof.",
-    "manifestRoot": "DICOM-Decoder",
+    "description": "Golden fixture manifest shared by Isis tests and the repository-local DICOM-Swift package for decoder parity proof.",
+    "manifestRoot": "DICOM-Swift",
     "mtkValidation": {
       "eligibleFixtureIDs": [
         "ct-explicit-vr-le-rescale",
@@ -658,7 +658,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Synthetic non-PHI files are generated as deterministic Part 10 fixtures.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "jpeg-lossless",
@@ -669,7 +669,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until codec-specific fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "jpeg-2000",
@@ -680,7 +680,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until codec-specific fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "rle",
@@ -691,7 +691,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until codec-specific fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "multiframe",
@@ -702,7 +702,7 @@
       "artifact": "Tests/DicomCoreTests/Fixtures/DecoderParity/us_multiframe_metadata.dcm",
       "synthesis": "Synthetic two-frame fixture with known rows, columns, and frame count.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "seg",
@@ -713,7 +713,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until SEG fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "rtstruct",
@@ -724,7 +724,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until RTSTRUCT fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "rtdose",
@@ -735,7 +735,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until RTDOSE fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "sr-tid1500",
@@ -746,7 +746,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until SR fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "pr",
@@ -757,7 +757,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until PR fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "hp",
@@ -768,7 +768,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until HP fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "rwv",
@@ -779,7 +779,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until RWV fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "pmap",
@@ -790,7 +790,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until parametric map fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "dicomdir",
@@ -801,7 +801,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until DICOMDIR fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "encapsulated-pdf",
@@ -812,7 +812,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until encapsulated PDF fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "waveform",
@@ -823,7 +823,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until waveform fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     },
     {
       "id": "video",
@@ -834,7 +834,7 @@
       "artifact": "Tests/DicomCoreTests/Resources/ReleaseGates/ClinicalParityFixtureManifest.json",
       "synthesis": "Covered by manifest policy until video fixtures are added.",
       "tests": ["Tests/DicomCoreTests/ClinicalParityFixtureManifestTests.swift"],
-      "ci": "swift test --package-path DICOM-Decoder --filter ClinicalParityFixtureManifestTests"
+      "ci": "swift test --package-path DICOM-Swift --filter ClinicalParityFixtureManifestTests"
     }
   ]
 }

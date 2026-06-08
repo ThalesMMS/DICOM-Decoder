@@ -38,7 +38,7 @@ final class DicomCodecRuntimePreflightTests: XCTestCase {
     }
 
     func testConfiguredInvalidLibraryPathReportsInvalidPath() {
-        let missingPath = "/tmp/dicom-decoder-missing-\(UUID().uuidString).dylib"
+        let missingPath = "/tmp/dicom-swift-missing-\(UUID().uuidString).dylib"
         let environment = [
             DicomCodecRuntime.charLS.libraryPathEnvironmentVariable: missingPath
         ]

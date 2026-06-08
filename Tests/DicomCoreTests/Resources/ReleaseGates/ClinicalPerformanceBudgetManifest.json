@@ -41,7 +41,7 @@
         "frames": 32,
         "bytesPerVoxel": 2
       },
-      "benchmarkCommand": "swift test --package-path DICOM-Decoder --filter PerformanceBudgetTests",
+      "benchmarkCommand": "swift test --package-path DICOM-Swift --filter PerformanceBudgetTests",
       "budgets": [
         {
           "stage": "decode",

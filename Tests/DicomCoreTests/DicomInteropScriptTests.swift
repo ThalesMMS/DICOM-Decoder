@@ -45,7 +45,7 @@ final class DicomInteropScriptTests: XCTestCase {
 
     private func interopPath(_ file: String) -> URL {
         repoRoot()
-            .appendingPathComponent("DICOM-Decoder/Scripts/interop")
+            .appendingPathComponent("DICOM-Swift/Scripts/interop")
             .appendingPathComponent(file)
     }
 

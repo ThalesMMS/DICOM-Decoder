@@ -56,7 +56,7 @@ Before you start, ensure you have:
 2. Go to **File -> Add Packages...**
 3. Enter the repository URL:
    ```
-   https://github.com/ThalesMMS/DICOM-Decoder.git
+   https://github.com/ThalesMMS/DICOM-Swift.git
    ```
 4. Select version `1.0.0` or later.
 5. Click **Add Package**.
@@ -67,7 +67,7 @@ Add to `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/ThalesMMS/DICOM-Decoder.git", from: "1.0.0")
+    .package(url: "https://github.com/ThalesMMS/DICOM-Swift.git", from: "1.0.0")
 ]
 ```
 
@@ -77,7 +77,7 @@ And in your target:
 .target(
     name: "MyApp",
     dependencies: [
-        .product(name: "DicomCore", package: "DICOM-Decoder")
+        .product(name: "DicomCore", package: "DICOM-Swift")
     ]
 )
 ```

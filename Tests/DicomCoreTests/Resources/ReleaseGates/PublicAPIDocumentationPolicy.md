@@ -1,6 +1,6 @@
 # Public API Documentation Policy
 
-Public API declarations in DICOM-Decoder should carry DocC-compatible comments
+Public API declarations in DICOM-Swift should carry DocC-compatible comments
 before they become part of the package contract. The local gate checks Swift
 source files for public declarations that do not have a preceding `///`
 documentation comment.

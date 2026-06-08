@@ -50,7 +50,7 @@ The easiest way to evaluate the DicomSwiftUI library is through TestFlight, Appl
 #### How to Join
 
 1. **Install TestFlight** from the App Store on your iOS device
-2. **Request Access**: Contact the repository maintainers via [GitHub Issues](https://github.com/ThalesMMS/DICOM-Decoder/issues) to request a TestFlight invitation
+2. **Request Access**: Contact the repository maintainers via [GitHub Issues](https://github.com/ThalesMMS/DICOM-Swift/issues) to request a TestFlight invitation
 3. **Accept Invitation**: You'll receive an email or public link to join the beta
 4. **Install the App**: Open the invitation link on your iOS device to install via TestFlight
 5. **Start Testing**: Launch the app and begin exploring DICOM image viewing features
@@ -72,7 +72,7 @@ TestFlight allows you to send feedback directly:
 
 - **In-App Feedback**: Shake your device while using the app → "Send Beta Feedback"
 - **Screenshot Feedback**: Take a screenshot → annotate → send via TestFlight
-- **GitHub Issues**: Report bugs or request features at [GitHub Issues](https://github.com/ThalesMMS/DICOM-Decoder/issues)
+- **GitHub Issues**: Report bugs or request features at [GitHub Issues](https://github.com/ThalesMMS/DICOM-Swift/issues)
 
 ### Publishing Your Own TestFlight Build
 
@@ -467,7 +467,7 @@ All example views follow consistent patterns:
 
 ### DicomCore Documentation
 
-- **Repository README**: Architecture, package layout, and integration guidance in the [DICOM-Decoder README](https://github.com/ThalesMMS/DICOM-Decoder/blob/main/README.md)
+- **Repository README**: Architecture, package layout, and integration guidance in the [DICOM-Swift README](https://github.com/ThalesMMS/DICOM-Swift/blob/main/README.md)
 - **API Reference**: See `Sources/DicomCore/` for core DICOM parsing
 - **DICOM Standard**: [https://www.dicomstandard.org](https://www.dicomstandard.org)
 
@@ -483,12 +483,12 @@ Found a bug or want to improve an example? Contributions are welcome!
 
 ## License
 
-This example application is part of the DICOMDecoder library and shares the same license. See LICENSE file in repository root for details.
+This example application is part of the DICOM-Swift library and shares the same license. See LICENSE file in repository root for details.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/ThalesMMS/DICOM-Decoder/issues)
-- **Documentation**: See the [DICOM-Decoder README](https://github.com/ThalesMMS/DICOM-Decoder/blob/main/README.md) and [Getting Started](https://github.com/ThalesMMS/DICOM-Decoder/blob/main/GETTING_STARTED.md)
+- **Issues**: [GitHub Issues](https://github.com/ThalesMMS/DICOM-Swift/issues)
+- **Documentation**: See the [DICOM-Swift README](https://github.com/ThalesMMS/DICOM-Swift/blob/main/README.md) and [Getting Started](https://github.com/ThalesMMS/DICOM-Swift/blob/main/GETTING_STARTED.md)
 - **DICOM Questions**: Refer to [DICOM Standard](https://dicom.nema.org/medical/dicom/current/output/html/)
 
 ---
