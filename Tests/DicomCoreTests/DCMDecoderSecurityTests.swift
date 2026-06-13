@@ -40,7 +40,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         let maliciousLength: UInt32 = 150 * 1024 * 1024  // 150 MB
         let filePath = createDICOMWithLargeLength(length: maliciousLength)
 
-        let decoder = try? DCMDecoder(contentsOf: filePath)
+        _ = try? DCMDecoder(contentsOf: filePath)
 
         // Decoder should gracefully handle excessive length by clamping or rejecting
         // It should not crash. The file may parse minimally (width=1 is default) but
@@ -53,7 +53,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM with multiple elements claiming excessive lengths
         let filePath = createDICOMWithMultipleLargeElements()
 
-        let decoder = try? DCMDecoder(contentsOf: filePath)
+        _ = try? DCMDecoder(contentsOf: filePath)
 
         // Should not allocate excessive memory for multiple large elements
         XCTAssertTrue(true, "Decoder survived multiple excessive element lengths without crash")
@@ -63,7 +63,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Test signed/unsigned confusion: 0xFFFFFFFF interpreted as -1
         let filePath = createDICOMWithNegativeLength()
 
-        let decoder = try? DCMDecoder(contentsOf: filePath)
+        _ = try? DCMDecoder(contentsOf: filePath)
 
         // Should handle negative length values gracefully
         // (0xFFFFFFFF is valid undefined length in DICOM, but not for all VRs)
@@ -182,7 +182,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM with sequence nesting exceeding MAX_SEQUENCE_DEPTH (32)
         let filePath = createDICOMWithDeepSequences(depth: 40)
 
-        let decoder = try? DCMDecoder(contentsOf: filePath)
+        _ = try? DCMDecoder(contentsOf: filePath)
 
         // Should reject or safely handle deeply nested sequences without stack overflow
         XCTAssertTrue(true, "Decoder handled deeply nested sequences without crash")
@@ -192,7 +192,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM with sequence that could cause infinite loop
         let filePath = createDICOMWithCircularSequence()
 
-        let decoder = try? DCMDecoder(contentsOf: filePath)
+        _ = try? DCMDecoder(contentsOf: filePath)
 
         // Should not hang or crash on circular references
         // Use timeout in real implementation
@@ -203,7 +203,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Test exactly at MAX_SEQUENCE_DEPTH limit (32)
         let filePath = createDICOMWithDeepSequences(depth: 32)
 
-        let decoder = try? DCMDecoder(contentsOf: filePath)
+        _ = try? DCMDecoder(contentsOf: filePath)
 
         // Should accept sequences up to max depth
         XCTAssertTrue(true, "Decoder handled maximum sequence depth")
@@ -271,7 +271,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM with undefined length sequence (0xFFFFFFFF)
         let filePath = createDICOMWithUndefinedLength()
 
-        let decoder = try? DCMDecoder(contentsOf: filePath)
+        _ = try? DCMDecoder(contentsOf: filePath)
 
         // Should handle undefined length sequences correctly
         // They should be terminated by sequence delimiter tags
@@ -282,7 +282,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Malicious: undefined length but no delimiter tag
         let filePath = createDICOMWithUndefinedLengthNoDelimiter()
 
-        let decoder = try? DCMDecoder(contentsOf: filePath)
+        _ = try? DCMDecoder(contentsOf: filePath)
 
         // Should not read past end of file
         XCTAssertTrue(true, "Decoder handled undefined length without delimiter")
@@ -292,7 +292,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Create DICOM mixing undefined and explicit length encoding
         let filePath = createDICOMWithMixedLengths()
 
-        let decoder = try? DCMDecoder(contentsOf: filePath)
+        _ = try? DCMDecoder(contentsOf: filePath)
 
         // Should correctly parse mixed length encoding
         XCTAssertTrue(true, "Decoder handled mixed length encoding")
@@ -304,7 +304,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         // Combine multiple malicious techniques
         let filePath = createMaliciousDICOM()
 
-        let decoder = try? DCMDecoder(contentsOf: filePath)
+        _ = try? DCMDecoder(contentsOf: filePath)
 
         // Should reject or safely handle file with multiple issues
         XCTAssertTrue(true, "Decoder survived combined attack scenario")
@@ -317,7 +317,7 @@ final class DCMDecoderSecurityTests: XCTestCase {
         let decoder = try? DCMDecoder(contentsOf: filePath)
 
         // Should detect and handle truncation gracefully
-        if let decoder = decoder {
+        if decoder != nil {
             // If parsing succeeded, verify it didn't read past file end
             XCTAssertTrue(true, "File truncation handled")
         }

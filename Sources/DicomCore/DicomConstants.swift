@@ -155,6 +155,9 @@ public enum DicomTag: Int {
     /// (0028,9110) - Pixel Measures Sequence
     case pixelMeasuresSequence = 0x00289110
 
+    /// (0028,9145) - Pixel Value Transformation Sequence
+    case pixelValueTransformationSequence = 0x00289145
+
     /// (0028,0100) - Bits Allocated
     case bitsAllocated = 0x00280100
 

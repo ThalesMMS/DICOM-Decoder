@@ -48,11 +48,38 @@ public struct DicomSpecificCharacterSet: Equatable, Hashable, Sendable {
         if terms.contains("ISO_IR 192") {
             return .utf8
         }
+        if terms.contains("GB18030") || terms.contains("GBK") {
+            return Self.coreFoundationEncoding(.GB_18030_2000)
+        }
         if terms.contains("ISO_IR 100") {
             return .isoLatin1
         }
         if terms.contains("ISO_IR 101") {
             return .isoLatin2
+        }
+        if terms.contains("ISO_IR 109") {
+            return Self.coreFoundationEncoding(.isoLatin3)
+        }
+        if terms.contains("ISO_IR 110") {
+            return Self.coreFoundationEncoding(.isoLatin4)
+        }
+        if terms.contains("ISO_IR 144") {
+            return Self.coreFoundationEncoding(.isoLatinCyrillic)
+        }
+        if terms.contains("ISO_IR 127") {
+            return Self.coreFoundationEncoding(.isoLatinArabic)
+        }
+        if terms.contains("ISO_IR 126") {
+            return Self.coreFoundationEncoding(.isoLatinGreek)
+        }
+        if terms.contains("ISO_IR 138") {
+            return Self.coreFoundationEncoding(.isoLatinHebrew)
+        }
+        if terms.contains("ISO_IR 148") {
+            return Self.coreFoundationEncoding(.isoLatin5)
+        }
+        if terms.contains("ISO_IR 166") {
+            return Self.coreFoundationEncoding(.isoLatinThai)
         }
         if terms.contains(where: { $0 == "ISO 2022 IR 13" || $0 == "ISO 2022 IR 87" || $0 == "ISO 2022 IR 159" }) {
             return .iso2022JP
@@ -61,6 +88,10 @@ public struct DicomSpecificCharacterSet: Equatable, Hashable, Sendable {
             return .shiftJIS
         }
         return .utf8
+    }
+
+    private static func coreFoundationEncoding(_ encoding: CFStringEncodings) -> String.Encoding {
+        String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(encoding.rawValue)))
     }
 
     private var decodingCandidates: [String.Encoding] {

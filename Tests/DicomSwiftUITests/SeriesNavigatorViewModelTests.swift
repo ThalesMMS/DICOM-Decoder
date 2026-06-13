@@ -567,6 +567,25 @@ final class SeriesNavigatorViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isLoadingThumbnails)
     }
 
+    func testLoadThumbnailsDiscardsResultsAfterSeriesReplacement() async throws {
+        let fixtureURL = try Self.packageRoot()
+            .appendingPathComponent("Tests/DicomCoreTests/Fixtures/CT/ct_synthetic.dcm")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixtureURL.path))
+        let viewModel = SeriesNavigatorViewModel(seriesURLs: Array(repeating: fixtureURL, count: 3))
+
+        let loadingTask = Task {
+            await viewModel.loadThumbnails(for: [0, 1, 2], maxDimension: 32)
+        }
+        await Task.yield()
+
+        viewModel.setSeriesURLs([fixtureURL])
+        await loadingTask.value
+
+        XCTAssertEqual(viewModel.totalCount, 1)
+        XCTAssertTrue(viewModel.thumbnails.isEmpty)
+        XCTAssertFalse(viewModel.isLoadingThumbnails)
+    }
+
     // MARK: - Sequential Navigation Tests
 
     func testNavigateFromFirstToLast() {
@@ -629,7 +648,8 @@ final class SeriesNavigatorViewModelTests: XCTestCase {
         let viewModel = SeriesNavigatorViewModel()
 
         // Verify that view model conforms to ObservableObject
-        XCTAssertTrue(viewModel is ObservableObject, "Should conform to ObservableObject")
+        let observable: any ObservableObject = viewModel
+        XCTAssertNotNil(observable, "Should conform to ObservableObject")
 
         // @Published properties should trigger objectWillChange
         let mirror = Mirror(reflecting: viewModel)

@@ -6,6 +6,10 @@ import XCTest
 /// - DCMDecoder+Metadata.swift: getAllTags hex format, key structure
 /// - DCMDecoder+Validation.swift: getValidationStatus hasPixels logic, validateDICOMFile with temp files
 /// - DCMDecoder+DicomTagAPI.swift: equivalence with raw value overloads on uninitialized decoder
+// Compatibility coverage: this suite intentionally exercises deprecated
+// public APIs that remain available (issue #1221); the annotation keeps
+// the deliberate legacy usage warning-free without hiding new ones.
+@available(*, deprecated)
 final class DCMDecoderExtensionCoverageTests: XCTestCase {
 
     // MARK: - DCMDecoder+V2API: getQualityMetrics

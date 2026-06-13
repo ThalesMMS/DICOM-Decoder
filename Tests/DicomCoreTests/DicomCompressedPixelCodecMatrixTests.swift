@@ -16,7 +16,7 @@ final class DicomCompressedPixelCodecMatrixTests: XCTestCase {
         XCTAssertEqual(Set(matrixBySyntax.keys), Set(expectedSyntaxes))
         XCTAssertEqual(matrixBySyntax[.deflatedExplicitVRLittleEndian]?.status, .outOfScope)
         XCTAssertEqual(matrixBySyntax[.jpegBaseline]?.status, .delegated)
-        XCTAssertEqual(matrixBySyntax[.jpegExtended]?.status, .delegated)
+        XCTAssertEqual(matrixBySyntax[.jpegExtended]?.status, .decoded)
         XCTAssertEqual(matrixBySyntax[.jpegLossless]?.status, .decoded)
         XCTAssertEqual(matrixBySyntax[.jpegLosslessFirstOrder]?.status, .decoded)
         XCTAssertEqual(matrixBySyntax[.jpegLSLossless]?.status, .delegated)
@@ -27,9 +27,9 @@ final class DicomCompressedPixelCodecMatrixTests: XCTestCase {
         XCTAssertEqual(matrixBySyntax[.jpeg2000Part2Multicomponent]?.status, .delegated)
         XCTAssertEqual(matrixBySyntax[.jpipReferenced]?.status, .streamedOnly)
         XCTAssertEqual(matrixBySyntax[.jpipReferencedDeflate]?.status, .streamedOnly)
-        XCTAssertEqual(matrixBySyntax[.htj2kLossless]?.status, .unsupported)
-        XCTAssertEqual(matrixBySyntax[.htj2kLosslessRPCL]?.status, .unsupported)
-        XCTAssertEqual(matrixBySyntax[.htj2k]?.status, .unsupported)
+        XCTAssertEqual(matrixBySyntax[.htj2kLossless]?.status, .delegated)
+        XCTAssertEqual(matrixBySyntax[.htj2kLosslessRPCL]?.status, .delegated)
+        XCTAssertEqual(matrixBySyntax[.htj2k]?.status, .delegated)
         XCTAssertEqual(matrixBySyntax[.rleLossless]?.status, .decoded)
 
         for syntax in videoTransferSyntaxes {
@@ -98,14 +98,20 @@ final class DicomCompressedPixelCodecMatrixTests: XCTestCase {
         assertUnsupported(
             transferSyntax: .jpegExtended,
             bitDepth: 12,
-            samplesPerPixel: 1,
-            expectedTexts: ["JPEG Extended 12-bit output", "refusing ImageIO fallback"]
+            samplesPerPixel: 3,
+            photometricInterpretation: "YBR_FULL_422",
+            expectedTexts: [
+                "single-component grayscale only",
+                "1.2.840.10008.1.2.4.51",
+                "Photometric Interpretation=YBR_FULL_422",
+                "Samples Per Pixel=3"
+            ]
         )
         assertUnsupported(
-            transferSyntax: .htj2kLossless,
+            transferSyntax: .jpegExtended,
             bitDepth: 16,
             samplesPerPixel: 1,
-            expectedTexts: ["requires an HTJ2K backend", "ImageIO JPEG 2000 fallback is not used"]
+            expectedTexts: ["caps sample precision at 12 bits", "16-bit output is not representable"]
         )
         assertUnsupported(
             transferSyntax: .jpipReferenced,
@@ -149,7 +155,9 @@ final class DicomCompressedPixelCodecMatrixTests: XCTestCase {
         )
     }
 
-    func testJPEGLosslessRestartIntervalLimitationIsStableAndTested() throws {
+    /// Restart intervals decode natively since #1229: a DRI marker is
+    /// parsed instead of rejected, and the stream decodes normally.
+    func testJPEGLosslessRestartIntervalStreamsDecode() throws {
         var jpegData = makeMinimalJPEGLosslessData(width: 2, height: 2)
         guard let sosIndex = markerIndex(JPEGMarker.sos.rawValue, in: jpegData) else {
             XCTFail("Missing SOS marker in minimal JPEG Lossless data")
@@ -158,14 +166,9 @@ final class DicomCompressedPixelCodecMatrixTests: XCTestCase {
 
         jpegData.insert(contentsOf: [0xFF, JPEGMarker.dri.rawValue, 0x00, 0x04, 0x00, 0x04], at: sosIndex)
 
-        let decoder = JPEGLosslessDecoder()
-        XCTAssertThrowsError(try decoder.decode(data: jpegData)) { error in
-            guard case DICOMError.invalidDICOMFormat(let reason) = error else {
-                XCTFail("Expected invalidDICOMFormat, got \(error)")
-                return
-            }
-            XCTAssertTrue(reason.contains("restart intervals"))
-        }
+        let result = try JPEGLosslessDecoder().decode(data: jpegData)
+        XCTAssertEqual(result.pixels.count, 4)
+        XCTAssertEqual(result.componentCount, 1)
     }
 
     private var videoTransferSyntaxes: [DicomTransferSyntax] {

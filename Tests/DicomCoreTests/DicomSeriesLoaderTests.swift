@@ -101,7 +101,8 @@ final class DicomSeriesLoaderTests: XCTestCase {
         XCTAssertEqual(matrix.supportedPlanarConfigurations, [])
         XCTAssertTrue(matrix.supportsAbsentPlanarConfiguration)
         XCTAssertFalse(matrix.supportsMultiframe)
-        XCTAssertFalse(matrix.supportsCompressedTransferSyntaxes)
+        XCTAssertTrue(matrix.supportsCompressedTransferSyntaxes,
+                      "compressed single-frame slices assemble through the decoded-frame reader (#1233)")
         XCTAssertEqual(matrix.outputVoxelScalarType, "Int16")
         XCTAssertFalse(matrix.rescaleBehavior.isEmpty)
         XCTAssertFalse(matrix.spacingBehavior.isEmpty)
@@ -199,6 +200,9 @@ final class DicomSeriesLoaderTests: XCTestCase {
         XCTAssertEqual(int16Values(in: volume.voxels), [-32_768, -1, 0, 32_767])
     }
 
+    /// Compressed syntaxes WITHOUT a decode backend still fail typed with
+    /// pixel context (16-bit JPEG Baseline has no precision-preserving
+    /// backend); supported compressed syntaxes assemble since #1233.
     func testLoadSeriesRejectsCompressedInputWithPixelContext() throws {
         let directory = try makeTemporaryDirectory(prefix: "DicomSeriesLoaderTests_Compressed")
         defer { try? FileManager.default.removeItem(at: directory) }

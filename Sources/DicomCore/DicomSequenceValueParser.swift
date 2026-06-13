@@ -154,6 +154,18 @@ enum DicomSequenceValueParser {
                 }
                 elements.append(DicomDataElement(tag: tag, vr: .SQ, value: .sequence(items)))
             } else {
+                if elementHeader.vr == .UN && elementHeader.length == undefinedLength {
+                    let items = try parseSequenceItemsResult(
+                        in: data,
+                        offset: &offset,
+                        end: end,
+                        littleEndian: littleEndian,
+                        explicitVR: false,
+                        requiresSequenceDelimiter: true
+                    ).items
+                    elements.append(DicomDataElement(tag: tag, vr: .SQ, value: .sequence(items)))
+                    continue
+                }
                 guard elementHeader.length != undefinedLength else {
                     throw DicomSequenceValueParserError.unsupportedUndefinedLengthElement(tag)
                 }

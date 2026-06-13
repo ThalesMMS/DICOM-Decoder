@@ -100,8 +100,7 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         // 4M pixels in <1200ms = 3.5M+ pixels/sec (still much faster than scalar loops)
         XCTAssertLessThan(avgTime, 1200.0, "Big endian conversion should be <1200ms for 2048x2048 image")
 
-        // Pool should provide benefit through buffer reuse (expect high hit rate after warmup)
-        XCTAssertGreaterThan(stats.hitRate, 50.0, "Pool hit rate should exceed 50% with buffer reuse")
+        XCTAssertEqual(stats.totalAcquires, 0, "Native 16-bit reads should not acquire pooled buffers")
     }
 
     // MARK: - Signed Pixel Normalization Benchmarks
@@ -189,8 +188,7 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         #endif
         XCTAssertLessThan(avgTime, expectedThreshold, "Signed normalization should be <\(expectedThreshold)ms for 2048x2048 image")
 
-        // Pool should provide excellent reuse for temporary buffers (Int16 and Float)
-        XCTAssertGreaterThan(stats.hitRate, 50.0, "Pool hit rate should exceed 50% with buffer reuse")
+        XCTAssertEqual(stats.totalAcquires, 0, "Signed 16-bit normalization should not acquire pooled buffers")
     }
 
     // MARK: - MONOCHROME1 Inversion Benchmarks
@@ -276,8 +274,7 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         #endif
         XCTAssertLessThan(avgTime, expectedThreshold, "MONOCHROME1 inversion should be <\(expectedThreshold)ms for 2048x2048 image")
 
-        // Pool should provide benefit through Float buffer reuse
-        XCTAssertGreaterThan(stats.hitRate, 50.0, "Pool hit rate should exceed 50% with buffer reuse")
+        XCTAssertGreaterThan(stats.hitRate, 50.0, "MONOCHROME1 inversion should reuse its temporary buffer")
     }
 
     /// Benchmarks vectorized MONOCHROME1 inversion for signed pixels.
@@ -552,8 +549,7 @@ final class DCMPixelReaderPerformanceTests: XCTestCase {
         // Still much faster than non-vectorized implementation
         XCTAssertLessThan(avgTime, 800.0, "Combined operations should be <800ms for 2048x2048 image")
 
-        // Pool should provide excellent reuse for multiple temporary buffers
-        XCTAssertGreaterThan(stats.hitRate, 50.0, "Pool hit rate should exceed 50% with buffer reuse")
+        XCTAssertEqual(stats.totalAcquires, 0, "Combined signed 16-bit reads should not acquire pooled buffers")
     }
 
     // MARK: - Memory Efficiency Tests

@@ -230,6 +230,23 @@ extension DicomSeriesLoader {
             throw DicomSeriesLoaderError.failedToDecode(url)
         }
 
+        // Compressed slices decode through the production frame reader
+        // (#1233): one decode per slice straight into the volume buffer,
+        // without populating the decoder's whole-image pixel cache, so
+        // memory stays bounded to the compressed bytes plus one frame.
+        if pixelFormat.isCompressed {
+            guard let concreteDecoder = decoder as? DCMDecoder else {
+                throw DicomSeriesLoaderError.unsupportedTransferSyntaxForVolume(pixelFormat)
+            }
+            return try decodeCompressedSlice(
+                from: concreteDecoder,
+                into: &buffer,
+                pixelFormat: pixelFormat,
+                url: url,
+                expectedPixelCount: expectedPixelCount
+            )
+        }
+
         switch pixelFormat.bitsAllocated {
         case 8:
             guard let pixels = decoder.getPixels8(), pixels.count == expectedPixelCount else {
@@ -242,6 +259,12 @@ extension DicomSeriesLoader {
                 ))
             }
         case 16:
+            if pixelFormat.pixelRepresentation == 1,
+               let concreteDecoder = decoder as? DCMDecoder,
+               concreteDecoder.copyNativeSigned16Pixels(into: &buffer, expectedPixelCount: expectedPixelCount) {
+                return expectedPixelCount
+            }
+
             guard let pixels = decoder.getPixels16(), pixels.count == expectedPixelCount else {
                 throw DicomSeriesLoaderError.failedToDecode(url)
             }
@@ -266,6 +289,63 @@ extension DicomSeriesLoader {
                 buffer[index] = Int16(clamping: stored)
             }
         default:
+            throw DicomSeriesLoaderError.unsupportedPixelFormat(pixelFormat)
+        }
+
+        return expectedPixelCount
+    }
+
+    /// Decodes one compressed slice via `DicomDecodedFrameReader` and
+    /// writes stored-value Int16 voxels using the same normalization-undo
+    /// as the uncompressed paths (the decoded buffers are byte-identical
+    /// to `getPixels8/16` by the #1227 parity contract).
+    private func decodeCompressedSlice(
+        from decoder: DCMDecoder,
+        into buffer: inout [Int16],
+        pixelFormat: DicomSeriesLoaderPixelFormat,
+        url: URL,
+        expectedPixelCount: Int
+    ) throws -> Int {
+        let frame: DicomDecodedFrame
+        do {
+            frame = try DicomDecodedFrameReader(decoder: decoder).frame(at: 0)
+        } catch let error as DicomDecodedFrameReader.ReadError {
+            switch error {
+            case .unsupportedTransferSyntax, .unusableEncapsulation:
+                throw DicomSeriesLoaderError.unsupportedTransferSyntaxForVolume(pixelFormat)
+            default:
+                throw DicomSeriesLoaderError.failedToDecode(url)
+            }
+        } catch {
+            throw DicomSeriesLoaderError.failedToDecode(url)
+        }
+
+        switch frame.pixels {
+        case .gray8(let pixels):
+            guard pixels.count == expectedPixelCount else {
+                throw DicomSeriesLoaderError.failedToDecode(url)
+            }
+            for index in 0..<expectedPixelCount {
+                buffer[index] = Int16(clamping: normalizedStoredValue(
+                    Int(pixels[index]),
+                    pixelFormat: pixelFormat
+                ))
+            }
+        case .gray16(let pixels):
+            guard pixels.count == expectedPixelCount else {
+                throw DicomSeriesLoaderError.failedToDecode(url)
+            }
+            if pixelFormat.pixelRepresentation == 1 {
+                for index in 0..<expectedPixelCount {
+                    let signed = Int32(pixels[index]) + Int32(Int16.min)
+                    buffer[index] = Int16(truncatingIfNeeded: signed)
+                }
+            } else {
+                for index in 0..<expectedPixelCount {
+                    buffer[index] = Int16(bitPattern: pixels[index])
+                }
+            }
+        case .rgb8:
             throw DicomSeriesLoaderError.unsupportedPixelFormat(pixelFormat)
         }
 

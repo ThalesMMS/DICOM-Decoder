@@ -8,15 +8,18 @@ extension DCMDecoder {
     /// from the decoder's current setting, the binary reader is recreated immediately for value reads, while
     /// the parser is rebuilt only after the current tag's VR and length have been consumed.
     /// - Returns: The tag encoded as `(group << 16) | element` and whether byte order changed while parsing it.
-    private func getNextTag() -> (tag: Int, endiannessChanged: Bool) {
-        guard let parser = tagParser else { return (0, false) }
+    private func getNextTag() -> (tag: Int, endiannessChanged: Bool, wasInSequence: Bool) {
+        guard let parser = tagParser else { return (0, false, false) }
 
         let previousEndianness = littleEndian
+        let wasInSequence = parser.isInSequence
+        let syntax = DicomTransferSyntax(uid: transferSyntaxUID)
         let tag = parser.getNextTag(
             location: &location,
             data: dicomData,
             littleEndian: &littleEndian,
-            bigEndianTransferSyntax: bigEndianTransferSyntax
+            bigEndianTransferSyntax: bigEndianTransferSyntax,
+            explicitVR: syntax?.isExplicitVR ?? true
         )
 
         let endiannessChanged = littleEndian != previousEndianness
@@ -24,7 +27,7 @@ extension DCMDecoder {
             reader = DCMBinaryReader(data: dicomData, littleEndian: littleEndian)
         }
 
-        return (tag, endiannessChanged)
+        return (tag, endiannessChanged, wasInSequence)
     }
 
     /// Adds a string metadata entry for a DICOM tag into the decoder's metadata dictionary.
@@ -142,7 +145,7 @@ extension DCMDecoder {
             if parser.currentVR == .SQ {
                 return true
             }
-            return dict.vrCode(forKey: String(format: "%08X", tag)) == "SQ"
+            return dict.vrCode(forTag: tag) == "SQ"
         }
 
         while decodingTags && location < dicomData.count {
@@ -167,9 +170,9 @@ extension DCMDecoder {
                 break
             }
             if let parser = tagParser,
+               parsedTag.wasInSequence,
                parser.isInSequence == true,
-               !isSequenceTag(tag, parser: parser),
-               tag != DicomTag.pixelData.rawValue {
+               !isSequenceTag(tag, parser: parser) {
                 // Sequence content is handled inside headerInfo
                 addInfo(tag: tag, stringValue: nil)
                 rebuildParserIfNeeded(afterEndiannessChange: parsedTag.endiannessChanged)

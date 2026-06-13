@@ -27,9 +27,26 @@ extension JPEGLosslessDecoder {
         let width = sof3.width
         let height = sof3.height
         let precision = sof3.precision
+        let componentCount = sof3.numberOfComponents
 
-        guard sof3.numberOfComponents == 1, sos.components.count == 1 else {
-            throw DICOMError.invalidDICOMFormat(reason: "JPEG Lossless multi-component images are unsupported")
+        guard componentCount == 1 || componentCount == 3 else {
+            throw DICOMError.invalidDICOMFormat(
+                reason: "JPEG Lossless multi-component decode supports 1 (grayscale) or 3 (interleaved color) components; the frame declares \(componentCount)"
+            )
+        }
+        guard sos.components.count == componentCount else {
+            throw DICOMError.invalidDICOMFormat(
+                reason: "JPEG Lossless multi-component decode requires a single interleaved scan over all \(componentCount) frame components; the scan selects \(sos.components.count)"
+            )
+        }
+        if componentCount > 1 {
+            for component in sof3.components where component.horizontalSamplingFactor != 1
+                || component.verticalSamplingFactor != 1 {
+                throw DICOMError.invalidDICOMFormat(
+                    reason: "JPEG Lossless multi-component decode requires 1x1 sampling; component \(component.id) declares "
+                        + "\(component.horizontalSamplingFactor)x\(component.verticalSamplingFactor)"
+                )
+            }
         }
 
         let pixelCount = width.multipliedReportingOverflow(by: height)
@@ -39,81 +56,162 @@ extension JPEGLosslessDecoder {
 
         let numPixels = pixelCount.partialValue
         let maxPixelCount = Int(DCMDecoder.maxPixelBufferSize / Int64(MemoryLayout<UInt16>.stride))
-        guard numPixels <= maxPixelCount else {
-            throw DICOMError.invalidDICOMFormat(reason: "JPEG Lossless image pixel count \(numPixels) exceeds maximum \(maxPixelCount)")
+        guard numPixels <= maxPixelCount / componentCount else {
+            throw DICOMError.invalidDICOMFormat(reason: "JPEG Lossless image pixel count \(numPixels * componentCount) exceeds maximum \(maxPixelCount)")
         }
 
-        // Allocate pixel buffer
-        var pixels = [UInt16](repeating: 0, count: numPixels)
-
-        // Get Huffman table for decoding
-        let componentSelector = sos.components[0]
-        let tableKey = 0 << 4 | Int(componentSelector.dcTableSelector)
-        guard var huffmanTable = huffmanTables[tableKey] else {
-            throw DICOMError.invalidDICOMFormat(reason: "Huffman table not found: class=0, id=\(componentSelector.dcTableSelector)")
+        // Huffman table per scan component.
+        var componentTables = [HuffmanTable]()
+        for componentSelector in sos.components {
+            let tableKey = 0 << 4 | Int(componentSelector.dcTableSelector)
+            guard var huffmanTable = huffmanTables[tableKey] else {
+                throw DICOMError.invalidDICOMFormat(reason: "Huffman table not found: class=0, id=\(componentSelector.dcTableSelector)")
+            }
+            if huffmanTable.minCode.isEmpty {
+                buildHuffmanDecodingTables(table: &huffmanTable)
+                huffmanTables[tableKey] = huffmanTable
+            }
+            componentTables.append(huffmanTable)
         }
 
-        // Build decoding tables if not already built
-        if huffmanTable.minCode.isEmpty {
-            buildHuffmanDecodingTables(table: &huffmanTable)
-            huffmanTables[tableKey] = huffmanTable
+        if restartInterval == 0 {
+            guard !containsRestartMarker(data: data, startIndex: compressedDataStart, endIndex: data.count) else {
+                throw DICOMError.invalidDICOMFormat(
+                    reason: "JPEG Lossless restart markers (RSTn) appear in the entropy-coded data but no restart interval was defined (missing DRI marker)"
+                )
+            }
         }
 
-        guard !containsRestartMarker(data: data, startIndex: compressedDataStart, endIndex: data.count) else {
-            throw DICOMError.invalidDICOMFormat(reason: "JPEG Lossless restart markers (RSTn) are unsupported")
-        }
-
-        // Create bitstream reader
         var bitstream = BitStreamReader(
             data: data,
             startIndex: compressedDataStart,
             endIndex: data.count
         )
 
-        // Decode pixels in raster scan order (row by row, left to right)
-        var index = 0
+        // One plane per component; interleaved scans decode one sample of
+        // each component per MCU (1x1 sampling), in raster MCU order.
+        var planes = [[UInt16]](
+            repeating: [UInt16](repeating: 0, count: numPixels),
+            count: componentCount
+        )
+        let pointTransform = Int(sos.successiveApproximationLow)
+        var mcuIndex = 0
+        var restartCount = 0
+        var intervalStartMCU = 0
+
         for y in 0..<height {
             for x in 0..<width {
-                // Compute predictor for this pixel
-                let predictor = computePredictor(
-                    x: x,
-                    y: y,
-                    pixels: pixels,
-                    width: width,
-                    precision: precision,
-                    selectionValue: sos.selectionValue,
-                    pointTransform: Int(sos.successiveApproximationLow),
-                    isFirstSampleInScan: index == 0
-                )
-
-                // Decode Huffman symbol (SSSS - number of difference bits)
-                let ssss = try decodeHuffmanSymbol(
-                    bitstream: &bitstream,
-                    table: huffmanTable
-                )
-                let category = Int(ssss)
-                guard category <= precision else {
-                    throw DICOMError.invalidDICOMFormat(reason: "Invalid SSSS value: \(category) exceeds sample precision \(precision)")
+                if restartInterval > 0, mcuIndex > 0, mcuIndex % restartInterval == 0 {
+                    let found = try bitstream.consumeRestartMarker()
+                    let expected = restartCount % 8
+                    guard found == expected else {
+                        throw DICOMError.invalidDICOMFormat(
+                            reason: "JPEG Lossless restart marker out of order at MCU \(mcuIndex): expected RST\(expected), found RST\(found)"
+                        )
+                    }
+                    restartCount += 1
+                    // T.81 H: prediction is reset at each restart interval as
+                    // at the start of a scan.
+                    intervalStartMCU = mcuIndex
                 }
 
-                // Decode difference value
-                let difference = try decodeDifference(
-                    ssss: category,
-                    bitstream: &bitstream
-                )
+                for component in 0..<componentCount {
+                    let predictor = intervalAwarePredictor(
+                        plane: planes[component],
+                        x: x,
+                        y: y,
+                        width: width,
+                        precision: precision,
+                        selectionValue: sos.selectionValue,
+                        pointTransform: pointTransform,
+                        intervalStartMCU: intervalStartMCU
+                    )
 
-                // Reconstruct pixel value
-                pixels[index] = reconstructPixel(
-                    predictor: predictor,
-                    difference: difference,
-                    precision: precision
-                )
+                    let ssss = try decodeHuffmanSymbol(
+                        bitstream: &bitstream,
+                        table: componentTables[component]
+                    )
+                    let category = Int(ssss)
+                    guard category <= precision else {
+                        throw DICOMError.invalidDICOMFormat(reason: "Invalid SSSS value: \(category) exceeds sample precision \(precision)")
+                    }
 
-                index += 1
+                    let difference = try decodeDifference(
+                        ssss: category,
+                        bitstream: &bitstream
+                    )
+
+                    planes[component][y * width + x] = reconstructPixel(
+                        predictor: predictor,
+                        difference: difference,
+                        precision: precision
+                    )
+                }
+                mcuIndex += 1
             }
         }
 
-        return pixels
+        if componentCount == 1 {
+            return planes[0]
+        }
+
+        // Interleave component planes (R,G,B per pixel).
+        var interleaved = [UInt16](repeating: 0, count: numPixels * componentCount)
+        for pixel in 0..<numPixels {
+            for component in 0..<componentCount {
+                interleaved[pixel * componentCount + component] = planes[component][pixel]
+            }
+        }
+        return interleaved
+    }
+
+    /// Predictor per ITU-T T.81 Annex H.1.2 with restart-interval resets:
+    /// the interval's first sample uses the default `2^(P-Pt-1)`, the rest
+    /// of the interval's first line uses Ra, later line starts use Rb, and
+    /// interior samples use the scan's selection-value predictor.
+    private func intervalAwarePredictor(
+        plane: [UInt16],
+        x: Int,
+        y: Int,
+        width: Int,
+        precision: Int,
+        selectionValue: Int,
+        pointTransform: Int,
+        intervalStartMCU: Int
+    ) -> Int {
+        // Selection value 0 encodes raw values as differences from zero.
+        guard selectionValue != 0 else { return 0 }
+
+        let intervalStartY = intervalStartMCU / width
+        let intervalStartX = intervalStartMCU % width
+        let initialPredictor = 1 << max(0, precision - pointTransform - 1)
+
+        if y == intervalStartY {
+            // First line of the scan/restart interval (T.81 H.1.2: the
+            // one-dimensional Ra predictor is used for the first line).
+            if x == intervalStartX {
+                return initialPredictor
+            }
+            return Int(plane[y * width + (x - 1)])
+        }
+        if x == 0 {
+            // Line starts use Rb (sample above).
+            return Int(plane[(y - 1) * width])
+        }
+
+        let ra = Int(plane[y * width + (x - 1)])
+        let rb = Int(plane[(y - 1) * width + x])
+        let rc = Int(plane[(y - 1) * width + (x - 1)])
+        switch selectionValue {
+        case 1: return ra
+        case 2: return rb
+        case 3: return rc
+        case 4: return ra + rb - rc
+        case 5: return ra + ((rb - rc) >> 1)
+        case 6: return rb + ((ra - rc) >> 1)
+        case 7: return (ra + rb) / 2
+        default: return ra
+        }
     }
 
     /// BitStreamReader.fillBuffer leaves byteIndex positioned at markers so callers

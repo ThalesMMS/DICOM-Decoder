@@ -26,6 +26,15 @@ final class DCMDictionaryTests: XCTestCase {
         XCTAssertNotNil(modalityDescription, "Expected DICOM tag 00080060 to exist in the dictionary")
     }
 
+    func testIntegerTagLookupMatchesHexKeyLookup() {
+        let tag = DicomTag.modality.rawValue
+        let key = "00080060"
+
+        XCTAssertEqual(dictionary.value(forTag: tag), dictionary.value(forKey: key))
+        XCTAssertEqual(dictionary.vrCode(forTag: tag), dictionary.vrCode(forKey: key))
+        XCTAssertEqual(dictionary.description(forTag: tag), dictionary.description(forKey: key))
+    }
+
     func testCommonDICOMTags() {
         // Patient Information Tags
         XCTAssertNotNil(dictionary.description(forKey: "00100010"), "Patient Name should exist")

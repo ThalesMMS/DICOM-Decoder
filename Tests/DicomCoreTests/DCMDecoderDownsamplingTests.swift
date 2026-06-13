@@ -1,6 +1,10 @@
 import XCTest
 @testable import DicomCore
 
+// Compatibility coverage: this suite intentionally exercises deprecated
+// public APIs that remain available (issue #1221); the annotation keeps
+// the deliberate legacy usage warning-free without hiding new ones.
+@available(*, deprecated)
 final class DCMDecoderDownsamplingTests: XCTestCase {
 
     // MARK: - Downsampling Tests

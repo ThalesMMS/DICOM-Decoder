@@ -54,6 +54,19 @@ specific local or CI environment needs pinned versions.
 - C-MOVE into a local Storage SCP (`DicomStorageSCPServer`) and
   received-instance storage for archives declaring `dimse-move` and
   `storage-scp`.
+- Stable C-FIND attribute assertions at STUDY and SERIES level (patient
+  ID/name, series UID, modality), issue #1223.
+- Query cancellation through `DicomDIMSEOperationHandle` surfacing the
+  typed `operationCancelled` error.
+- Retry-policy and TLS-against-plaintext failure paths surfacing typed
+  `DicomNetworkError`s instead of hiding protocol errors.
+- Authenticated DICOMweb path against the `orthanc-auth` service (valid
+  Basic credentials round-trip STOW/QIDO; invalid credentials surface the
+  typed HTTP 401). Local-only credentials: `smoke` /
+  `ORTHANC_AUTH_PASSWORD` (default `smoke-secret`).
+- WADO-RS metadata `BulkDataURI` resolution and retrieval.
+- PHI-free diagnostics: audit events and error bodies are asserted not to
+  carry the fixture's patient name/ID.
 
 Failures keep the service logs and Swift test output under
 `.build/interop-logs/` so CI artifacts have enough detail for diagnosis.

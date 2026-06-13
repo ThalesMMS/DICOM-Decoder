@@ -65,6 +65,69 @@ final class DicomCharacterSetTests: XCTestCase {
         XCTAssertEqual(decoder.dataSet.string(for: .studyDescription), "検査")
     }
 
+    func testCyrillicSpecificCharacterSetDecodesPatientAndStudyMetadata() throws {
+        let dataSet = makeTextDataSet(characterSet: "ISO_IR 144",
+                                      patientName: "Иванов^Иван",
+                                      studyDescription: "Голова")
+        let data = try DicomDataSetWriter.part10Data(from: dataSet)
+        XCTAssertTrue(data.contains(0xB8), "ISO-8859-5 encoded И should be a single high byte")
+
+        let decoder = try open(data)
+        XCTAssertEqual(decoder.specificCharacterSet, ["ISO_IR 144"])
+        XCTAssertEqual(decoder.dataSet.personName(for: .patientName)?.familyName, "Иванов")
+        XCTAssertEqual(decoder.dataSet.personName(for: .patientName)?.givenName, "Иван")
+        XCTAssertEqual(decoder.dataSet.string(for: .studyDescription), "Голова")
+    }
+
+    func testGreekSpecificCharacterSetDecodesPatientAndStudyMetadata() throws {
+        let dataSet = makeTextDataSet(characterSet: "ISO_IR 126",
+                                      patientName: "Παπαδόπουλος^Γιώργος",
+                                      studyDescription: "Κεφάλι")
+        let data = try DicomDataSetWriter.part10Data(from: dataSet)
+
+        let decoder = try open(data)
+        XCTAssertEqual(decoder.dataSet.personName(for: .patientName)?.familyName, "Παπαδόπουλος")
+        XCTAssertEqual(decoder.dataSet.string(for: .studyDescription), "Κεφάλι")
+    }
+
+    func testGB18030SpecificCharacterSetDecodesPatientAndStudyMetadata() throws {
+        let dataSet = makeTextDataSet(characterSet: "GB18030",
+                                      patientName: "王^小明",
+                                      studyDescription: "头部检查")
+        let data = try DicomDataSetWriter.part10Data(from: dataSet)
+        XCTAssertTrue(data.contains(0xCD), "GB18030 encoded 王 should use multi-byte non-UTF8 bytes")
+
+        let decoder = try open(data)
+        XCTAssertEqual(decoder.dataSet.personName(for: .patientName)?.familyName, "王")
+        XCTAssertEqual(decoder.dataSet.personName(for: .patientName)?.givenName, "小明")
+        XCTAssertEqual(decoder.dataSet.string(for: .studyDescription), "头部检查")
+    }
+
+    func testSingleByteRegionalCharacterSetsRoundTripImportMetadata() throws {
+        let cases: [(term: String, name: String, study: String)] = [
+            ("ISO_IR 127", "قاسم^سعيد", "رأس"),
+            ("ISO_IR 138", "שרון^דבורה", "ראש"),
+            ("ISO_IR 148", "Çelik^Gül", "Beyin"),
+            ("ISO_IR 110", "Ozols^Ēriks", "Galva"),
+            ("ISO_IR 166", "สมชาย^ใจดี", "ศีรษะ")
+        ]
+        for testCase in cases {
+            let decoder = try writeAndOpen(makeTextDataSet(
+                characterSet: testCase.term,
+                patientName: testCase.name,
+                studyDescription: testCase.study
+            ))
+            XCTAssertEqual(decoder.specificCharacterSet, [testCase.term])
+            XCTAssertEqual(decoder.dataSet.string(for: .studyDescription), testCase.study, testCase.term)
+            let personName = decoder.dataSet.personName(for: .patientName)
+            XCTAssertEqual(
+                "\(personName?.familyName ?? "")^\(personName?.givenName ?? "")",
+                testCase.name,
+                testCase.term
+            )
+        }
+    }
+
     func testSanitizedDisplayTextRemovesControlsWithoutRedactingContent() {
         let element = DicomDataElement(tag: DicomTag.patientName.rawValue,
                                        vr: .PN,

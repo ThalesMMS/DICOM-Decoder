@@ -57,7 +57,7 @@ enum MockDecoderBuilder {
         mock.imagePosition = position
         mock.imageOrientation = orientation
         mock.dicomFound = loadSucceeded
-        mock.dicomFileReadSuccess = loadSucceeded
+        mock.mockFileReadSucceeded = loadSucceeded
 
         mock.setTag(DicomTag.rows.rawValue, value: "\(height)")
         mock.setTag(DicomTag.columns.rawValue, value: "\(width)")

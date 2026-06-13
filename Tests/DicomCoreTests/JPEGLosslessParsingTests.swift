@@ -73,7 +73,9 @@ final class JPEGLosslessParsingTests: XCTestCase {
         assertInvalidDICOMFormat(reasonContains: "Expected marker prefix", try decoder.decode(data: jpegData))
     }
 
-    func testMarkerParsingRejectsDRI() throws {
+    /// DRI markers are parsed (restart intervals decode since #1229); a
+    /// truncated DRI payload still fails typed.
+    func testMarkerParsingAcceptsDRIAndRejectsTruncatedPayload() throws {
         var jpegData = makeMinimalJPEGLosslessData(width: 2, height: 2)
         guard let sosIndex = markerIndex(0xDA, in: jpegData) else {
             XCTFail("Missing SOS marker in minimal JPEG Lossless data")
@@ -88,8 +90,16 @@ final class JPEGLosslessParsingTests: XCTestCase {
         jpegData.insert(contentsOf: driSegment, at: sosIndex)
 
         let decoder = JPEGLosslessDecoder()
+        XCTAssertNoThrow(try decoder.decode(data: jpegData))
+        XCTAssertEqual(decoder.restartInterval, 4)
 
-        assertInvalidDICOMFormat(reasonContains: "DRI", try decoder.decode(data: jpegData))
+        var truncated = makeMinimalJPEGLosslessData(width: 2, height: 2)
+        guard let truncatedSOS = markerIndex(0xDA, in: truncated) else {
+            XCTFail("Missing SOS marker in minimal JPEG Lossless data")
+            return
+        }
+        truncated.insert(contentsOf: [0xFF, JPEGMarker.dri.rawValue, 0x00, 0x02], at: truncatedSOS)
+        assertInvalidDICOMFormat(reasonContains: "DRI", try JPEGLosslessDecoder().decode(data: truncated))
     }
 
     func testDecodeRejectsRestartMarkerInEntropyData() throws {

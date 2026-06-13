@@ -13,8 +13,7 @@ extension DCMDecoder {
         }
 
         // Get tag description from dictionary
-        let key = String(format: "%08X", tag)
-        var description = dict.value(forKey: key) ?? "---"
+        var description = dict.value(forTag: tag) ?? "---"
 
         // For implicit VR, extract VR from description
         if metadata.vr == .implicitRaw {

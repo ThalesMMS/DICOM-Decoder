@@ -95,18 +95,10 @@ internal final class DCMPixelReader {
         return UInt16(shifted)
     }
 
-    /// Vectorized conversion of signed 16‑bit pixels to unsigned
-    /// representation using Accelerate vDSP operations.  This
-    /// function reads signed Int16 values from raw bytes and shifts
-    /// them into the unsigned UInt16 range by subtracting Int16.min
-    /// (i.e., adding 32768).  The conversion is performed using SIMD
-    /// operations for optimal performance.
+    /// Converts signed 16-bit pixels to unsigned representation by
+    /// flipping the sign bit. This is equivalent to adding 32768 to
+    /// every two's-complement sample, without temporary buffers.
     ///
-    /// - Parameters:
-    ///   - sourcePtr: Pointer to raw byte data containing signed 16‑bit pixels
-    ///   - outputBuffer: Destination buffer for normalized UInt16 pixels
-    ///   - count: Number of pixels to convert
-    /// Normalizes a sequence of signed 16-bit pixel samples into unsigned 16-bit values and writes them into `outputBuffer`.
     /// - Parameters:
     ///   - sourcePtr: Pointer to the raw source bytes containing `count` 16-bit signed samples.
     ///   - outputBuffer: Destination buffer that will receive `count` normalized `UInt16` values. The function writes into the first `count` elements.
@@ -121,49 +113,48 @@ internal final class DCMPixelReader {
         guard count > 0 else { return }
         precondition(count <= outputBuffer.count, "buffer overrun")
 
-        // Acquire temporary buffers from pool
-        var signedPixels = BufferPool.shared.acquire(type: [Int16].self, count: count)
-        var floatPixels = BufferPool.shared.acquire(type: [Float].self, count: count)
-
-        // Ensure buffers are released back to pool when done
-        defer {
-            BufferPool.shared.release(signedPixels)
-            BufferPool.shared.release(floatPixels)
+        outputBuffer.withUnsafeMutableBufferPointer { uint16Buffer in
+            writeNormalizedSigned16(
+                sourcePtr: sourcePtr,
+                outputBuffer: uint16Buffer,
+                count: count,
+                littleEndian: littleEndian
+            )
         }
+    }
 
-        // Copy raw bytes into Int16 buffer with appropriate endianness
-        // Note: Buffer may be larger than count due to bucketing, so use only first count elements
-        signedPixels.withUnsafeMutableBytes { signedBytes in
-            let signedPtr = signedBytes.baseAddress!
-            _ = memcpy(signedPtr, sourcePtr, count * 2)
+    private static func writeNormalizedSigned16(
+        sourcePtr: UnsafeRawPointer,
+        outputBuffer: UnsafeMutableBufferPointer<UInt16>,
+        count: Int,
+        littleEndian: Bool
+    ) {
+        guard count > 0, let destination = outputBuffer.baseAddress else { return }
+        let signMask = UInt16(0x8000)
+        let sourceAddress = UInt(bitPattern: sourcePtr)
 
-            // Handle big endian byte swapping if needed
-            if !littleEndian {
-                let int16Ptr = signedPtr.assumingMemoryBound(to: Int16.self)
-                for i in 0..<count {
-                    int16Ptr[i] = Int16(bigEndian: int16Ptr[i])
+        if sourceAddress.isMultiple(of: UInt(MemoryLayout<UInt16>.alignment)) {
+            let source = sourcePtr.assumingMemoryBound(to: UInt16.self)
+            if littleEndian {
+                for index in 0..<count {
+                    destination[index] = source[index] ^ signMask
+                }
+            } else {
+                for index in 0..<count {
+                    destination[index] = source[index].byteSwapped ^ signMask
                 }
             }
-        }
-
-        // Convert signed Int16 to Float for vDSP processing
-        signedPixels.withUnsafeBufferPointer { signedBuffer in
-            vDSP_vflt16(signedBuffer.baseAddress!, 1, &floatPixels, 1, vDSP_Length(count))
-        }
-
-        // Add offset to shift signed range [-32768, 32767] to unsigned [0, 65535]
-        var offset: Float = 32768.0
-        vDSP_vsadd(floatPixels, 1, &offset, &floatPixels, 1, vDSP_Length(count))
-
-        // Clamp to valid range [0, 65535] to handle any edge cases
-        var lowerBound: Float = 0.0
-        var upperBound: Float = 65535.0
-        vDSP_vclip(floatPixels, 1, &lowerBound, &upperBound, &floatPixels, 1, vDSP_Length(count))
-
-        // Convert back to UInt16
-        floatPixels.withUnsafeBufferPointer { floatBuffer in
-            outputBuffer.withUnsafeMutableBufferPointer { uint16Buffer in
-                vDSP_vfixu16(floatBuffer.baseAddress!, 1, uint16Buffer.baseAddress!, 1, vDSP_Length(count))
+        } else {
+            let source = sourcePtr.assumingMemoryBound(to: UInt8.self)
+            for index in 0..<count {
+                let byteOffset = index * 2
+                let raw: UInt16
+                if littleEndian {
+                    raw = UInt16(source[byteOffset + 1]) << 8 | UInt16(source[byteOffset])
+                } else {
+                    raw = UInt16(source[byteOffset]) << 8 | UInt16(source[byteOffset + 1])
+                }
+                destination[index] = raw ^ signMask
             }
         }
     }
@@ -428,102 +419,48 @@ internal final class DCMPixelReader {
                 return result
             }
 
-            // OPTIMIZATION: Use buffer pool to reduce allocation overhead
-            // For very large images (>2048×2048), allocate directly since pool buckets max out
-            var pixels: [UInt16]
-            var pooledBuffer: [UInt16]? = nil
-            if numPixels <= 4194304 { // xlarge bucket size
-                pooledBuffer = BufferPool.shared.acquire(type: [UInt16].self, count: numPixels)
-                pixels = pooledBuffer!
-            } else {
-                pixels = Array(repeating: 0, count: numPixels)
-            }
-            defer {
-                // Release pooled buffer back to pool if used
-                if let buffer = pooledBuffer {
-                    BufferPool.shared.release(buffer)
-                }
-            }
-
-            data.withUnsafeBytes { dataBytes in
+            var pixels = data.withUnsafeBytes { dataBytes in
                 let basePtr = dataBytes.baseAddress!.advanced(by: offset)
 
-                if pixelRepresentation == 0 {
-                    // Unsigned pixels - most common for CR/DX
-                    if littleEndian {
-                        // Little endian (most common)
-                        // Check if the pointer is aligned for UInt16 access
-                        if offset % 2 == 0 {
-                            // Aligned - can use fast path
-                            basePtr.withMemoryRebound(to: UInt16.self, capacity: numPixels) { uint16Ptr in
-                                // Direct copy for aligned data
-                                pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                                    _ = memcpy(pixelBuffer.baseAddress!, uint16Ptr, numBytes)
-                                }
+                return [UInt16](unsafeUninitializedCapacity: numPixels) { pixelBuffer, initializedCount in
+                    guard let destination = pixelBuffer.baseAddress else {
+                        initializedCount = 0
+                        return
+                    }
 
-                                // Handle MONOCHROME1 inversion if needed using vectorized operations
-                                if photometricInterpretation == "MONOCHROME1" {
-                                    invertMonochrome1Vectorized(buffer: &pixels, count: numPixels)
-                                }
-                            }
-                        } else {
-                            // Unaligned - use optimized vectorized copy
-                            // Even though source is unaligned, memcpy handles this efficiently
-                            // and the destination buffer is always aligned
-                            pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                                _ = memcpy(pixelBuffer.baseAddress!, basePtr, numBytes)
-                            }
-
-                            // Handle MONOCHROME1 inversion if needed using vectorized operations
-                            if photometricInterpretation == "MONOCHROME1" {
-                                invertMonochrome1Vectorized(buffer: &pixels, count: numPixels)
+                    if pixelRepresentation == 0 {
+                        // Unsigned pixels - most common for CR/DX
+                        _ = memcpy(destination, basePtr, numBytes)
+                        if !littleEndian {
+                            for index in 0..<numPixels {
+                                destination[index] = destination[index].byteSwapped
                             }
                         }
+                        result.signedImage = false
                     } else {
-                        // Big endian (rare) - use optimized vectorized byte swapping
-                        pixels.withUnsafeMutableBufferPointer { pixelBuffer in
-                            // First copy data to output buffer (vectorized by system)
-                            _ = memcpy(pixelBuffer.baseAddress!, basePtr, numBytes)
-
-                            // Perform in-place byte swapping
-                            // Swift's byteSwapped is optimized to use hardware instructions
-                            let pixelPtr = pixelBuffer.baseAddress!
-                            for i in 0..<numPixels {
-                                pixelPtr[i] = pixelPtr[i].byteSwapped
-                            }
-                        }
-
-                        // Handle MONOCHROME1 inversion if needed using vectorized operations
-                        if photometricInterpretation == "MONOCHROME1" {
-                            invertMonochrome1Vectorized(buffer: &pixels, count: numPixels)
-                        }
+                        // Signed pixels (less common) - normalize directly into the final buffer.
+                        result.signedImage = true
+                        writeNormalizedSigned16(
+                            sourcePtr: basePtr,
+                            outputBuffer: pixelBuffer,
+                            count: numPixels,
+                            littleEndian: littleEndian
+                        )
                     }
-                    result.signedImage = false
-                } else {
-                    // Signed pixels (less common) - use vectorized conversion
-                    result.signedImage = true
 
-                    // Use vectorized normalization for signed pixels
-                    normaliseSigned16Vectorized(
-                        sourcePtr: basePtr,
-                        outputBuffer: &pixels,
-                        count: numPixels,
-                        littleEndian: littleEndian
-                    )
-
-                    // Handle MONOCHROME1 inversion if needed using vectorized operations
-                    if photometricInterpretation == "MONOCHROME1" {
-                        invertMonochrome1SignedVectorized(buffer: &pixels, count: numPixels)
-                    }
+                    initializedCount = numPixels
                 }
             }
 
-            // Copy pixels to result (slice if using pooled buffer to get exact size)
-            if let _ = pooledBuffer {
-                result.pixels16 = Array(pixels[0..<min(numPixels, pixels.count)])
-            } else {
-                result.pixels16 = pixels
+            if photometricInterpretation == "MONOCHROME1" {
+                if result.signedImage {
+                    invertMonochrome1SignedVectorized(buffer: &pixels, count: numPixels)
+                } else {
+                    invertMonochrome1Vectorized(buffer: &pixels, count: numPixels)
+                }
             }
+
+            result.pixels16 = pixels
 
             let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
             logger?.debug("[PERF] readPixels (16-bit): \(String(format: "%.2f", elapsed))ms | size: \(width)x\(height)")

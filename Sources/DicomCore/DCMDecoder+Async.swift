@@ -175,8 +175,8 @@ extension DCMDecoder {
     public func loadDICOMFileAsync(_ filename: String) async -> Bool {
         return await withCheckedContinuation { continuation in
             Task.detached(priority: .userInitiated) {
-                self.setDicomFilename(filename)
-                continuation.resume(returning: self.dicomFileReadSuccess)
+                try? self.loadDicomFile(at: filename)
+                continuation.resume(returning: self.fileReadSucceeded)
             }
         }
     }

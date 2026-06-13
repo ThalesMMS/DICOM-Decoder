@@ -161,24 +161,23 @@ Directory scanning and study/series grouping for PACS-like organization.
 
 **Location:** `PatientModel.swift`
 
-Data structures representing the DICOM hierarchy (Patient → Study → Series → Image).
+Flat record combining patient demographics, study, series, and file metadata.
 
-**Key Structures:**
-- `Patient`: Top-level patient information
-- `Study`: Study-level metadata (Study Instance UID, date, description)
-- `Series`: Series-level metadata (Series Instance UID, modality, number)
-- `ImageInfo`: Individual image metadata
+**Key Types:**
+- `PatientModel`: Flat record with patient demographics, study, series, and equipment metadata
+- `DICOMModality`: Modality enumeration (CT, MR, DX, US, etc.)
+- `PatientSex`: Patient sex enumeration (M, F, O, U)
 
 ### DCMDictionary
 
-**Location:** `DCMDictionary.swift` + `Resources/DCMDictionary.plist`
+**Location:** `DCMDictionary.swift` + `Resources/DCMDictionary-*.plist`
 
 Tag name/number mapping and DICOM standard tag definitions.
 
 **Key Responsibilities:**
 - Map tag numbers to human-readable names
 - Provide tag lookup by number or name
-- Load tag definitions from plist resource
+- Load tag definitions from plist resources
 
 ### DICOMError
 
@@ -206,7 +205,7 @@ DicomCore uses protocol-based abstractions for all major components, enabling de
 | `StudyDataServiceProtocol` | `StudyDataService` | Abstracts study/series metadata processing |
 | `DicomDictionaryProtocol` | `DCMDictionary` | Abstracts DICOM tag lookups |
 | `DicomSeriesLoaderProtocol` | `DicomSeriesLoader` | Abstracts series volume loading |
-| `FileImportServiceProtocol` | `FileImportService` | Abstracts file import and ZIP extraction |
+| `FileImportServiceProtocol` | App-provided implementations | Abstracts file import and ZIP extraction (no implementation ships in this package) |
 
 ### Dependency Injection Pattern
 
@@ -215,12 +214,12 @@ Services use factory closures to create decoder instances, ensuring thread-safe 
 ```swift
 // Create service with default decoder
 let service = StudyDataService(
-    decoderFactory: { DCMDecoder() }
+    decoderFactory: { path in try DCMDecoder(contentsOfFile: path) }
 )
 
 // For testing, inject mock decoder
 let testService = StudyDataService(
-    decoderFactory: { MockDicomDecoder() }
+    decoderFactory: { _ in MockDicomDecoder() }
 )
 ```
 

@@ -322,7 +322,7 @@ final class CGImageFactoryTests: XCTestCase {
         let height = 256
         var pixels = [UInt8]()
 
-        for y in 0..<height {
+        for _ in 0..<height {
             for x in 0..<width {
                 pixels.append(UInt8(x))
             }

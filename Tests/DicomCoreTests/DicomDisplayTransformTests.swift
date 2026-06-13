@@ -28,6 +28,31 @@ final class DicomDisplayTransformTests: XCTestCase {
         XCTAssertTrue(decoder.pixelsNotLoaded)
     }
 
+    func testStoredModalityAndPercentileValuesUsePlanarRGBLayout() throws {
+        let url = try makeTemporaryRGBDICOM(
+            pixelBytes: Data([10, 20, 30, 40, 50, 60]),
+            extraElements: [
+                ds(.rescaleIntercept, ["1"]),
+                ds(.rescaleSlope, ["2"])
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let decoder = try DCMDecoder(contentsOf: url)
+
+        XCTAssertEqual(decoder.storedPixelValue(at: 0, sample: 0), 10)
+        XCTAssertEqual(decoder.storedPixelValue(at: 0, sample: 1), 30)
+        XCTAssertEqual(decoder.storedPixelValue(at: 0, sample: 2), 50)
+        XCTAssertEqual(decoder.storedPixelValue(at: 1, sample: 0), 20)
+        XCTAssertEqual(decoder.storedPixelValue(at: 1, sample: 1), 40)
+        XCTAssertEqual(decoder.storedPixelValue(at: 1, sample: 2), 60)
+        XCTAssertEqual(decoder.modalityPixelValue(at: 0, sample: 1), 61)
+        XCTAssertEqual(
+            decoder.calculatePercentileWindow(lower: 0, upper: 1),
+            WindowSettings(center: 31, width: 20)
+        )
+    }
+
     func testMultipleWindowsArePairedWithExplanations() throws {
         let url = try makeTemporaryDICOM(
             pixelValues: [0],
@@ -131,6 +156,33 @@ final class DicomDisplayTransformTests: XCTestCase {
             us(.highBit, 15),
             us(.pixelRepresentation, 0),
             bytes(.pixelData, vr: .OW, Data(littleEndianBytes(values: pixelValues)))
+        ] + extraElements)
+
+        let data = try DicomDataSetWriter.part10Data(from: dataSet)
+        try data.write(to: url)
+        return url
+    }
+
+    private func makeTemporaryRGBDICOM(
+        pixelBytes: Data,
+        extraElements: [DicomDataElement] = []
+    ) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("display_transform_rgb_\(UUID().uuidString).dcm")
+        let dataSet = DicomDataSet(elements: [
+            string(0x00080016, vr: .UI, DicomDataSetWriter.defaultSecondaryCaptureImageStorageSOPClassUID),
+            string(.sopInstanceUID, vr: .UI, "1.2.826.0.1.3680043.10.222.\(Int.random(in: 1...999999))"),
+            string(.modality, vr: .CS, "OT"),
+            us(.samplesPerPixel, 3),
+            string(.photometricInterpretation, vr: .CS, "RGB"),
+            us(.planarConfiguration, 1),
+            us(.rows, 1),
+            us(.columns, 2),
+            us(.bitsAllocated, 8),
+            us(.bitsStored, 8),
+            us(.highBit, 7),
+            us(.pixelRepresentation, 0),
+            bytes(.pixelData, vr: .OB, pixelBytes)
         ] + extraElements)
 
         let data = try DicomDataSetWriter.part10Data(from: dataSet)

@@ -12,10 +12,12 @@ internal enum DicomCompressedPixelBackend: Equatable {
     case nativeJPEGLossless
     case nativeRLELossless
     case nativeJPEGLS
+    case nativeJPEGExtended
     case imageIOJPEGBaseline
     case imageIOJPEGExtended
     case imageIOJPEG2000
     case openJPEG2000
+    case openJPEGHTJ2K
     case legacyImageIO
     case unsupported
 }
@@ -30,7 +32,8 @@ internal enum DicomCompressedPixelBackendResolver {
         transferSyntax: DicomTransferSyntax?,
         requestedBitDepth: Int?,
         samplesPerPixel: Int?,
-        photometricInterpretation: String? = nil
+        photometricInterpretation: String? = nil,
+        bitsStored: Int? = nil
     ) -> DicomCompressedPixelBackendDecision {
         guard let transferSyntax else {
             return DicomCompressedPixelBackendDecision(backend: .legacyImageIO, diagnostics: [])
@@ -53,8 +56,19 @@ internal enum DicomCompressedPixelBackendResolver {
             return DicomCompressedPixelBackendDecision(backend: .nativeJPEGLS, diagnostics: [])
         case .jpegLossless, .jpegLosslessFirstOrder:
             if let samplesPerPixel, samplesPerPixel > 1 {
+                let storedBits = bitsStored ?? requestedBitDepth
+                let photometric = photometricInterpretation?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if samplesPerPixel == 3, photometric == "RGB", let storedBits, storedBits <= 8 {
+                    // Interleaved 8-bit RGB is the unambiguous color shape:
+                    // the decoded planes map directly onto the DICOM pixel
+                    // model without a color-space conversion.
+                    return DicomCompressedPixelBackendDecision(backend: .nativeJPEGLossless, diagnostics: [])
+                }
                 return unsupported(
-                    "\(transferSyntax.registryEntry.name) multi-component decode is unsupported (\(componentContext))."
+                    "\(transferSyntax.registryEntry.name) (transfer syntax \(transferSyntax.rawValue)) multi-component"
+                        + " decode supports 8-bit interleaved RGB only; \(storedBits.map { "\($0)-bit" } ?? "unknown-depth")"
+                        + " output for \(componentContext) has no unambiguous mapping."
                 )
             }
             return DicomCompressedPixelBackendDecision(backend: .nativeJPEGLossless, diagnostics: [])
@@ -66,15 +80,29 @@ internal enum DicomCompressedPixelBackendResolver {
             }
             return DicomCompressedPixelBackendDecision(backend: .imageIOJPEGBaseline, diagnostics: [])
         case .jpegExtended:
-            guard let requestedBitDepth else {
+            // Sample precision comes from BitsStored: 12-bit JPEG Extended
+            // files declare BitsAllocated=16 with BitsStored=12.
+            guard let storedBits = bitsStored ?? requestedBitDepth else {
                 return unsupported(
-                    "JPEG Extended (Process 2 and 4) decode requires DICOM bit-depth metadata before using ImageIO."
+                    "JPEG Extended (Process 2 and 4) decode requires DICOM bit-depth metadata before selecting a backend."
                 )
             }
-            if requestedBitDepth > 8 {
+            if storedBits > 12 {
                 return unsupported(
-                    "JPEG Extended 12-bit output has no precision-preserving backend in this build; refusing ImageIO fallback."
+                    "JPEG Extended (Process 2 and 4, transfer syntax \(transferSyntax.rawValue)) caps sample"
+                        + " precision at 12 bits; \(storedBits)-bit output is not representable"
+                        + " (\(componentContext))."
                 )
+            }
+            if storedBits > 8 {
+                if let samplesPerPixel, samplesPerPixel > 1 {
+                    return unsupported(
+                        "JPEG Extended (Process 2 and 4, transfer syntax \(transferSyntax.rawValue))"
+                            + " \(storedBits)-bit decode supports single-component grayscale only;"
+                            + " no precision-preserving backend exists for \(componentContext)."
+                    )
+                }
+                return DicomCompressedPixelBackendDecision(backend: .nativeJPEGExtended, diagnostics: [])
             }
             return DicomCompressedPixelBackendDecision(backend: .imageIOJPEGExtended, diagnostics: [])
         case .jpeg2000Lossless, .jpeg2000:
@@ -127,9 +155,25 @@ internal enum DicomCompressedPixelBackendResolver {
                 "\(transferSyntax.registryEntry.name) stores an encoded video stream; use DicomVideo to forward it to a video player."
             )
         case .htj2kLossless, .htj2kLosslessRPCL, .htj2k:
-            return unsupported(
-                "\(transferSyntax.registryEntry.name) requires an HTJ2K backend; ImageIO JPEG 2000 fallback is not used for HTJ2K."
-            )
+            if let reason = DicomJPEG2000Codec.htj2kUnsupportedReason() {
+                return unsupported(
+                    "\(transferSyntax.registryEntry.name) (transfer syntax \(transferSyntax.rawValue)) \(reason)"
+                        + " ImageIO JPEG 2000 fallback is not used for HTJ2K."
+                )
+            }
+            // Same pipeline limits as classic JPEG 2000 output buffers.
+            if let requestedBitDepth, requestedBitDepth > 16 {
+                return unsupported(
+                    "HTJ2K \(requestedBitDepth)-bit output exceeds the supported 16-bit grayscale backend path."
+                )
+            }
+            if let samplesPerPixel, samplesPerPixel > 1, let requestedBitDepth, requestedBitDepth > 8 {
+                return unsupported(
+                    "HTJ2K color output above 8 bits per component has no precision-preserving backend path "
+                        + "(\(componentContext))."
+                )
+            }
+            return DicomCompressedPixelBackendDecision(backend: .openJPEGHTJ2K, diagnostics: [])
         case .implicitVRLittleEndian, .explicitVRLittleEndian, .deflatedExplicitVRLittleEndian, .explicitVRBigEndian:
             return unsupported("Transfer syntax \(transferSyntax.rawValue) is not compressed.")
         }
@@ -177,6 +221,7 @@ extension DCMPixelReader {
         samplesPerPixel: Int? = nil,
         pixelRepresentation: Int = 0,
         photometricInterpretation: String = "MONOCHROME2",
+        bitsStored: Int? = nil,
         logger: LoggerProtocol? = nil
     ) -> DCMPixelReadResult? {
         guard offset > 0, offset <= data.count else {
@@ -194,6 +239,7 @@ extension DCMPixelReader {
             samplesPerPixel: samplesPerPixel,
             pixelRepresentation: pixelRepresentation,
             photometricInterpretation: photometricInterpretation,
+            bitsStored: bitsStored,
             logger: logger
         )
     }
@@ -207,13 +253,15 @@ extension DCMPixelReader {
         samplesPerPixel: Int? = nil,
         pixelRepresentation: Int = 0,
         photometricInterpretation: String = "MONOCHROME2",
+        bitsStored: Int? = nil,
         logger: LoggerProtocol? = nil
     ) -> DCMPixelReadResult? {
         let backendDecision = DicomCompressedPixelBackendResolver.resolve(
             transferSyntax: transferSyntax,
             requestedBitDepth: bitDepth,
             samplesPerPixel: samplesPerPixel,
-            photometricInterpretation: photometricInterpretation
+            photometricInterpretation: photometricInterpretation,
+            bitsStored: bitsStored
         )
 
         switch backendDecision.backend {
@@ -258,6 +306,22 @@ extension DCMPixelReader {
                 logger: logger
             )
 
+        case .nativeJPEGExtended:
+            do {
+                let frame = try JPEGExtendedDecoder.decode(compressedData)
+                return makeGrayscaleResult(
+                    pixels: frame.pixels,
+                    width: frame.width,
+                    height: frame.height,
+                    bitDepth: frame.precision,
+                    pixelRepresentation: pixelRepresentation,
+                    photometricInterpretation: photometricInterpretation
+                )
+            } catch {
+                logger?.warning("JPEG Extended native decoding failed: \(error)")
+                return nil
+            }
+
         case .imageIOJPEGBaseline, .imageIOJPEGExtended, .imageIOJPEG2000:
             return decodeImageIOFrame(
                 compressedData,
@@ -282,6 +346,23 @@ extension DCMPixelReader {
                 )
             } catch {
                 logger?.warning("JPEG 2000 decoding failed: \(error)")
+                return nil
+            }
+
+        case .openJPEGHTJ2K:
+            do {
+                let decoded = try DicomJPEG2000Codec.decode(compressedData)
+                return makeResult(
+                    bytes: decoded.bytes,
+                    width: decoded.width,
+                    height: decoded.height,
+                    bitsPerSample: decoded.bitsPerSample,
+                    componentCount: decoded.componentCount,
+                    pixelRepresentation: pixelRepresentation,
+                    photometricInterpretation: photometricInterpretation
+                )
+            } catch {
+                logger?.warning("HTJ2K decoding failed: \(error)")
                 return nil
             }
 
@@ -323,6 +404,32 @@ extension DCMPixelReader {
         let decoder = JPEGLosslessDecoder()
         do {
             let losslessResult = try decoder.decode(data: compressedData)
+            if losslessResult.componentCount == 3 {
+                guard losslessResult.bitDepth <= 8 else {
+                    logger?.warning(
+                        "JPEG Lossless interleaved color decode supports 8 bits per component; "
+                            + "the stream declares \(losslessResult.bitDepth) (Photometric Interpretation=\(photometricInterpretation))"
+                    )
+                    return nil
+                }
+                guard photometricInterpretation == "RGB" else {
+                    logger?.warning(
+                        "JPEG Lossless 3-component output is only unambiguous for Photometric Interpretation=RGB; "
+                            + "got \(photometricInterpretation)"
+                    )
+                    return nil
+                }
+                return DCMPixelReadResult(
+                    pixels8: nil,
+                    pixels16: nil,
+                    pixels24: losslessResult.pixels.map { UInt8(truncatingIfNeeded: $0) },
+                    signedImage: false,
+                    width: losslessResult.width,
+                    height: losslessResult.height,
+                    bitDepth: losslessResult.bitDepth,
+                    samplesPerPixel: 3
+                )
+            }
             return makeGrayscaleResult(
                 pixels: losslessResult.pixels,
                 width: losslessResult.width,

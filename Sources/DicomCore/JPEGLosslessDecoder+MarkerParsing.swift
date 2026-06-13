@@ -75,7 +75,10 @@ extension JPEGLosslessDecoder {
                 try parseDHT(data: data, offset: payloadStart, length: payloadLength)
 
             case JPEGMarker.dri.rawValue:
-                throw DICOMError.invalidDICOMFormat(reason: "JPEG Lossless restart intervals (DRI marker) are unsupported")
+                guard payloadLength >= 2 else {
+                    throw DICOMError.invalidDICOMFormat(reason: "DRI marker payload too short (\(payloadLength) bytes)")
+                }
+                restartInterval = Int(data[payloadStart]) << 8 | Int(data[payloadStart + 1])
 
             case JPEGMarker.sos.rawValue:
                 sosInfo = try parseSOS(data: data, offset: payloadStart, length: payloadLength)

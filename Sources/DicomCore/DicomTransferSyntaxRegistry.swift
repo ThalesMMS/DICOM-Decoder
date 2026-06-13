@@ -572,14 +572,14 @@ private extension DicomCompressedPixelSupport {
         switch entry.codec {
         case .deflate:
             return .outOfScope
-        case .jpegLossless, .rle:
+        case .jpegLossless, .rle, .jpegExtended:
             return .decoded
-        case .jpegBaseline, .jpegExtended, .jpegLS, .jpeg2000, .jpeg2000Part2:
+        case .jpegBaseline, .jpegLS, .jpeg2000, .jpeg2000Part2:
             return .delegated
         case .jpip, .mpeg2, .h264, .hevc:
             return .streamedOnly
         case .htj2k:
-            return .unsupported
+            return .delegated
         case .native:
             return .outOfScope
         }
@@ -591,15 +591,16 @@ private extension DicomCompressedPixelSupport {
             return "Dataset deflate is handled by DicomDeflatedDataSetCodec; "
                 + "it is not a compressed pixel codec."
         case .jpegLossless:
-            return "Decoded natively by JPEGLosslessDecoder; restart intervals "
-                + "and multi-component frames are rejected with stable diagnostics."
+            return "Decoded natively by JPEGLosslessDecoder, including restart "
+                + "intervals and 8-bit interleaved RGB frames; other color shapes "
+                + "are rejected with stable diagnostics."
         case .rle:
             return "Decoded natively by DicomRLELosslessDecoder."
         case .jpegBaseline:
             return "Delegated to ImageIO for platform-supported 8-bit JPEG Baseline frames."
         case .jpegExtended:
-            return "Delegated to ImageIO only for <=8-bit frames; "
-                + "12-bit frames are rejected to avoid precision loss."
+            return "12-bit grayscale frames are decoded natively by JPEGExtendedDecoder "
+                + "without precision loss; <=8-bit frames stay delegated to ImageIO."
         case .jpegLS:
             return "Delegated to the preflighted CharLS runtime when "
                 + "DicomCodecRuntimePreflight reports it available."
@@ -616,8 +617,9 @@ private extension DicomCompressedPixelSupport {
             return "Encoded video payload is exposed for a player backend; "
                 + "DicomCore does not decode native video frames."
         case .htj2k:
-            return "Unsupported until an explicit HTJ2K backend is implemented; "
-                + "ImageIO JPEG 2000 fallback is not used."
+            return "Delegated to the preflighted OpenJPEG runtime only when it "
+                + "includes the HTJ2K block decoder (version 2.5 or newer); "
+                + "ImageIO JPEG 2000 fallback is never used for HTJ2K."
         case .native:
             return "Native uncompressed transfer syntax is outside the compressed pixel codec matrix."
         }
@@ -651,7 +653,7 @@ private extension DicomTransferSyntaxRegistry {
             name: "JPEG Extended (Process 2 and 4)",
             codec: .jpegExtended,
             compression: .lossy,
-            decoderSupport: .bestEffort("Explicit ImageIO backend is allowed only for <=8-bit payloads; 12-bit payloads are rejected without a preserving backend.")
+            decoderSupport: .bestEffort("12-bit grayscale payloads decode natively with preserved precision; <=8-bit payloads use the platform ImageIO backend.")
         ),
         compressed(
             .jpegLossless,
@@ -672,7 +674,8 @@ private extension DicomTransferSyntaxRegistry {
             name: "JPEG-LS Lossless Image Compression",
             codec: .jpegLS,
             compression: .lossless,
-            decoderSupport: .bestEffort("Native JPEG-LS decoding uses the CharLS runtime library when it is available.")
+            decoderSupport: .bestEffort("Native JPEG-LS decoding uses the CharLS runtime library when it is available."),
+            encoderSupport: .bestEffort("JPEG-LS lossless encoding is executable through DicomTranscoder when the preflighted CharLS runtime is available.")
         ),
         compressed(
             .jpegLSNearLossless,
@@ -806,21 +809,21 @@ private extension DicomTransferSyntaxRegistry {
             name: "HTJ2K Image Compression (Lossless Only)",
             codec: .htj2k,
             compression: .lossless,
-            decoderSupport: .unavailable("HTJ2K decoding requires an explicit HTJ2K backend; ImageIO JPEG 2000 fallback is not used.")
+            decoderSupport: .bestEffort("HTJ2K decoding requires the preflighted OpenJPEG runtime version 2.5 or newer (HT block decoder); ImageIO JPEG 2000 fallback is not used.")
         ),
         compressed(
             .htj2kLosslessRPCL,
             name: "HTJ2K Image Compression (Lossless RPCL)",
             codec: .htj2k,
             compression: .lossless,
-            decoderSupport: .unavailable("HTJ2K RPCL decoding requires an explicit HTJ2K backend; ImageIO JPEG 2000 fallback is not used.")
+            decoderSupport: .bestEffort("HTJ2K RPCL decoding requires the preflighted OpenJPEG runtime version 2.5 or newer (HT block decoder); ImageIO JPEG 2000 fallback is not used.")
         ),
         compressed(
             .htj2k,
             name: "HTJ2K Image Compression",
             codec: .htj2k,
             compression: .lossy,
-            decoderSupport: .unavailable("HTJ2K decoding requires an explicit HTJ2K backend; ImageIO JPEG 2000 fallback is not used.")
+            decoderSupport: .bestEffort("HTJ2K decoding requires the preflighted OpenJPEG runtime version 2.5 or newer (HT block decoder); ImageIO JPEG 2000 fallback is not used.")
         ),
         compressed(
             .rleLossless,
@@ -849,7 +852,8 @@ private extension DicomTransferSyntaxRegistry {
         name: String,
         codec: DicomTransferSyntaxCodec,
         compression: DicomTransferSyntaxCompression,
-        decoderSupport: DicomCodecSupport
+        decoderSupport: DicomCodecSupport,
+        encoderSupport: DicomCodecSupport? = nil
     ) -> DicomTransferSyntaxRegistryEntry {
         DicomTransferSyntaxRegistryEntry(
             syntax: syntax,
@@ -859,7 +863,7 @@ private extension DicomTransferSyntaxRegistry {
             pixelEncoding: .encapsulated,
             fragmentation: .encapsulatedFragments,
             decoderSupport: decoderSupport,
-            encoderSupport: .unavailable("DICOM \(name) encoder is not implemented.")
+            encoderSupport: encoderSupport ?? .unavailable("DICOM \(name) encoder is not implemented.")
         )
     }
 

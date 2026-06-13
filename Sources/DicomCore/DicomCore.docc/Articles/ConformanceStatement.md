@@ -137,13 +137,24 @@ and ``DicomVideoCodec``.
 ``DicomSeriesLoaderSupportMatrix``. The standard matrix accepts Bits Allocated
 8, 16, or 32; Bits Stored 8, 16, or 32; High Bit from the source metadata;
 Pixel Representation 0 or 1; Samples per Pixel 1; MONOCHROME1 or MONOCHROME2;
-absent Planar Configuration; one frame per file; and native uncompressed pixel
-transfer syntaxes. It preserves rescale slope/intercept, VOI/window metadata,
-pixel spacing, orientation, origin, image instance metadata, and slice ordering
-by Image Position projection, then Instance Number, then localized filename.
-Compressed transfer syntaxes, color/multi-sample data, explicit planar
-configuration, unsupported Bits Stored values, and multiframe images fail with
-typed errors carrying transfer syntax and pixel metadata.
+absent Planar Configuration; one frame per file; and native uncompressed or
+compressed pixel transfer syntaxes whose decode backend is active (compressed
+slices decode once per slice through ``DicomDecodedFrameReader``). It preserves
+rescale slope/intercept, VOI/window metadata, pixel spacing, orientation,
+origin, image instance metadata, and slice ordering by Image Position
+projection, then Instance Number, then localized filename. Compressed transfer
+syntaxes without an active decode backend, color/multi-sample data, explicit
+planar configuration, unsupported Bits Stored values, and multiframe images
+fail with typed errors carrying transfer syntax and pixel metadata.
+Enhanced CT/MR multiframe objects assemble through
+`DicomSeriesLoader.loadEnhancedMultiframeVolume(at:)`: Shared and Per-Frame
+Functional Groups provide geometry (Plane Position/Orientation, Pixel
+Measures) and per-frame rescale (Pixel Value Transformation), frames order by
+position along the normal, and each frame decodes one at a time through
+``DicomDecodedFrameReader`` — so compressed multiframe objects use exactly the
+same path as native ones when the transfer syntax has an active backend.
+Unsupported multiframe shapes fail typed with SOP Class, frame count,
+transfer syntax, and the missing functional-group context.
 
 Typical usage sequence:
 
@@ -175,12 +186,12 @@ Use ``DicomTransferSyntaxRegistry`` to inspect encapsulation, fragmentation, dec
 | Transfer Syntax Name | UID | Compression | Pixel Status | Support Detail |
 |---------------------|-----|-------------|--------------|----------------|
 | **Deflated Explicit VR Little Endian** | 1.2.840.10008.1.2.1.99 | Dataset deflate | out-of-scope | zlib handles dataset compression, not a compressed pixel codec |
-| **JPEG Lossless, Non-Hierarchical, First-Order Prediction (Process 14, Selection Value 1)** | 1.2.840.10008.1.2.4.70 | JPEG Lossless | decoded | Native `JPEGLosslessDecoder`; restart intervals and multi-component frames are tested limitations |
+| **JPEG Lossless, Non-Hierarchical, First-Order Prediction (Process 14, Selection Value 1)** | 1.2.840.10008.1.2.4.70 | JPEG Lossless | decoded | Native `JPEGLosslessDecoder`, including restart intervals (DRI/RSTn) and 8-bit interleaved RGB; other color shapes are tested rejections |
 | **JPEG Lossless, Non-Hierarchical (Process 14)** | 1.2.840.10008.1.2.4.57 | JPEG Lossless | decoded | Native `JPEGLosslessDecoder`; all selection values 0-7 |
 | **JPEG Baseline (Process 1)** | 1.2.840.10008.1.2.4.50 | JPEG Lossy | delegated | ImageIO for platform-supported 8-bit payloads |
-| **JPEG Extended (Process 2 & 4)** | 1.2.840.10008.1.2.4.51 | JPEG Lossy | delegated | ImageIO for <=8-bit payloads; 12-bit rejected with diagnostics |
-| **JPEG-LS Lossless Image Compression** | 1.2.840.10008.1.2.4.80 | JPEG-LS | delegated | Preflighted CharLS runtime |
-| **JPEG-LS Lossy (Near-Lossless) Image Compression** | 1.2.840.10008.1.2.4.81 | JPEG-LS | delegated | Preflighted CharLS runtime |
+| **JPEG Extended (Process 2 & 4)** | 1.2.840.10008.1.2.4.51 | JPEG Lossy | decoded | Native 12-bit grayscale decode preserves precision; <=8-bit payloads delegate to ImageIO |
+| **JPEG-LS Lossless Image Compression** | 1.2.840.10008.1.2.4.80 | JPEG-LS | delegated | Preflighted CharLS runtime; supported only when the release gate proves the backend active (`DicomCodecCapabilities`) |
+| **JPEG-LS Lossy (Near-Lossless) Image Compression** | 1.2.840.10008.1.2.4.81 | JPEG-LS | delegated | Preflighted CharLS runtime; supported only when the release gate proves the backend active (`DicomCodecCapabilities`) |
 | **JPEG 2000 Image Compression (Lossless Only)** | 1.2.840.10008.1.2.4.90 | JPEG 2000 | delegated | Preflighted OpenJPEG up to 16-bit grayscale; ImageIO 8-bit fallback |
 | **JPEG 2000 Image Compression** | 1.2.840.10008.1.2.4.91 | JPEG 2000 | delegated | Preflighted OpenJPEG up to 16-bit grayscale; ImageIO 8-bit fallback |
 | **JPEG 2000 Part 2 Multi-component Image Compression (Lossless Only)** | 1.2.840.10008.1.2.4.92 | JPEG 2000 Part 2 | delegated | Preflighted OpenJPEG through `DicomJP3DVolumeDocument` |
@@ -190,9 +201,9 @@ Use ``DicomTransferSyntaxRegistry`` to inspect encapsulation, fragmentation, dec
 | **MPEG-2 Video Transfer Syntaxes** | 1.2.840.10008.1.2.4.100-.101.1 | MPEG-2 video | streamed-only | Encoded stream exposed for player backend; native frame decode is not implemented |
 | **MPEG-4 AVC/H.264 Video Transfer Syntaxes** | 1.2.840.10008.1.2.4.102-.106.1 | H.264 video | streamed-only | Encoded stream exposed for player backend; native frame decode is not implemented |
 | **HEVC/H.265 Video Transfer Syntaxes** | 1.2.840.10008.1.2.4.107-.108 | HEVC video | streamed-only | Encoded stream exposed for player backend; native frame decode is not implemented |
-| **HTJ2K Image Compression (Lossless Only)** | 1.2.840.10008.1.2.4.201 | HTJ2K | unsupported | Requires an explicit HTJ2K backend; no ImageIO JPEG 2000 fallback |
-| **HTJ2K Image Compression (Lossless RPCL)** | 1.2.840.10008.1.2.4.202 | HTJ2K | unsupported | Requires an explicit HTJ2K backend; no ImageIO JPEG 2000 fallback |
-| **HTJ2K Image Compression** | 1.2.840.10008.1.2.4.203 | HTJ2K | unsupported | Requires an explicit HTJ2K backend; no ImageIO JPEG 2000 fallback |
+| **HTJ2K Image Compression (Lossless Only)** | 1.2.840.10008.1.2.4.201 | HTJ2K | delegated | Preflighted OpenJPEG runtime >= 2.5 (HT block decoder); no ImageIO JPEG 2000 fallback |
+| **HTJ2K Image Compression (Lossless RPCL)** | 1.2.840.10008.1.2.4.202 | HTJ2K | delegated | Preflighted OpenJPEG runtime >= 2.5 (HT block decoder); no ImageIO JPEG 2000 fallback |
+| **HTJ2K Image Compression** | 1.2.840.10008.1.2.4.203 | HTJ2K | delegated | Preflighted OpenJPEG runtime >= 2.5 (HT block decoder); no ImageIO JPEG 2000 fallback |
 | **RLE Lossless** | 1.2.840.10008.1.2.5 | RLE | decoded | Native `DicomRLELosslessDecoder` |
 
 **Pixel Status Values:** `decoded`, `delegated`, `streamed-only`, `unsupported`, and `out-of-scope`.
@@ -485,13 +496,13 @@ rendering.
 |----------------------------|----------------|----------------------|-------------|----------------|
 | **MONOCHROME1** | 1 sample, 8 or 16 bits | Absent | Not applicable | Display RGB, inverted grayscale |
 | **MONOCHROME2** | 1 sample, 8 or 16 bits | Absent | Not applicable | Display RGB, grayscale |
-| **RGB** | 3 samples, 8 bits | Absent, 0, or 1 | Preserved | Display RGB |
+| **RGB** | 3 samples, 8 or 16 bits | Absent, 0, or 1 | Preserved | Display RGB (16-bit scales by Bits Stored; `displayRGB48PixelBuffer` preserves full precision) |
 | **PALETTE COLOR** | 1 index, 8 or 16 bits | Absent | Preserved if present | Display RGB with RGB lookup tables |
 | **YBR_FULL** | 3 samples, 8 bits | Absent, 0, or 1 | Preserved | Display RGB |
 | **YBR_FULL_422** | 3 samples, 8 bits | Absent or 0 | Preserved | Display RGB |
 | **YBR_PARTIAL_420** | 3 samples, 8 bits | Absent or 0 | Not preserved | Unsupported |
-| **YBR_RCT** | 3 samples, 8 bits | Absent or 0 | Not preserved | Unsupported |
-| **YBR_ICT** | 3 samples, 8 bits | Absent or 0 | Not preserved | Unsupported |
+| **YBR_RCT** | 3 samples, 8 bits | Absent or 0 | Not preserved | Native display conversion rejected; JPEG 2000 codestreams decode to RGB through the OpenJPEG backend (`DicomDecodedFrameReader`) |
+| **YBR_ICT** | 3 samples, 8 bits | Absent or 0 | Not preserved | Native display conversion rejected; lossy JPEG 2000 codestreams decode to RGB through the OpenJPEG backend (`DicomDecodedFrameReader`) |
 
 Unsupported display paths throw
 ``DicomColorConversionError/unsupportedColorPath(context:reason:)`` with
@@ -613,7 +624,7 @@ DicomCore uses Apple-provided frameworks for its core pipeline:
 - **Accelerate (vDSP):** CPU-based image processing
 - **Metal:** GPU-based image processing (optional)
 
-Deflated Explicit VR Little Endian uses system zlib for raw deflate/inflate. JPEG-LS decoding can use CharLS when `DicomCodecRuntimePreflight.status(for: .charLS)` reports availability. JPEG 2000 decoding can use OpenJPEG when `DicomCodecRuntimePreflight.status(for: .openJPEG)` reports availability. The Swift package does not add SPM dependencies for these codecs; the codec bridges load runtimes dynamically and return typed unsupported-transfer-syntax errors when runtimes are absent, invalid, or missing required symbols.
+Deflated Explicit VR Little Endian uses system zlib for raw deflate/inflate. JPEG-LS decoding can use CharLS when `DicomCodecRuntimePreflight.status(for: .charLS)` reports availability. JPEG 2000 decoding can use OpenJPEG when `DicomCodecRuntimePreflight.status(for: .openJPEG)` reports availability. The Swift package does not add SPM dependencies for these codecs; by decision of record (issue #1230) CharLS and OpenJPEG are SYSTEM dependencies loaded dynamically (default Homebrew//usr/local candidates, per-runtime `DICOM_DECODER_<RUNTIME>_LIBRARY_PATH` override) and are never bundled. The codec bridges return typed unsupported-transfer-syntax errors when runtimes are absent, invalid, missing required symbols, or not the supported major version (2.x). `DicomCodecCapabilities` is the single capability API reporting, per backend: availability, version, library path, source (override vs default search path), supported bit depths, and the deterministic unsupported reason. The release gate (`Scripts/test_gates.sh release`) exports `DICOM_REQUIRE_CHARLS=1` and `DICOM_REQUIRE_OPENJPEG=1` so a release candidate fails fast unless both backends are active — JPEG-LS/JPEG 2000 must not be described as supported for a build whose release gate did not prove the backends.
 
 ---
 
@@ -624,10 +635,10 @@ Deflated Explicit VR Little Endian uses system zlib for raw deflate/inflate. JPE
 | Limitation | Impact | Workaround |
 |------------|--------|------------|
 | **Encapsulated multi-frame images** | Frame indexing is supported; full decode depends on codec support for the transfer syntax | Extract frames with `getEncapsulatedFrame(_:)` and decode with a supported codec |
-| **JPEG Lossless Restart Intervals and Multi-component Frames** | Native Process 14 decode rejects DRI/RSTn and multi-component frames with stable diagnostics | Convert to single-component Process 14 without restart intervals or use another validated backend |
+| **JPEG Lossless Non-RGB Color and Separate-Scan Frames** | Native Process 14 decode handles restart intervals and single interleaved scans of 1 or 3 components; non-RGB photometric interpretations, >8-bit color, and separate-scan multicomponent streams are rejected with stable diagnostics | Convert to interleaved 8-bit RGB or grayscale Process 14, or use another validated backend |
 | **JPEG-LS Runtime Availability** | JPEG-LS requires `DicomCodecRuntimePreflight.status(for: .charLS)` to be available | Install CharLS, set `DICOM_DECODER_CHARLS_LIBRARY_PATH`, or convert to a native lossless syntax |
 | **JPEG 2000 Runtime Availability** | JPEG 2000 >8-bit and Part 2 paths require `DicomCodecRuntimePreflight.status(for: .openJPEG)` to be available | Install OpenJPEG, set `DICOM_DECODER_OPENJPEG_LIBRARY_PATH`, or convert to a native supported syntax |
-| **HTJ2K Pixel Decode** | HTJ2K syntaxes are unsupported until an explicit backend is implemented | Convert to a supported transfer syntax |
+| **HTJ2K Pixel Decode** | HTJ2K decodes only through the preflighted OpenJPEG runtime version 2.5 or newer (explicit capability check); older runtimes or absent libraries fail typed | Install OpenJPEG >= 2.5 or convert to a supported transfer syntax |
 | **JPEG Hierarchical** | JPEG processes other than Process 14 unsupported | Convert to supported transfer syntax |
 | **Unsupported color combinations** | `DicomColorConversionError.unsupportedColorPath` reports photometric interpretation, sample count, planar layout, bit depth, and transfer syntax context | Convert through a supported transfer syntax/color layout |
 | **Undefined-length non-SQ** | Non-SQ undefined values inside sequences throw parser errors | Use explicit lengths |
@@ -783,6 +794,105 @@ DicomCore is provided as a software development library for creating application
 
 ---
 
+### Safe Part 10 Rewrite and Anonymization
+
+`DicomAnonymizer` (issue #1236) rewrites Part 10 files under a
+`DicomRewritePolicy` of per-tag keep/remove/replace/remapUID actions plus a
+private-tag switch. Rules apply recursively inside sequence items. The
+transfer syntax and file meta consistency are preserved on write; Pixel Data
+is always carried byte-for-byte — encapsulated payloads (Basic/Extended
+Offset Tables, fragments, and delimiter) feed the writer's pass-through
+unchanged, and native values copy their raw bytes. UID remapping is
+deterministic (the same original UID maps to the same replacement within and
+across operations), so study/series/instance and nested referenced-SOP
+relationships stay consistent. The policy's UID root is validated against a
+22-character budget before any output is produced (two 20-digit components
+plus separators keep every remapped UID within the DICOM 64-character
+maximum); oversized roots fail with the typed `uidRootTooLong` error.
+Structural pixel-module elements are blocked from policy actions. Every
+decision is audited (changed/removed/kept/blocked/unsupported/remapped) with
+element paths and without recording original PHI values; invalid inputs fail
+with typed errors.
+
+The `defaultAnonymization` baseline replaces patient identity fields, blanks
+Accession Number and Study ID, removes birth date, other patient names,
+address, telephone numbers, referring physician, institution name, Station
+Name, Device Serial Number, Requested Procedure ID, and private tags, and
+remaps study/series/instance/frame-of-reference and referenced SOP UIDs.
+Referenced Study Sequence (0008,1110) and Referenced Series Sequence
+(0008,1115) are retained with their linkage UIDs remapped recursively. The
+baseline is NOT the complete PS3.15 Basic De-identification Profile —
+notably uncovered: dates and times beyond the birth date, operator/physician
+names beyond the referring physician, free-text description and comment
+fields, and the institution address.
+
+### Executable Transfer Syntax Transcoding
+
+`DicomTranscoder` (issue #1237) executes the routes the transcode planner
+declares, as file-level operations that fail typed before producing any
+output:
+
+- **Native-to-native rewrite** and **same-syntax pass-through**: a safe
+  Part 10 rewrite carrying every element and the Pixel Data bytes unchanged
+  (encapsulated payloads byte-for-byte).
+- **Decompression to Explicit VR Little Endian**: compressed sources whose
+  decode backend is active decode frame-by-frame through
+  ``DicomDecodedFrameReader`` and write native stored-value pixels with the
+  pixel module, metadata, and file meta preserved. MONOCHROME2, MONOCHROME1,
+  and RGB sources are supported: MONOCHROME1 display inversion is a
+  full-range, self-inverse transform, so it is undone exactly during
+  stored-value reconstruction and the Photometric Interpretation tag is
+  preserved.
+- **JPEG-LS Lossless encoding** is the one executable lossless encoder
+  route, gated on the preflighted CharLS runtime; single-sample MONOCHROME2
+  frames encode per frame into a Basic Offset Table encapsulation.
+- Every other native-to-compressed and compressed-to-compressed route stays
+  a typed `routeUnsupported` error carrying the planner diagnostics.
+
+### Pixel Object Families and Typed Payloads
+
+`DicomPixelObjectSupportMatrix` (issue #1238) declares how each
+pixel-carrying object family is consumed, and
+`DicomPixelObjectClassifier.typedPayload(from:)` extracts the typed payload
+or rejects with a stable error naming the SOP Class, pixel data element type
+((7FE0,0010)/(7FE0,0008)/(7FE0,0009)/none), transfer syntax, and the missing
+metadata:
+
+| Family | Role | Payload |
+|--------|------|---------|
+| Classic integer Pixel Data | Image display / volume input | `DicomDecodedFrameReader`, `displayRGBPixelBuffer`, `DicomSeriesLoader` |
+| Segmentation Storage | Overlay/segmentation | `DicomSegmentation` (segment labels, binary/fractional payloads, labelmaps) |
+| RT Dose | Dose grid | `DicomRTDoseVolume` (Dose Grid Scaling required and enforced; units, grid frame offsets, geometry) |
+| Parametric Map | Volume input | `DicomParametricMap` (Float/Double Float scalar volumes with Real World Value Mapping) |
+| Float Pixel Data outside Parametric Map | Out of scope | Typed rejection |
+| Double Float Pixel Data outside Parametric Map | Out of scope | Typed rejection |
+
+### Metadata Parsing Hardening Policy
+
+Decisions of record for parser edge cases (issue #1235):
+
+- **Undefined-length non-SQ elements** put the scanner into item mode: the
+  element's value is never materialized, items are skipped structurally, and
+  scanning resumes after the matching sequence delimiter. This is a safe
+  skip, never a hard failure, including for values nested inside sequences.
+- **Stray item/sequence delimiters** outside any open sequence reset the
+  sequence state and are ignored.
+- **Unknown explicit VR codes** (two uppercase ASCII letters that match no
+  defined VR, e.g. retired or vendor codes) are treated as short-form
+  explicit elements and skipped by their declared 16-bit length.
+- **Declared lengths past the end of data** clamp to the remaining bytes;
+  when that swallows the rest of the stream the load fails with a typed
+  `invalidDICOMFormat` error — never a crash or silent partial success.
+- **Large values stay lazy**: oversized private payloads are skipped by
+  length during the metadata scan and pixel data is only materialized on
+  first pixel access. Pixel module, VOI window, modality LUT, overlay, and
+  geometry attributes are all readable without decoding pixels.
+- **Specific Character Set** covers ISO_IR 6/13/100/101/109/110/126/127/
+  138/144/148/166/192, the ISO 2022 JP escapes, and GB18030/GBK for
+  patient/study metadata used by import and display.
+- **Private tags**: creator blocks and their private elements survive read
+  and Part 10 rewrite, including multiple creators in one group.
+
 ## Appendix A: Transfer Syntax UID Reference
 
 Complete list of DICOM Transfer Syntax UIDs mentioned in this document:
@@ -794,7 +904,7 @@ Complete list of DICOM Transfer Syntax UIDs mentioned in this document:
 | 1.2.840.10008.1.2.1.99 | Deflated Explicit VR Little Endian | out-of-scope for pixel codecs; dataset deflate supported |
 | 1.2.840.10008.1.2.2 | Explicit VR Big Endian | ✅ Full |
 | 1.2.840.10008.1.2.4.50 | JPEG Baseline (Process 1) | delegated ImageIO 8-bit |
-| 1.2.840.10008.1.2.4.51 | JPEG Extended (Process 2 & 4) | delegated ImageIO <=8-bit; 12-bit diagnostics |
+| 1.2.840.10008.1.2.4.51 | JPEG Extended (Process 2 & 4) | native 12-bit grayscale decode; <=8-bit via ImageIO |
 | 1.2.840.10008.1.2.4.57 | JPEG Lossless, Non-Hierarchical (Process 14) | decoded native |
 | 1.2.840.10008.1.2.4.70 | JPEG Lossless, Non-Hierarchical, First-Order Prediction | decoded native |
 | 1.2.840.10008.1.2.4.80 | JPEG-LS Lossless Image Compression | delegated preflighted CharLS |
@@ -806,9 +916,9 @@ Complete list of DICOM Transfer Syntax UIDs mentioned in this document:
 | 1.2.840.10008.1.2.4.94 | JPIP Referenced Transfer Syntax | streamed-only |
 | 1.2.840.10008.1.2.4.95 | JPIP Referenced Deflate Transfer Syntax | streamed-only |
 | 1.2.840.10008.1.2.4.100-.108 | MPEG-2/H.264/HEVC video families | streamed-only |
-| 1.2.840.10008.1.2.4.201 | HTJ2K Image Compression (Lossless Only) | unsupported |
-| 1.2.840.10008.1.2.4.202 | HTJ2K Image Compression (Lossless RPCL) | unsupported |
-| 1.2.840.10008.1.2.4.203 | HTJ2K Image Compression | unsupported |
+| 1.2.840.10008.1.2.4.201 | HTJ2K Image Compression (Lossless Only) | delegated OpenJPEG >= 2.5 |
+| 1.2.840.10008.1.2.4.202 | HTJ2K Image Compression (Lossless RPCL) | delegated OpenJPEG >= 2.5 |
+| 1.2.840.10008.1.2.4.203 | HTJ2K Image Compression | delegated OpenJPEG >= 2.5 |
 | 1.2.840.10008.1.2.5 | RLE Lossless | decoded native |
 
 ---

@@ -21,6 +21,10 @@ import Foundation
 import DicomTestSupport
 @testable import DicomCore
 
+// Compatibility coverage: this suite intentionally exercises deprecated
+// public APIs that remain available (issue #1221); the annotation keeps
+// the deliberate legacy usage warning-free without hiding new ones.
+@available(*, deprecated)
 final class JPEGLosslessConformanceTests: XCTestCase {
 
     // MARK: - Test Configuration
@@ -500,6 +504,31 @@ final class JPEGLosslessConformanceTests: XCTestCase {
         XCTAssertGreaterThan(filesBySelectionValue.keys.count, 0, "Should test at least one selection value")
     }
 
+    /// Regression test: a minimal synthetic SV1 file (2x2, 16-bit, built by
+    /// `makeMinimalJPEGLosslessData`) used to crash the test runner with
+    /// signal 5 inside `extractSelectionValue` — the pixel-data slice kept the
+    /// parent Data's indices while the SOS offsets were zero-based, so the
+    /// subscript trapped instead of failing. Unusual-but-valid lossless files
+    /// must decode or fail gracefully, never crash.
+    func testSelectionValueExtractionSurvivesMinimalSyntheticSV1File() throws {
+        let fixtureData = try ClinicalParityCuratedFixtureTests.makeJPEGLosslessFixtureData()
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("JPEGLosslessConformance-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fileURL = directory.appendingPathComponent("jpeg_lossless_sv1_minimal.dcm")
+        try fixtureData.write(to: fileURL)
+
+        let selectionValue = try extractSelectionValue(from: fileURL)
+        XCTAssertEqual(selectionValue, 1, "minimal SV1 fixture must report selection value 1")
+
+        let decoder = try DCMDecoder(contentsOf: fileURL)
+        let pixels = try XCTUnwrap(decoder.getPixels16(), "minimal SV1 fixture must decode to 16-bit pixels")
+        XCTAssertEqual(pixels.count, decoder.width * decoder.height * decoder.samplesPerPixel)
+    }
+
     // MARK: - Performance Testing
 
     /// Test decoding performance with conformance files
@@ -537,6 +566,7 @@ final class JPEGLosslessConformanceTests: XCTestCase {
 
 // MARK: - Helper Extensions
 
+@available(*, deprecated)
 extension JPEGLosslessConformanceTests {
     func skipMissingConformanceFixtures(_ detail: String) -> XCTSkip {
         let status = DicomRuntimeStatus(
@@ -593,18 +623,23 @@ extension JPEGLosslessConformanceTests {
                 if pixelDataStart + 8 < data.count {
                     pixelDataStart += 8
 
-                    // Extract encapsulated pixel data
-                    // Look for JPEG SOI marker (0xFF 0xD8)
-                    let jpegData = data[pixelDataStart...]
+                    // Extract encapsulated pixel data, re-based to index 0.
+                    // A plain `data[pixelDataStart...]` slice keeps the parent
+                    // Data's indices, so subscripting it with the zero-based
+                    // SOS offsets below traps (signal 5) instead of failing.
+                    let jpegData = Data(data[pixelDataStart...])
 
                     // Parse JPEG markers to find SOS (Start of Scan)
-                    if let sosIndex = findSOSMarker(in: Data(jpegData)) {
+                    if let sosIndex = findSOSMarker(in: jpegData) {
                         // SOS structure (after marker):
                         // Length (2 bytes)
                         // Number of components (1 byte)
                         // Component specs (2 bytes each)
                         // Start spectral (1 byte) <- This is the selection value
                         let sosDataIndex = sosIndex + 2 // Skip marker
+
+                        // Length and component-count bytes must exist before reading.
+                        guard sosDataIndex + 2 < jpegData.count else { break }
                         let sosLength = Int(jpegData[sosDataIndex]) << 8 | Int(jpegData[sosDataIndex + 1])
 
                         if sosDataIndex + sosLength < jpegData.count {

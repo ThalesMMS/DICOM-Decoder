@@ -309,6 +309,15 @@ enum DicomTLSOptionsFactory {
 }
 
 #if canImport(Security) && os(macOS)
+/// Documented platform compatibility shim (issue #1221): the legacy
+/// `SecKeychain*` file-based keychain API is deprecated since macOS 10.10,
+/// but it remains the only supported way to mint a `SecIdentity` from PEM
+/// certificate/key material in an isolated, throwaway store for DIMSE TLS —
+/// the modern data-protection keychain (`SecItem*`) cannot host an imported
+/// identity for this flow without app-level keychain entitlements that a
+/// library cannot assume. The three deprecation warnings emitted by this
+/// type (`SecKeychainCreate`/`SecKeychainUnlock`/`SecKeychainDelete`) are
+/// intentional and confined to this shim.
 final class DicomTemporaryKeychain {
     typealias UnlockKeychain = (SecKeychain, UInt32, UnsafeRawPointer?, Bool) -> OSStatus
 

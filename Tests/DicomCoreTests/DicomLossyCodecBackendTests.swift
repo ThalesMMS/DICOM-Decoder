@@ -67,7 +67,9 @@ final class DicomLossyCodecBackendTests: XCTestCase {
         XCTAssertEqual(result.height, 2)
     }
 
-    func testJPEGExtended12BitReturnsDiagnosticWithoutPrecisionLoss() {
+    /// 12-bit JPEG Extended routes to the native decoder (#1228); a
+    /// header-only stream fails typed there and ImageIO is never consulted.
+    func testJPEGExtended12BitHeaderOnlyStreamFailsNativelyWithoutImageIO() {
         let logger = MockLogger()
         let result = DCMPixelReader.decodeCompressedFrameData(
             data: Data([0xFF, 0xD8, 0xFF, 0xC1, 0x00, 0x0B, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00]),
@@ -79,11 +81,14 @@ final class DicomLossyCodecBackendTests: XCTestCase {
         )
 
         XCTAssertNil(result)
-        XCTAssertTrue(logger.contains(level: .warning, text: "JPEG Extended 12-bit output"))
-        XCTAssertTrue(logger.contains(level: .warning, text: "refusing ImageIO fallback"))
+        XCTAssertTrue(logger.contains(level: .warning, text: "JPEG Extended native decoding failed"))
+        XCTAssertFalse(logger.contains(level: .warning, text: "ImageIO"))
     }
 
-    func testHTJ2KReturnsDiagnosticWithoutJPEG2000Fallback() {
+    /// HTJ2K never routes through the generic ImageIO JPEG 2000 fallback:
+    /// it decodes via the version-gated OpenJPEG capability (#1231) or
+    /// fails typed when that capability is absent.
+    func testHTJ2KNeverUsesTheImageIOJPEG2000Fallback() {
         let logger = MockLogger()
         let result = DCMPixelReader.decodeCompressedFrameData(
             data: Data([0xFF, 0x4F, 0xFF, 0x51]),
@@ -95,8 +100,11 @@ final class DicomLossyCodecBackendTests: XCTestCase {
         )
 
         XCTAssertNil(result)
-        XCTAssertTrue(logger.contains(level: .warning, text: "requires an HTJ2K backend"))
-        XCTAssertTrue(logger.contains(level: .warning, text: "ImageIO JPEG 2000 fallback is not used"))
+        if DicomJPEG2000Codec.supportsHTJ2K {
+            XCTAssertTrue(logger.contains(level: .warning, text: "HTJ2K decoding failed"))
+        } else {
+            XCTAssertTrue(logger.contains(level: .warning, text: "ImageIO JPEG 2000 fallback is not used"))
+        }
     }
 
     func testBackendResolverDocumentsExplicitDecisions() {
@@ -122,7 +130,7 @@ final class DicomLossyCodecBackendTests: XCTestCase {
                 requestedBitDepth: 12,
                 samplesPerPixel: 1
             ).backend,
-            .unsupported
+            .nativeJPEGExtended
         )
         XCTAssertEqual(
             DicomCompressedPixelBackendResolver.resolve(
@@ -130,7 +138,7 @@ final class DicomLossyCodecBackendTests: XCTestCase {
                 requestedBitDepth: 16,
                 samplesPerPixel: 1
             ).backend,
-            .unsupported
+            DicomJPEG2000Codec.supportsHTJ2K ? .openJPEGHTJ2K : .unsupported
         )
         XCTAssertEqual(
             DicomCompressedPixelBackendResolver.resolve(
@@ -140,6 +148,103 @@ final class DicomLossyCodecBackendTests: XCTestCase {
             ).backend,
             .unsupported
         )
+    }
+
+    // MARK: - JPEG 2000 color transforms (issue #1232)
+
+    /// Lossless JPEG 2000 RGB encodes apply the reversible color transform
+    /// (DICOM labels the data YBR_RCT); the OpenJPEG backend reverses it,
+    /// so the decoded frame is exact RGB.
+    func testJPEG2000RCTColorRoundTripsToExactRGB() throws {
+        try DicomTestRuntimePreflight.require(.openJPEG)
+        let source: [UInt8] = [
+            255, 0, 0, 0, 255, 0,
+            0, 0, 255, 200, 150, 100
+        ]
+        let encoded = try makeOpenJPEGColorCodestream(width: 2, height: 2, rgbPixels: source, lossless: true)
+
+        let result = try XCTUnwrap(DCMPixelReader.decodeCompressedFrameData(
+            data: encoded,
+            transferSyntax: .jpeg2000Lossless,
+            bitDepth: 8,
+            samplesPerPixel: 3,
+            pixelRepresentation: 0,
+            photometricInterpretation: "YBR_RCT",
+            bitsStored: 8
+        ))
+        XCTAssertEqual(result.pixels24, source, "reversible color transform must round-trip exactly")
+        XCTAssertNil(result.pixels8, "RCT color must never surface as grayscale")
+    }
+
+    /// Lossy JPEG 2000 RGB uses the irreversible transform (YBR_ICT); the
+    /// backend output is RGB within compression tolerance.
+    func testJPEG2000ICTLossyColorDecodesToApproximateRGB() throws {
+        try DicomTestRuntimePreflight.require(.openJPEG)
+        let source: [UInt8] = [
+            255, 0, 0, 0, 255, 0,
+            0, 0, 255, 200, 150, 100
+        ]
+        let encoded = try makeOpenJPEGColorCodestream(width: 2, height: 2, rgbPixels: source, lossless: false)
+
+        let result = try XCTUnwrap(DCMPixelReader.decodeCompressedFrameData(
+            data: encoded,
+            transferSyntax: .jpeg2000,
+            bitDepth: 8,
+            samplesPerPixel: 3,
+            pixelRepresentation: 0,
+            photometricInterpretation: "YBR_ICT",
+            bitsStored: 8
+        ))
+        let decoded = try XCTUnwrap(result.pixels24)
+        XCTAssertEqual(decoded.count, source.count)
+        for (index, expected) in source.enumerated() {
+            XCTAssertLessThanOrEqual(
+                abs(Int(decoded[index]) - Int(expected)), 24,
+                "ICT sample \(index) drifted beyond lossy tolerance"
+            )
+        }
+        XCTAssertNil(result.pixels8, "ICT color must never surface as grayscale")
+    }
+
+    private func makeOpenJPEGColorCodestream(
+        width: Int,
+        height: Int,
+        rgbPixels: [UInt8],
+        lossless: Bool
+    ) throws -> Data {
+        XCTAssertEqual(rgbPixels.count, width * height * 3)
+        let executable = try DicomTestRuntimePreflight.requireExecutable(.opjCompress, named: "opj_compress")
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jpeg2000_color_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let sourceURL = directory.appendingPathComponent("source.ppm")
+        let encodedURL = directory.appendingPathComponent("source.j2k")
+        var source = Data("P6\n\(width) \(height)\n255\n".utf8)
+        source.append(contentsOf: rgbPixels)
+        try source.write(to: sourceURL)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        var arguments = ["-i", sourceURL.path, "-o", encodedURL.path, "-n", "1"]
+        if !lossless {
+            arguments.append(contentsOf: ["-I", "-r", "5"])
+        }
+        process.arguments = arguments
+        let errorPipe = Pipe()
+        process.standardOutput = Pipe()
+        process.standardError = errorPipe
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let error = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "unknown error"
+            XCTFail("opj_compress failed: \(error)")
+            return Data()
+        }
+        return try Data(contentsOf: encodedURL)
     }
 
     private func makeGrayscaleImage8(width: Int, height: Int, pixels: [UInt8]) throws -> CGImage {

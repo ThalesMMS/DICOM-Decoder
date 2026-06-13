@@ -23,6 +23,58 @@ internal enum DicomJPEG2000Codec {
         OpenJPEGLibrary.shared.isAvailable
     }
 
+    /// Version string reported by the loaded OpenJPEG library.
+    static var version: String? {
+        OpenJPEGLibrary.shared.version
+    }
+
+    /// OpenJPEG ships the HTJ2K (High-Throughput JPEG 2000, ISO/IEC
+    /// 15444-15) block decoder from version 2.5. HTJ2K decode is gated on
+    /// this explicit capability — never on the generic JPEG 2000 path.
+    static let htj2kMinimumVersion = (major: 2, minor: 5)
+
+    /// True when HTJ2K codestreams can be decoded by this build.
+    static var supportsHTJ2K: Bool {
+        htj2kUnsupportedReason() == nil
+    }
+
+    /// Deterministic reason HTJ2K decode is unavailable, nil when supported.
+    static func htj2kUnsupportedReason() -> String? {
+        htj2kUnsupportedReason(
+            runtimeAvailable: OpenJPEGLibrary.shared.isAvailable,
+            runtimeMessage: OpenJPEGLibrary.shared.runtimeStatus.message,
+            version: OpenJPEGLibrary.shared.version
+        )
+    }
+
+    /// Pure decision function (testable without the live runtime).
+    static func htj2kUnsupportedReason(
+        runtimeAvailable: Bool,
+        runtimeMessage: String,
+        version: String?
+    ) -> String? {
+        let requirement = "version \(htj2kMinimumVersion.major).\(htj2kMinimumVersion.minor) or newer is required for the HTJ2K block decoder"
+        guard runtimeAvailable else {
+            return "requires the OpenJPEG runtime (\(requirement)): \(runtimeMessage)"
+        }
+        guard let version else {
+            return "could not determine the OpenJPEG runtime version; \(requirement)."
+        }
+        let numbers = version
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: ".")
+            .compactMap { Int($0) }
+        guard numbers.count >= 2 else {
+            return "could not parse OpenJPEG runtime version \"\(version)\"; \(requirement)."
+        }
+        let supported = numbers[0] > htj2kMinimumVersion.major
+            || (numbers[0] == htj2kMinimumVersion.major && numbers[1] >= htj2kMinimumVersion.minor)
+        guard supported else {
+            return "OpenJPEG \(version) does not include the HTJ2K block decoder; \(requirement)."
+        }
+        return nil
+    }
+
     static func decode(_ data: Data) throws -> DecodedFrame {
         try decodeImage(data) { image in
             try makeFrame(from: image)
@@ -283,6 +335,7 @@ private final class OpenJPEGLibrary {
     let handle: UnsafeMutableRawPointer?
     let runtimeStatus: DicomCodecRuntimeStatus
     let missingSymbols: [String]
+    let version: String?
     let createDecompress: CreateDecompress
     let destroyCodec: DestroyCodec
     let setDefaultDecoderParameters: SetDefaultDecoderParameters
@@ -375,6 +428,7 @@ private final class OpenJPEGLibrary {
             fallback: Self.unavailableImageDestroy
         )
         missingSymbols = Array(Set(runtimeStatus.missingSymbols + unresolvedSymbols)).sorted()
+        version = handle.flatMap { DicomCodecCapabilities.version(fromHandle: $0, runtime: .openJPEG) }
     }
 
     deinit {
@@ -390,6 +444,14 @@ private final class OpenJPEGLibrary {
         guard missingSymbols.isEmpty else {
             throw DICOMError.unsupportedTransferSyntax(
                 syntax: "JPEG 2000 OpenJPEG runtime is missing required symbols: \(missingSymbols.joined(separator: ", "))"
+            )
+        }
+        if let version,
+           let major = DicomCodecCapabilities.majorVersion(of: version),
+           major != DicomCodecCapabilities.supportedMajorVersion {
+            throw DICOMError.unsupportedTransferSyntax(
+                syntax: "JPEG 2000 OpenJPEG runtime version \(version) is incompatible; "
+                    + "major version \(DicomCodecCapabilities.supportedMajorVersion) is required"
             )
         }
         return self

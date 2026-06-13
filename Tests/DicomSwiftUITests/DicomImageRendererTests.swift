@@ -413,6 +413,9 @@ final class DicomImageRendererTests: XCTestCase {
     // MARK: - SwiftUI Extension Integration Tests
 
     #if canImport(SwiftUI)
+    // Compatibility coverage: the synchronous Image(dicomURL:) initializer
+    // is deprecated but intentionally remains available (issue #1221).
+    @available(*, deprecated)
     func testSwiftUIImageExtensionWithValidURL() throws {
         let fileURL = try getAnyDICOMFile()
 
@@ -424,6 +427,9 @@ final class DicomImageRendererTests: XCTestCase {
         XCTAssertNotNil(image, "Should create SwiftUI Image from DICOM URL")
     }
 
+    // Compatibility coverage: the synchronous Image(dicomURL:) initializer
+    // is deprecated but intentionally remains available (issue #1221).
+    @available(*, deprecated)
     func testSwiftUIImageExtensionWithPreset() throws {
         let fileURL = try getAnyDICOMFile()
 
@@ -435,6 +441,9 @@ final class DicomImageRendererTests: XCTestCase {
         XCTAssertNotNil(image, "Should create SwiftUI Image with preset windowing")
     }
 
+    // Compatibility coverage: the synchronous Image(dicomURL:) initializer
+    // is deprecated but intentionally remains available (issue #1221).
+    @available(*, deprecated)
     func testSwiftUIImageExtensionWithCustomWindowing() throws {
         let fileURL = try getAnyDICOMFile()
 
@@ -446,6 +455,9 @@ final class DicomImageRendererTests: XCTestCase {
         XCTAssertNotNil(image, "Should create SwiftUI Image with custom windowing")
     }
 
+    // Compatibility coverage: the synchronous Image(dicomURL:) initializer
+    // is deprecated but intentionally remains available (issue #1221).
+    @available(*, deprecated)
     func testSwiftUIImageExtensionWithNonExistentURL() {
         let nonExistentURL = URL(fileURLWithPath: "/nonexistent/file.dcm")
 
@@ -457,6 +469,9 @@ final class DicomImageRendererTests: XCTestCase {
         XCTAssertNil(image, "Should return nil for non-existent file")
     }
 
+    // Compatibility coverage: the synchronous Image(dicomURL:) initializer
+    // is deprecated but intentionally remains available (issue #1221).
+    @available(*, deprecated)
     func testSwiftUIImageExtensionWithMetalProcessing() throws {
         let fileURL = try getAnyDICOMFile()
 

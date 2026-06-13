@@ -305,29 +305,28 @@ public struct DCMWindowingProcessor {
                                              width: Double) -> Data? {
         guard !pixels16.isEmpty, width > 0 else { return nil }
         let length = vDSP_Length(pixels16.count)
-        // Calculate min and max levels
-        let minLevel = center - width / 2.0
-        let maxLevel = center + width / 2.0
+        let minLevel = Float(center - width / 2.0)
+        let maxLevel = Float(center + width / 2.0)
         let range = maxLevel - minLevel
-        let rangeInv: Double = range > 0 ? 255.0 / range : 1.0
-        // Convert UInt16 to Double for processing
-        var doubles = pixels16.map { Double($0) }
-        // Subtract min level (negate for vsaddD which adds)
-        var minLevelScalar = -minLevel
-        var tempDoubles = [Double](repeating: 0, count: pixels16.count)
-        vDSP_vsaddD(&doubles, 1, &minLevelScalar, &tempDoubles, 1, length)
-        // Multiply by scaling factor
-        var scale = rangeInv
-        vDSP_vsmulD(&tempDoubles, 1, &scale, &doubles, 1, length)
-        // Allocate output buffer
-        var bytes = [UInt8](repeating: 0, count: pixels16.count)
-        for i in 0..<pixels16.count {
-            var value = doubles[i]
-            // Clamp between 0 and 255
-            value = max(0.0, min(255.0, value))
-            bytes[i] = UInt8(value)
+        var scale: Float = range > 0 ? 255.0 / range : 1.0
+        var offset = -minLevel * scale
+
+        var floatPixels = [Float](repeating: 0, count: pixels16.count)
+        vDSP_vfltu16(pixels16, 1, &floatPixels, 1, length)
+
+        var scaledPixels = [Float](repeating: 0, count: pixels16.count)
+        vDSP_vsmsa(floatPixels, 1, &scale, &offset, &scaledPixels, 1, length)
+
+        var lower: Float = 0
+        var upper: Float = 255
+        vDSP_vclip(scaledPixels, 1, &lower, &upper, &scaledPixels, 1, length)
+
+        var output = Data(count: pixels16.count)
+        output.withUnsafeMutableBytes { bytes in
+            guard let baseAddress = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            vDSP_vfixu8(scaledPixels, 1, baseAddress, 1, length)
         }
-        return Data(bytes)
+        return output
     }
 
     /// Applies a linear window/level transformation to a 16‑bit

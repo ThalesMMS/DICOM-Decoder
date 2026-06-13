@@ -50,6 +50,9 @@ internal final class JPEGLosslessDecoder {
     /// Byte offset where compressed entropy-coded data begins (after SOS header)
     var compressedDataStart: Int = 0
 
+    /// Restart interval in MCUs from the DRI marker (0 = no restarts)
+    var restartInterval: Int = 0
+
     /// Logger for diagnostics and performance tracking
     let logger: LoggerProtocol?
 
@@ -79,6 +82,7 @@ internal final class JPEGLosslessDecoder {
         sosInfo = nil
         huffmanTables.removeAll()
         compressedDataStart = 0
+        restartInterval = 0
 
         // Parse JPEG markers
         try parseMarkers(data: data)
@@ -109,7 +113,8 @@ internal final class JPEGLosslessDecoder {
             pixels: pixels,
             width: sof3.width,
             height: sof3.height,
-            bitDepth: sof3.precision
+            bitDepth: sof3.precision,
+            componentCount: sof3.numberOfComponents
         )
     }
 

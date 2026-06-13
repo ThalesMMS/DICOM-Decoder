@@ -6,6 +6,10 @@ import simd
 /// Performance tests to verify that decoder caching optimization delivers expected speedup.
 /// Acceptance criteria: ~2x speedup for large series (200+ slices) by eliminating redundant
 /// decoder instantiation.
+// Compatibility coverage: this suite intentionally exercises deprecated
+// public APIs that remain available (issue #1221); the annotation keeps
+// the deliberate legacy usage warning-free without hiding new ones.
+@available(*, deprecated)
 final class DicomSeriesLoaderPerformanceTests: XCTestCase {
 
     // MARK: - Decoder Cache Hit Rate Benchmark

@@ -103,6 +103,18 @@ final class DCMDecoderThrowingInitializerTests: XCTestCase {
         XCTAssertGreaterThan(status.height, 0, "Status height should be greater than 0")
     }
 
+    func testThrowingInitializerWithDataAndValidBytes() throws {
+        let fileURL = try getAnyDICOMFile()
+        let data = try Data(contentsOf: fileURL)
+
+        let decoder = try DCMDecoder(data: data)
+
+        XCTAssertTrue(decoder.dicomFound, "Decoder should have found DICM marker")
+        XCTAssertGreaterThan(decoder.width, 0, "Width should be greater than 0")
+        XCTAssertGreaterThan(decoder.height, 0, "Height should be greater than 0")
+        XCTAssertTrue(decoder.isValid(), "Decoder should be valid after loading in-memory bytes")
+    }
+
     func testThrowingInitializerLoadsMetadata() throws {
         // Get a valid DICOM file from fixtures
         let fileURL = try getAnyDICOMFile()
@@ -181,6 +193,14 @@ final class DCMDecoderThrowingInitializerTests: XCTestCase {
             XCTAssertThrowsError(try DCMDecoder(contentsOfFile: invalidFileURL.path)) { error in
                 assertInvalidDICOMFormatError(error)
             }
+        }
+    }
+
+    func testThrowingInitializerWithDataThrowsForInvalidDICOMBytes() {
+        let invalidData = Data("This is not a DICOM file".utf8)
+
+        XCTAssertThrowsError(try DCMDecoder(data: invalidData)) { error in
+            assertInvalidDICOMFormatError(error)
         }
     }
 

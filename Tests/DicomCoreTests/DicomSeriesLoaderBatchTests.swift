@@ -3,6 +3,10 @@ import simd
 @testable import DicomCore
 
 @available(macOS 10.15, iOS 13.0, *)
+// Compatibility coverage: this suite intentionally exercises deprecated
+// public APIs that remain available (issue #1221); the annotation keeps
+// the deliberate legacy usage warning-free without hiding new ones.
+@available(*, deprecated)
 final class DicomSeriesLoaderBatchTests: XCTestCase {
 
     private func makeTemporaryDirectory(prefix: String) throws -> URL {

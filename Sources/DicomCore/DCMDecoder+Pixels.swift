@@ -46,6 +46,60 @@ extension DCMDecoder {
         }
     }
 
+    /// Copies native uncompressed signed 16-bit samples directly into an Int16 destination.
+    ///
+    /// This is intentionally internal to preserve the public `getPixels16()` contract, which returns
+    /// normalized UInt16 samples. Volume assembly needs stored Int16 voxels, so it can avoid the
+    /// normalize-then-denormalize roundtrip for native signed CT/MR slices.
+    func copyNativeSigned16Pixels(into buffer: inout [Int16], expectedPixelCount: Int) -> Bool {
+        synchronized {
+            guard fileReadSucceeded,
+                  !compressedImage,
+                  bitDepth == 16,
+                  samplesPerPixel == 1,
+                  pixelRepresentation == 1,
+                  expectedPixelCount >= 0,
+                  buffer.count >= expectedPixelCount else {
+                return false
+            }
+
+            let (byteCount, byteCountOverflow) = expectedPixelCount.multipliedReportingOverflow(
+                by: MemoryLayout<Int16>.size
+            )
+            guard !byteCountOverflow else {
+                return false
+            }
+            guard offset >= 0, byteCount <= dicomData.count - offset else {
+                return false
+            }
+
+            dicomData.withUnsafeBytes { dataBytes in
+                let basePtr = dataBytes.baseAddress!.advanced(by: offset)
+                buffer.withUnsafeMutableBufferPointer { destination in
+                    guard let destinationBase = destination.baseAddress else { return }
+                    if littleEndian {
+                        _ = memcpy(destinationBase, basePtr, byteCount)
+                    } else {
+                        let source = basePtr.assumingMemoryBound(to: UInt8.self)
+                        for index in 0..<expectedPixelCount {
+                            let byteOffset = index * 2
+                            let value = UInt16(source[byteOffset]) << 8 | UInt16(source[byteOffset + 1])
+                            destinationBase[index] = Int16(bitPattern: value)
+                        }
+                    }
+                }
+            }
+
+            if photometricInterpretation == "MONOCHROME1" {
+                for index in 0..<expectedPixelCount {
+                    buffer[index] = ~buffer[index]
+                }
+            }
+
+            return true
+        }
+    }
+
     /// Reads uncompressed pixel data from the current DICOM byte buffer and updates the decoder's pixel caches.
     ///
     /// Clears existing pixel buffers and replaces them with results from `DCMPixelReader.readPixels(...)`, and updates `signedImage`.
@@ -84,7 +138,7 @@ extension DCMDecoder {
     /// - Returns: `true` if the DICOM file was read successfully and pixel buffers are available (or already loaded), `false` otherwise.
     @inline(__always)
     private func ensurePixelsLoadedUnsafe() -> Bool {
-        guard dicomFileReadSuccess else {
+        guard fileReadSucceeded else {
             return false
         }
 
@@ -99,15 +153,16 @@ extension DCMDecoder {
         }
 
         pixelsNotLoaded = false
-        return dicomFileReadSuccess
+        return fileReadSucceeded
     }
 
     /// Decodes compressed pixel data and updates the decoder's image state and cached pixel buffers.
     ///
     /// On success, updates `width`, `height`, `bitDepth`, `samplesPerPixel`, `signedImage` and stores pixel buffers.
-    /// On failure, sets `dicomFileReadSuccess = false`.
+    /// On failure, sets `fileReadSucceeded = false`.
     /// - Note: Must be called from within a synchronized block.
     private func decodeCompressedPixelDataUnsafe() {
+        let bitsStored = intValue(for: DicomTag.bitsStored.rawValue)
         if let frame = getEncapsulatedFrame(0),
            let result = DCMPixelReader.decodeCompressedFrameData(
                data: frame.data,
@@ -118,6 +173,7 @@ extension DCMDecoder {
                samplesPerPixel: samplesPerPixel,
                pixelRepresentation: pixelRepresentationTagValue,
                photometricInterpretation: photometricInterpretation,
+               bitsStored: bitsStored,
                logger: logger
            ) {
             applyCompressedPixelReadResult(result)
@@ -135,9 +191,10 @@ extension DCMDecoder {
             samplesPerPixel: samplesPerPixel,
             pixelRepresentation: pixelRepresentationTagValue,
             photometricInterpretation: photometricInterpretation,
+            bitsStored: bitsStored,
             logger: logger
         ) else {
-            dicomFileReadSuccess = false
+            fileReadSucceeded = false
             return
         }
 

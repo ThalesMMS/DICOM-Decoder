@@ -106,6 +106,7 @@ private typealias VR = DicomVR
 /// - ``init()``
 /// - ``init(contentsOf:)``
 /// - ``init(contentsOfFile:)``
+/// - ``init(data:)``
 /// - ``load(from:)``
 /// - ``load(fromFile:)``
 ///
@@ -511,6 +512,14 @@ public final class DCMDecoder: DicomDecoderProtocol, @unchecked Sendable {
     private var _dicomFileReadSuccess: Bool = false
     @available(*, deprecated, message: "When using throwing initializers (init(contentsOf:) or init(contentsOfFile:)), successful initialization guarantees validity. Check for thrown errors instead of this property.")
     public internal(set) var dicomFileReadSuccess: Bool {
+        get { synchronized { _dicomFileReadSuccess } }
+        set { synchronized { _dicomFileReadSuccess = newValue } }
+    }
+
+    /// Internal, non-deprecated view of the legacy read-success flag so
+    /// internal code stays warning-free while the deprecated public
+    /// `dicomFileReadSuccess` remains available for compatibility.
+    var fileReadSucceeded: Bool {
         get { synchronized { _dicomFileReadSuccess } }
         set { synchronized { _dicomFileReadSuccess = newValue } }
     }

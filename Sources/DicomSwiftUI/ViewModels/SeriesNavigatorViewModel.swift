@@ -242,6 +242,7 @@ public final class SeriesNavigatorViewModel: ObservableObject {
     // MARK: - Private Properties
 
     private let logger: Logger
+    private var thumbnailGeneration = 0
 
     // MARK: - Initialization
 
@@ -332,6 +333,8 @@ public final class SeriesNavigatorViewModel: ObservableObject {
 
         seriesURLs = urls
         totalCount = urls.count
+        thumbnailGeneration += 1
+        isLoadingThumbnails = false
         thumbnails = [:]
 
         // Clamp initial index to valid range
@@ -369,6 +372,7 @@ public final class SeriesNavigatorViewModel: ObservableObject {
         seriesURLs = []
         totalCount = 0
         currentIndex = 0
+        thumbnailGeneration += 1
         isLoadingThumbnails = false
         thumbnails = [:]
     }
@@ -609,34 +613,52 @@ public final class SeriesNavigatorViewModel: ObservableObject {
     /// Existing thumbnails are preserved. Invalid indexes are ignored, and files
     /// that cannot be decoded keep using the view's unavailable-thumbnail state.
     public func loadThumbnails(for indexes: [Int]? = nil, maxDimension: Int = 50) async {
-        guard maxDimension > 0, !seriesURLs.isEmpty else {
+        let sourceURLs = seriesURLs
+        let generation = thumbnailGeneration
+        guard maxDimension > 0, !sourceURLs.isEmpty else {
             return
         }
 
-        let targetIndexes = normalizedThumbnailIndexes(indexes)
+        let targetIndexes = normalizedThumbnailIndexes(indexes, totalCount: sourceURLs.count)
         guard !targetIndexes.isEmpty else {
             return
         }
 
         startThumbnailLoading()
-        defer { completeThumbnailLoading() }
+        defer {
+            if thumbnailGeneration == generation {
+                completeThumbnailLoading()
+            }
+        }
 
         var loadedThumbnails: [Int: SeriesNavigatorThumbnail] = [:]
         for index in targetIndexes where thumbnails[index] == nil {
+            guard thumbnailGeneration == generation else {
+                return
+            }
+
             if Task.isCancelled {
                 return
             }
 
-            if let thumbnail = await Self.makeThumbnail(contentsOf: seriesURLs[index], maxDimension: maxDimension) {
+            if let thumbnail = await Self.makeThumbnail(contentsOf: sourceURLs[index], maxDimension: maxDimension) {
+                guard thumbnailGeneration == generation else {
+                    return
+                }
+
                 loadedThumbnails[index] = thumbnail
             }
+        }
+
+        guard thumbnailGeneration == generation else {
+            return
         }
 
         thumbnails.merge(loadedThumbnails) { current, _ in current }
     }
 
-    private func normalizedThumbnailIndexes(_ indexes: [Int]?) -> [Int] {
-        let rawIndexes = indexes ?? Array(seriesURLs.indices)
+    private func normalizedThumbnailIndexes(_ indexes: [Int]?, totalCount: Int) -> [Int] {
+        let rawIndexes = indexes ?? Array(0..<totalCount)
         return Array(Set(rawIndexes.filter { $0 >= 0 && $0 < totalCount })).sorted()
     }
 

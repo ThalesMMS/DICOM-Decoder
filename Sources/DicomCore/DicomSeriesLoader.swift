@@ -48,6 +48,11 @@ public enum DicomSeriesLoaderError: Error {
     /// The transfer syntax is outside the declared volume assembly support matrix.
     case unsupportedTransferSyntaxForVolume(DicomSeriesLoaderPixelFormat)
 
+    /// An Enhanced multiframe object cannot be assembled; the context
+    /// carries the SOP Class, frame count, transfer syntax, and the
+    /// missing functional-group or shape reason.
+    case unsupportedEnhancedMultiframe(EnhancedMultiframeContext)
+
     /// Slices have inconsistent dimensions (width/height mismatch)
     case inconsistentDimensions
 
@@ -201,7 +206,10 @@ public struct DicomSeriesLoaderSupportMatrix: Equatable, Sendable {
     /// Ordered slice sorting rules used by the loader.
     public let sliceOrderingBehavior: [String]
 
-    /// Standard package-only loader scope.
+    /// Standard package-only loader scope. Compressed single-frame
+    /// grayscale slices assemble through the production decoded-frame
+    /// reader (#1233) when the transfer syntax has an active decode
+    /// backend; syntaxes without a backend fail typed per slice.
     public static let standard = DicomSeriesLoaderSupportMatrix(
         supportedBitsAllocated: [8, 16, 32],
         supportedBitsStored: [8, 16, 32],
@@ -211,7 +219,7 @@ public struct DicomSeriesLoaderSupportMatrix: Equatable, Sendable {
         supportedPlanarConfigurations: [],
         supportsAbsentPlanarConfiguration: true,
         supportsMultiframe: false,
-        supportsCompressedTransferSyntaxes: false,
+        supportsCompressedTransferSyntaxes: true,
         outputVoxelScalarType: "Int16",
         rescaleBehavior: "Per-slice slope/intercept are preserved; voxels remain stored-value Int16.",
         spacingBehavior: "X/Y from Pixel Spacing, Z from IPP projection delta when available.",
@@ -1075,7 +1083,25 @@ private func pixelFormat(from decoder: any DicomDecoderProtocol) -> DicomSeriesL
 private func validatePixelFormat(_ pixelFormat: DicomSeriesLoaderPixelFormat) throws {
     let matrix = DicomSeriesLoaderSupportMatrix.standard
     if pixelFormat.isCompressed {
-        throw DicomSeriesLoaderError.unsupportedTransferSyntaxForVolume(pixelFormat)
+        guard matrix.supportsCompressedTransferSyntaxes else {
+            throw DicomSeriesLoaderError.unsupportedTransferSyntaxForVolume(pixelFormat)
+        }
+        // Volume assembly only accepts compressed syntaxes whose decode
+        // backend is active in this build; the typed error carries the
+        // transfer syntax UID plus the slice's pixel metadata.
+        let decision = DicomCompressedPixelBackendResolver.resolve(
+            transferSyntax: DicomTransferSyntax(uid: pixelFormat.transferSyntaxUID),
+            requestedBitDepth: pixelFormat.bitsAllocated,
+            samplesPerPixel: pixelFormat.samplesPerPixel,
+            photometricInterpretation: pixelFormat.photometricInterpretation,
+            bitsStored: pixelFormat.bitsStored
+        )
+        switch decision.backend {
+        case .unsupported, .legacyImageIO:
+            throw DicomSeriesLoaderError.unsupportedTransferSyntaxForVolume(pixelFormat)
+        default:
+            break
+        }
     }
     if !matrix.supportsMultiframe, pixelFormat.numberOfFrames > 1 {
         throw DicomSeriesLoaderError.unsupportedMultiframe(pixelFormat)

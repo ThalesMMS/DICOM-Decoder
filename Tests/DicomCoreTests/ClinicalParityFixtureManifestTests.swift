@@ -13,6 +13,7 @@ final class ClinicalParityFixtureManifestTests: XCTestCase {
         "rtstruct",
         "rtdose",
         "sr-tid1500",
+        "kos",
         "pr",
         "hp",
         "rwv",

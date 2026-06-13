@@ -235,7 +235,7 @@ import Foundation
 /// - ``iconName``
 /// - ``rawStringValue``
 ///
-@objc public enum PatientSex: Int, CaseIterable, Codable {
+@objc public enum PatientSex: Int, CaseIterable, Codable, Sendable {
     /// Male patient
     case male = 0
     /// Female patient

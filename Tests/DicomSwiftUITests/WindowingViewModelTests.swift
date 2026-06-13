@@ -447,7 +447,8 @@ final class WindowingViewModelTests: XCTestCase {
         let viewModel = WindowingViewModel()
 
         // Verify that view model conforms to ObservableObject
-        XCTAssertTrue(viewModel is ObservableObject, "Should conform to ObservableObject")
+        let observable: any ObservableObject = viewModel
+        XCTAssertNotNil(observable, "Should conform to ObservableObject")
 
         // @Published properties should trigger objectWillChange
         let mirror = Mirror(reflecting: viewModel)

@@ -4,6 +4,24 @@ This directory contains DICOM sample files for integration testing. Small synthe
 deterministic default CI. Larger public or locally generated optional fixtures can be added locally for extended
 conformance testing.
 
+## Curated parity fixtures (issue #1224)
+
+`DecoderParity/jpeg_lossless_sv1_parity.dcm`, `DecoderParity/rle_parity.dcm`,
+`StructuredReports/sr_tid1500_measurement_report.dcm` and
+`StructuredReports/kos_key_object_selection.dcm` are committed curated
+fixtures bound to `ClinicalParityFixtureManifest.json`.
+
+- **Provenance/license**: generated in-repo by the deterministic builders in
+  `ClinicalParityCuratedFixtureTests` (no external data; same license as the
+  repository). Regenerate with `DICOM_REGENERATE_PARITY_FIXTURES=1 swift test
+  --filter ClinicalParityCuratedFixtureTests`.
+- **Privacy**: synthetic non-PHI; identifiers use `PARITY` placeholders only.
+- **Drift gates**: the same suite fails when the committed bytes, expected
+  UIDs, frame counts, pixel hashes, or SR tree content change.
+- The compressed parity files live under `DecoderParity/` (not
+  `Compressed/`) so the JPEG Lossless conformance-sample scanner keeps
+  targeting real conformance files only.
+
 ## Purpose
 
 Integration tests use these fixtures to verify:
@@ -51,34 +69,38 @@ cp dcm4che/dcm4che-test-data/src/main/data/*.dcm Tests/DicomCoreTests/Fixtures/
 
 ### JPEG Lossless Test Files
 
-The library supports JPEG Lossless (Process 14, Selection Value 1). To obtain test files:
+The library supports JPEG Lossless (Process 14, all selection values 0-7). To obtain test files:
 
 1. **dcm4che** (recommended): Clone the dcm4che repository above; look for files with transfer syntax `1.2.840.10008.1.2.4.70`
-2. **Convert existing files** using dicom-swift: `dcmcjpeg +e14 input.dcm output_lossless.dcm`
+2. **Convert existing files** with DCMTK: `dcmcjpeg +e14 input.dcm output_lossless.dcm`
 3. **Verify**: `dcmdump --print-short file.dcm | grep "TransferSyntaxUID"` should show `1.2.840.10008.1.2.4.70`
 
 ## Directory Structure
 
+Committed synthetic fixtures:
+
 ```
 Fixtures/
 ├── CT/
-│   ├── chest_ct_001.dcm
-│   └── abdomen_ct_002.dcm
+│   └── ct_synthetic.dcm
 ├── MR/
-│   ├── brain_mr_001.dcm
-│   └── knee_mr_002.dcm
+│   └── mr_synthetic.dcm
 ├── XR/
-│   └── chest_xr_001.dcm
+│   └── xr_synthetic.dcm
 ├── US/
-│   └── cardiac_us_001.dcm
+│   └── us_synthetic.dcm
 ├── Compressed/
-│   ├── jpeg_baseline_001.dcm
-│   ├── jpeg2000_002.dcm
-│   └── jpeg_lossless_ct_001.dcm
-└── EdgeCases/
-    ├── very_large_image.dcm
-    └── minimal_metadata.dcm
+│   └── jpeg_baseline_synthetic.dcm
+└── DecoderParity/
+    ├── ct_explicit_vr_le_rescale.dcm
+    ├── ct_missing_optional_voi.dcm
+    ├── mr_implicit_vr_le.dcm
+    ├── mr_utf8_specific_charset.dcm
+    ├── secondary_capture_rgb.dcm
+    └── us_multiframe_metadata.dcm
 ```
+
+Optional downloaded fixtures go into the matching modality folder (`CT/`, `MR/`, `XR/`, `US/`, `Compressed/`); additional local-only folders can be created as needed.
 
 ## Recommended Test Coverage
 

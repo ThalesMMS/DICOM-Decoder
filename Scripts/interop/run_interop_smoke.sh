@@ -107,13 +107,14 @@ if [[ ${START_SERVICES} -eq 1 ]]; then
   fi
 
   if [[ "${ARCHIVES}" == "orthanc" ]]; then
-    compose up -d orthanc
+    compose up -d orthanc orthanc-auth
   else
-    compose up -d orthanc dcm4chee-arc
+    compose up -d orthanc orthanc-auth dcm4chee-arc
   fi
 fi
 
 wait_http "Orthanc HTTP" "http://127.0.0.1:${ORTHANC_HTTP_PORT:-8042}/system"
+wait_http "Orthanc (auth) HTTP" "http://smoke:${ORTHANC_AUTH_PASSWORD:-smoke-secret}@127.0.0.1:${ORTHANC_AUTH_HTTP_PORT:-8043}/system"
 if [[ "${ARCHIVES}" != "orthanc" ]]; then
   wait_http "dcm4chee HTTP" "http://127.0.0.1:${DCM4CHEE_HTTP_PORT:-8080}/dcm4chee-arc"
 fi
@@ -129,6 +130,12 @@ export DICOM_INTEROP_ORTHANC_CALLING_AE="${DICOM_INTEROP_ORTHANC_CALLING_AE:-MTK
 export DICOM_INTEROP_ORTHANC_DICOMWEB_URL="${DICOM_INTEROP_ORTHANC_DICOMWEB_URL:-http://127.0.0.1:${ORTHANC_HTTP_PORT:-8042}/dicom-web}"
 export DICOM_INTEROP_ORTHANC_MOVE_DESTINATION_AE="${DICOM_INTEROP_ORTHANC_MOVE_DESTINATION_AE:-MTKSMOKE}"
 export DICOM_INTEROP_ORTHANC_CAPABILITIES="${DICOM_INTEROP_ORTHANC_CAPABILITIES:-dicomweb,dimse-echo,dimse-store,dimse-find,dimse-get,dimse-move,storage-scp}"
+
+# Authenticated DICOMweb endpoint (issue #1223): exercised by the
+# authenticated-path smoke test; credentials are local-only and non-secret.
+export DICOM_INTEROP_ORTHANC_AUTH_DICOMWEB_URL="${DICOM_INTEROP_ORTHANC_AUTH_DICOMWEB_URL:-http://127.0.0.1:${ORTHANC_AUTH_HTTP_PORT:-8043}/dicom-web}"
+export DICOM_INTEROP_ORTHANC_AUTH_USER="${DICOM_INTEROP_ORTHANC_AUTH_USER:-smoke}"
+export DICOM_INTEROP_ORTHANC_AUTH_PASSWORD="${DICOM_INTEROP_ORTHANC_AUTH_PASSWORD:-${ORTHANC_AUTH_PASSWORD:-smoke-secret}}"
 
 export DICOM_INTEROP_DCM4CHEE_DIMSE_HOST="${DICOM_INTEROP_DCM4CHEE_DIMSE_HOST:-127.0.0.1}"
 export DICOM_INTEROP_DCM4CHEE_DIMSE_PORT="${DICOM_INTEROP_DCM4CHEE_DIMSE_PORT:-${DCM4CHEE_DIMSE_PORT:-11112}}"

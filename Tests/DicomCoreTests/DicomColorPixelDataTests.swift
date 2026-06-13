@@ -30,7 +30,7 @@ final class DicomColorPixelDataTests: XCTestCase {
         let rgb = try XCTUnwrap(rows[.rgb])
         XCTAssertEqual(rgb.status, .displayRGB)
         XCTAssertEqual(rgb.supportedSamplesPerPixel, [3])
-        XCTAssertEqual(rgb.supportedBitsAllocated, [8])
+        XCTAssertEqual(rgb.supportedBitsAllocated, [8, 16])
         XCTAssertTrue(rgb.supports(planarConfiguration: nil))
         XCTAssertTrue(rgb.supports(planarConfiguration: 0))
         XCTAssertTrue(rgb.supports(planarConfiguration: 1))
@@ -221,8 +221,10 @@ final class DicomColorPixelDataTests: XCTestCase {
     }
 
     func testUnsupportedColorCombinationThrowsDocumentedError() throws {
+        // 16-bit RGB is supported since #1232; 16-bit YBR_FULL stays the
+        // documented unsupported depth combination.
         let url = try makeTemporaryDICOM(
-            photometricInterpretation: "RGB",
+            photometricInterpretation: "YBR_FULL",
             samplesPerPixel: 3,
             planarConfiguration: 0,
             width: 1,
@@ -237,7 +239,7 @@ final class DicomColorPixelDataTests: XCTestCase {
         XCTAssertThrowsError(try decoder.displayRGBPixelBuffer()) { error in
             assertUnsupportedColorPath(
                 error,
-                photometricInterpretation: "RGB",
+                photometricInterpretation: "YBR_FULL",
                 samplesPerPixel: 3,
                 planarConfiguration: 0,
                 bitsAllocated: 16,
@@ -324,6 +326,228 @@ final class DicomColorPixelDataTests: XCTestCase {
         }
     }
 
+    // MARK: - High-bit-depth color and YBR fixture coverage (issue #1232)
+
+    func testHighBitDepthRGBInterleavedScalesToDisplayByBitsStored() throws {
+        var pixelBytes = [UInt8]()
+        for value in [UInt16(0), 32768, 65535] {
+            pixelBytes.append(UInt8(value & 0xFF))
+            pixelBytes.append(UInt8(value >> 8))
+        }
+        let url = try makeTemporaryDICOM(
+            photometricInterpretation: "RGB",
+            samplesPerPixel: 3,
+            planarConfiguration: 0,
+            width: 1,
+            height: 1,
+            bitsAllocated: 16,
+            pixelBytes: pixelBytes
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let display = try DCMDecoder(contentsOf: url).displayRGBPixelBuffer()
+        XCTAssertEqual(display.rgbData, Data([0, 128, 255]))
+    }
+
+    func testHighBitDepthRGBTwelveBitsStoredScalesByStoredRange() throws {
+        var pixelBytes = [UInt8]()
+        for value in [UInt16(0), 2048, 4095] {
+            pixelBytes.append(UInt8(value & 0xFF))
+            pixelBytes.append(UInt8(value >> 8))
+        }
+        let url = try makeTemporaryDICOM(
+            photometricInterpretation: "RGB",
+            samplesPerPixel: 3,
+            planarConfiguration: 0,
+            width: 1,
+            height: 1,
+            bitsAllocated: 16,
+            bitsStored: 12,
+            pixelBytes: pixelBytes
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let display = try DCMDecoder(contentsOf: url).displayRGBPixelBuffer()
+        XCTAssertEqual(display.rgbData, Data([0, 128, 255]),
+                       "12-bit stored samples must scale by the 4095 stored maximum, not by 65535")
+    }
+
+    func testHighBitDepthRGBPlanarPreservesPlanarSemantics() throws {
+        // Planes: R=[1000, 2000], G=[3000, 4000], B=[5000, 6000].
+        var pixelBytes = [UInt8]()
+        for value in [UInt16(1000), 2000, 3000, 4000, 5000, 6000] {
+            pixelBytes.append(UInt8(value & 0xFF))
+            pixelBytes.append(UInt8(value >> 8))
+        }
+        let url = try makeTemporaryDICOM(
+            photometricInterpretation: "RGB",
+            samplesPerPixel: 3,
+            planarConfiguration: 1,
+            width: 2,
+            height: 1,
+            bitsAllocated: 16,
+            pixelBytes: pixelBytes
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let display = try DCMDecoder(contentsOf: url).displayRGBPixelBuffer()
+        XCTAssertEqual(display.rgbData, Data([4, 12, 19, 8, 16, 23]))
+    }
+
+    func testDisplayRGB48PreservesStoredPrecision() throws {
+        let stored: [UInt16] = [1234, 40000, 65535]
+        var pixelBytes = [UInt8]()
+        for value in stored {
+            pixelBytes.append(UInt8(value & 0xFF))
+            pixelBytes.append(UInt8(value >> 8))
+        }
+        let url = try makeTemporaryDICOM(
+            photometricInterpretation: "RGB",
+            samplesPerPixel: 3,
+            planarConfiguration: 0,
+            width: 1,
+            height: 1,
+            bitsAllocated: 16,
+            pixelBytes: pixelBytes
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let buffer = try DCMDecoder(contentsOf: url).displayRGB48PixelBuffer()
+        XCTAssertEqual(buffer.bitsStored, 16)
+        XCTAssertEqual(buffer.bytesPerPixel, 6)
+        XCTAssertEqual(buffer.rgb48Data, Data(pixelBytes), "stored 16-bit samples must pass through unscaled")
+    }
+
+    func testDisplayRGB48WidensEightBitSamplesToTheFullRange() throws {
+        let url = try makeTemporaryDICOM(
+            photometricInterpretation: "RGB",
+            samplesPerPixel: 3,
+            planarConfiguration: 0,
+            width: 1,
+            height: 1,
+            bitsAllocated: 8,
+            pixelBytes: [10, 128, 255]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let buffer = try DCMDecoder(contentsOf: url).displayRGB48PixelBuffer()
+        XCTAssertEqual(buffer.bitsStored, 16)
+        var expected = Data()
+        for value in [UInt16(2570), 32896, 65535] { // v * 257
+            expected.append(UInt8(value & 0xFF))
+            expected.append(UInt8(value >> 8))
+        }
+        XCTAssertEqual(buffer.rgb48Data, expected)
+    }
+
+    func testDisplayRGB48RejectsNonRGBPhotometricInterpretations() throws {
+        let url = try makeTemporaryDICOM(
+            photometricInterpretation: "YBR_FULL",
+            samplesPerPixel: 3,
+            planarConfiguration: 0,
+            width: 1,
+            height: 1,
+            bitsAllocated: 8,
+            pixelBytes: [128, 128, 128]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertThrowsError(try DCMDecoder(contentsOf: url).displayRGB48PixelBuffer()) { error in
+            guard case DicomColorConversionError.unsupportedColorPath(_, let reason) = error else {
+                return XCTFail("expected unsupportedColorPath, got \(error)")
+            }
+            XCTAssertTrue(reason.contains("RGB48"), reason)
+        }
+    }
+
+    func testPaletteDescriptorFirstMappedValueOffsetAndClamping() throws {
+        // Descriptor [3, 100, 16]: three entries mapped from stored value 100.
+        let url = try makeTemporaryDICOM(
+            photometricInterpretation: "PALETTE COLOR",
+            samplesPerPixel: 1,
+            width: 4,
+            height: 1,
+            bitsAllocated: 8,
+            pixelBytes: [50, 100, 102, 200],
+            paletteDescriptor: [3, 100, 16],
+            redPalette: [0x1000, 0x8000, 0xF000],
+            greenPalette: [0x2000, 0x9000, 0xE000],
+            bluePalette: [0x3000, 0xA000, 0xD000]
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let display = try DCMDecoder(contentsOf: url).displayRGBPixelBuffer()
+        XCTAssertEqual(display.rgbData, Data([
+            0x10, 0x20, 0x30, // 50 below the first mapped value clamps to entry 0
+            0x10, 0x20, 0x30, // 100 maps to entry 0
+            0xF0, 0xE0, 0xD0, // 102 maps to entry 2
+            0xF0, 0xE0, 0xD0  // 200 above the range clamps to the last entry
+        ]))
+    }
+
+    /// Native (uncompressed) data labeled with the JPEG 2000 color
+    /// transforms must reject display conversion and point at the codec
+    /// path that actually owns those photometric interpretations.
+    func testNativeRCTAndICTLabelsRejectDisplayConversionTyped() throws {
+        for photometric in ["YBR_RCT", "YBR_ICT"] {
+            let url = try makeTemporaryDICOM(
+                photometricInterpretation: photometric,
+                samplesPerPixel: 3,
+                planarConfiguration: 0,
+                width: 1,
+                height: 1,
+                bitsAllocated: 8,
+                pixelBytes: [1, 2, 3]
+            )
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            XCTAssertThrowsError(try DCMDecoder(contentsOf: url).displayRGBPixelBuffer()) { error in
+                guard case DicomColorConversionError.unsupportedColorPath(let context, let reason) = error else {
+                    return XCTFail("expected unsupportedColorPath for \(photometric), got \(error)")
+                }
+                XCTAssertEqual(context.photometricInterpretation, photometric)
+                XCTAssertTrue(reason.contains("JPEG 2000"), reason)
+            }
+        }
+    }
+
+    /// Color images must never surface as successful grayscale buffers.
+    func testColorImagesNeverDecodeAsGrayscaleBuffers() throws {
+        let rgbURL = try makeTemporaryDICOM(
+            photometricInterpretation: "RGB",
+            samplesPerPixel: 3,
+            planarConfiguration: 0,
+            width: 2,
+            height: 1,
+            bitsAllocated: 8,
+            pixelBytes: [1, 2, 3, 4, 5, 6]
+        )
+        defer { try? FileManager.default.removeItem(at: rgbURL) }
+        let rgbDecoder = try DCMDecoder(contentsOf: rgbURL)
+        XCTAssertNil(rgbDecoder.getPixels8(), "RGB must not surface as 8-bit grayscale")
+        XCTAssertNil(rgbDecoder.getPixels16(), "RGB must not surface as 16-bit grayscale")
+        XCTAssertNotNil(rgbDecoder.getPixels24())
+
+        let partialURL = try makeTemporaryDICOM(
+            photometricInterpretation: "YBR_PARTIAL_420",
+            samplesPerPixel: 3,
+            planarConfiguration: 0,
+            width: 2,
+            height: 2,
+            bitsAllocated: 8,
+            pixelBytes: [UInt8](repeating: 64, count: 12)
+        )
+        defer { try? FileManager.default.removeItem(at: partialURL) }
+        let partialDecoder = try DCMDecoder(contentsOf: partialURL)
+        XCTAssertNil(partialDecoder.getPixels8(), "YBR_PARTIAL_420 must not surface as grayscale")
+        XCTAssertNil(partialDecoder.getPixels16(), "YBR_PARTIAL_420 must not surface as grayscale")
+        XCTAssertThrowsError(try partialDecoder.displayRGBPixelBuffer()) { error in
+            guard case DicomColorConversionError.unsupportedColorPath = error else {
+                return XCTFail("expected unsupportedColorPath, got \(error)")
+            }
+        }
+    }
+
     private func makeTemporaryDICOM(
         photometricInterpretation: String,
         samplesPerPixel: UInt16,
@@ -331,6 +555,7 @@ final class DicomColorPixelDataTests: XCTestCase {
         width: UInt16,
         height: UInt16,
         bitsAllocated: UInt16,
+        bitsStored: UInt16? = nil,
         pixelBytes: [UInt8],
         paletteDescriptor: [UInt16]? = nil,
         redPalette: [UInt16]? = nil,
@@ -344,6 +569,7 @@ final class DicomColorPixelDataTests: XCTestCase {
         data.append(Data(count: 128))
         data.append(contentsOf: "DICM".utf8)
 
+        let storedBits = bitsStored ?? bitsAllocated
         appendUS(&data, group: 0x0028, element: 0x0010, value: height)
         appendUS(&data, group: 0x0028, element: 0x0011, value: width)
         appendUS(&data, group: 0x0028, element: 0x0002, value: samplesPerPixel)
@@ -352,8 +578,8 @@ final class DicomColorPixelDataTests: XCTestCase {
             appendUS(&data, group: 0x0028, element: 0x0006, value: planarConfiguration)
         }
         appendUS(&data, group: 0x0028, element: 0x0100, value: bitsAllocated)
-        appendUS(&data, group: 0x0028, element: 0x0101, value: bitsAllocated)
-        appendUS(&data, group: 0x0028, element: 0x0102, value: bitsAllocated - 1)
+        appendUS(&data, group: 0x0028, element: 0x0101, value: storedBits)
+        appendUS(&data, group: 0x0028, element: 0x0102, value: storedBits - 1)
         appendUS(&data, group: 0x0028, element: 0x0103, value: 0)
 
         if let paletteDescriptor {

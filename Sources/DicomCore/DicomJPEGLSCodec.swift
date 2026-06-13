@@ -82,6 +82,26 @@ internal enum DicomJPEGLSCodec {
         componentCount: Int = 1,
         nearLossless: Int = 0
     ) throws -> Data {
+        try encode(
+            bytes: bytes,
+            width: width,
+            height: height,
+            bitsPerSample: bitsPerSample,
+            componentCount: componentCount,
+            nearLossless: nearLossless
+        )
+    }
+
+    /// Encodes one frame as a JPEG-LS codestream through the preflighted
+    /// CharLS runtime (used by the #1237 transcoding route).
+    static func encode(
+        bytes: Data,
+        width: Int,
+        height: Int,
+        bitsPerSample: Int,
+        componentCount: Int = 1,
+        nearLossless: Int = 0
+    ) throws -> Data {
         let library = try CharLSLibrary.shared.require()
         guard let encoder = library.encoderCreate() else {
             throw DICOMError.imageProcessingFailed(operation: "JPEG-LS encode", reason: "CharLS encoder allocation failed")
@@ -173,6 +193,7 @@ private final class CharLSLibrary {
     let handle: UnsafeMutableRawPointer?
     let runtimeStatus: DicomCodecRuntimeStatus
     let missingSymbols: [String]
+    let version: String?
 
     let decoderCreate: DecoderCreate
     let decoderDestroy: DecoderDestroy
@@ -332,6 +353,7 @@ private final class CharLSLibrary {
             fallback: Self.unavailableGetErrorMessage
         )
         missingSymbols = Array(Set(runtimeStatus.missingSymbols + unresolvedSymbols)).sorted()
+        version = handle.flatMap { DicomCodecCapabilities.version(fromHandle: $0, runtime: .charLS) }
     }
 
     deinit {
@@ -347,6 +369,14 @@ private final class CharLSLibrary {
         guard missingSymbols.isEmpty else {
             throw DICOMError.unsupportedTransferSyntax(
                 syntax: "JPEG-LS CharLS runtime is missing required symbols: \(missingSymbols.joined(separator: ", "))"
+            )
+        }
+        if let version,
+           let major = DicomCodecCapabilities.majorVersion(of: version),
+           major != DicomCodecCapabilities.supportedMajorVersion {
+            throw DICOMError.unsupportedTransferSyntax(
+                syntax: "JPEG-LS CharLS runtime version \(version) is incompatible; "
+                    + "major version \(DicomCodecCapabilities.supportedMajorVersion) is required"
             )
         }
         return self

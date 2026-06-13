@@ -449,7 +449,8 @@ final class DicomImageViewModelTests: XCTestCase {
         let viewModel = DicomImageViewModel()
 
         // Verify that view model conforms to ObservableObject
-        XCTAssertTrue(viewModel is ObservableObject, "Should conform to ObservableObject")
+        let observable: any ObservableObject = viewModel
+        XCTAssertNotNil(observable, "Should conform to ObservableObject")
 
         // @Published properties should trigger objectWillChange
         // This is verified by the compiler, but we can check the property wrappers exist

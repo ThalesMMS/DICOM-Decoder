@@ -397,7 +397,12 @@ extension DCMDecoder {
         let pixelsPerFrame = descriptor.rows * descriptor.columns
         guard pixelIndex < pixelsPerFrame else { return nil }
 
-        let sampleIndex = pixelIndex * descriptor.samplesPerPixel + sample
+        let sampleIndex: Int
+        if descriptor.planarConfiguration == 1 && descriptor.samplesPerPixel > 1 {
+            sampleIndex = sample * pixelsPerFrame + pixelIndex
+        } else {
+            sampleIndex = pixelIndex * descriptor.samplesPerPixel + sample
+        }
         let byteOffset = descriptor.frameOffsets[frame] + sampleIndex * descriptor.bytesPerSample
         guard byteOffset >= 0,
               byteOffset + descriptor.bytesPerSample <= dicomData.count else {

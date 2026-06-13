@@ -72,7 +72,7 @@ extension DCMDecoder {
     /// - Returns: `true` if a DICOM file was successfully read, a DICOM dataset was found, and both `width` and `height` are greater than zero; `false` otherwise.
     public func isValid() -> Bool {
         synchronized {
-            dicomFileReadSuccess && dicomFound && width > 0 && height > 0
+            fileReadSucceeded && dicomFound && width > 0 && height > 0
         }
     }
 
@@ -86,9 +86,9 @@ extension DCMDecoder {
     public func getValidationStatus() -> (isValid: Bool, width: Int, height: Int, hasPixels: Bool, isCompressed: Bool) {
         synchronized {
             let hasDecodedPixels = hasDecodedPixelBuffers()
-            let hasPixelPayload = dicomFileReadSuccess && offset > 0
+            let hasPixelPayload = fileReadSucceeded && offset > 0
             let hasPixels = hasDecodedPixels || hasPixelPayload
-            let valid = dicomFileReadSuccess && dicomFound && width > 0 && height > 0
+            let valid = fileReadSucceeded && dicomFound && width > 0 && height > 0
             return (valid, width, height, hasPixels, compressedImage)
         }
     }

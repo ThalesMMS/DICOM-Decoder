@@ -6,6 +6,7 @@ final class DicomSequenceValueParserTests: XCTestCase {
     private let modifierSequenceTag = 0x00080110
     private let codeValueTag = 0x00080100
     private let codeMeaningTag = 0x00080104
+    private let privateUndefinedLengthUNTag = 0x77771001
 
     func testExplicitLengthSequenceParsingContinuesToReturnItems() throws {
         let item = item(explicitValue: element(codeValueTag, vr: "SH", value: "CHEST"))
@@ -29,6 +30,19 @@ final class DicomSequenceValueParserTests: XCTestCase {
 
         let parsedItem = try XCTUnwrap(dataSet.sequenceItems(for: procedureCodeSequenceTag).first)
         XCTAssertEqual(parsedItem.dataSet.string(for: codeValueTag), "CHEST")
+    }
+
+    func testImplicitVRUndefinedLengthUNParsesAsSequenceAndContinues() throws {
+        let data = implicitElementHeader(privateUndefinedLengthUNTag, length: .max)
+            + item(undefinedValue: implicitElement(codeValueTag, value: "PRIVATE"))
+            + delimiter(0xFFFEE0DD)
+            + implicitElement(codeMeaningTag, value: "After sequence")
+
+        let dataSet = try DicomDataSetParser.dataSet(from: data, transferSyntax: .implicitVRLittleEndian)
+        let parsedItem = try XCTUnwrap(dataSet.sequenceItems(for: privateUndefinedLengthUNTag).first)
+
+        XCTAssertEqual(parsedItem.dataSet.string(for: codeValueTag), "PRIVATE")
+        XCTAssertEqual(dataSet.string(for: codeMeaningTag), "After sequence")
     }
 
     func testNestedUndefinedLengthSequenceParsesInnerItems() throws {
@@ -172,6 +186,10 @@ final class DicomSequenceValueParserTests: XCTestCase {
         elementHeader(tag, vr: "SQ", length: length, uses32BitLength: true)
     }
 
+    private func implicitElementHeader(_ tag: Int, length: UInt32) -> Data {
+        tagData(tag) + uint32Data(length)
+    }
+
     private func itemHeader(length: UInt32) -> Data {
         tagData(0xFFFEE000) + uint32Data(length)
     }
@@ -187,6 +205,14 @@ final class DicomSequenceValueParserTests: XCTestCase {
             bytes.append(padding)
         }
         return elementHeader(tag, vr: vr, length: UInt32(bytes.count), uses32BitLength: false) + Data(bytes)
+    }
+
+    private func implicitElement(_ tag: Int, value: String) -> Data {
+        var bytes = Array(value.utf8)
+        if bytes.count % 2 != 0 {
+            bytes.append(0x20)
+        }
+        return implicitElementHeader(tag, length: UInt32(bytes.count)) + Data(bytes)
     }
 
     private func element(_ tag: Int, vr: String, value: UInt16) -> Data {

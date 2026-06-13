@@ -73,3 +73,85 @@ final class CLISmokeTests: XCTestCase {
         XCTAssertTrue(stdoutText.contains("dicomtool"), "Expected help output to reference dicomtool.")
     }
 }
+
+extension CLISmokeTests {
+    /// `dicomtool preflight` (issue #1219) must run without the XCTest
+    /// suite, report every manifest capability, and exit zero when only
+    /// optional capabilities are absent.
+    func testPreflightReportsManifestCapabilitiesAndExitsZeroByDefault() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let scratchPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dicomtool-preflight-\(UUID().uuidString)")
+        let stdoutURL = scratchPath.appendingPathComponent("stdout.txt")
+        let stderrURL = scratchPath.appendingPathComponent("stderr.txt")
+        try FileManager.default.createDirectory(at: scratchPath, withIntermediateDirectories: true)
+        _ = FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: scratchPath)
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "swift",
+            "run",
+            "--scratch-path",
+            scratchPath.path,
+            "dicomtool",
+            "preflight",
+            "--package-root",
+            packageRoot.path,
+        ]
+        process.currentDirectoryURL = packageRoot
+        // The default policy must not require optional runtimes in this test.
+        var environment = ProcessInfo.processInfo.environment
+        environment["DICOM_REQUIRE_OPTIONAL_RUNTIMES"] = nil
+        process.environment = environment
+
+        let stdout = try FileHandle(forWritingTo: stdoutURL)
+        let stderr = try FileHandle(forWritingTo: stderrURL)
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        let finished = expectation(description: "`swift run dicomtool preflight` finished")
+        process.terminationHandler = { _ in
+            finished.fulfill()
+        }
+
+        try process.run()
+        wait(for: [finished], timeout: 300)
+
+        if process.isRunning {
+            process.terminate()
+            try stdout.close()
+            try stderr.close()
+            XCTFail("Timed out waiting for `swift run dicomtool preflight` to finish.")
+            return
+        }
+
+        try stdout.close()
+        try stderr.close()
+
+        XCTAssertEqual(process.terminationStatus, 0, "preflight must exit zero when only optional capabilities are absent")
+
+        let output = try String(contentsOf: stdoutURL, encoding: .utf8)
+        for capabilityID in [
+            "bundled-synthetic-fixtures",
+            "large-dicom-fixtures",
+            "jpeg-lossless-conformance-fixtures",
+            "charls-runtime",
+            "openjpeg-runtime",
+            "opj-compress-tool",
+            "metal-device",
+            "network-security-tls",
+            "network-interop-smoke",
+        ] {
+            XCTAssertTrue(output.contains(capabilityID), "preflight report must cover \(capabilityID)")
+        }
+        XCTAssertTrue(output.contains("Summary:"), "preflight report must end with a summary")
+    }
+}

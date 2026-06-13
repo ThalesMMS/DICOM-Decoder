@@ -60,6 +60,10 @@ internal final class DCMTagParser {
     /// Flag to track odd byte offsets (quirk in some DICOM files)
     private var oddLocations: Bool = false
 
+    private static func isSequenceControlTag(_ tag: Int) -> Bool {
+        tag == 0xFFFEE000 || tag == 0xFFFEE00D || tag == 0xFFFEE0DD
+    }
+
     // MARK: - Initialization
 
     /// Creates a tag parser for DICOM data.
@@ -77,15 +81,15 @@ internal final class DCMTagParser {
     /// Determines the length of the next element.  Updates the
     /// current ``vr`` based on the data read.  This logic mirrors
     /// ``getLength()`` from the original code.  The return value is
-    /// the element length in bytes.  Implicit VR is detected by
-    /// noting cases where the two reserved bytes are non‑zero for
-    /// certain VRs.
+    /// the element length in bytes.  The active transfer syntax
+    /// determines whether the four bytes after the tag are an
+    /// implicit-VR length or an explicit-VR header.
     ///
     /// - Parameters:
     ///   - location: Current read position (updated after reading)
     ///   - littleEndian: Byte order flag
     /// - Returns: Element length in bytes
-    internal func getLength(location: inout Int, littleEndian: Bool) -> Int {
+    internal func getLength(location: inout Int, littleEndian: Bool, explicitVR: Bool) -> Int {
         // Read four bytes for VR and initial length field
         let b0 = binaryReader.readByte(location: &location)
         let b1 = binaryReader.readByte(location: &location)
@@ -96,6 +100,19 @@ internal final class DCMTagParser {
         // overwritten later if we detect an implicit VR
         let rawVR = Int(UInt16(b0) << 8 | UInt16(b1))
         vr = DicomVR(rawValue: rawVR) ?? .unknown
+
+        if !explicitVR {
+            vr = .implicitRaw
+            let retValue: Int
+            if littleEndian {
+                retValue = Int(b3) << 24 | Int(b2) << 16 | Int(b1) << 8 | Int(b0)
+            } else {
+                retValue = Int(b0) << 24 | Int(b1) << 16 | Int(b2) << 8 | Int(b3)
+            }
+            elementLengthIsUndefined = retValue == -1 || retValue == 0xFFFFFFFF
+            elementLength = retValue
+            return retValue
+        }
 
         var retValue: Int = 0
 
@@ -135,18 +152,38 @@ internal final class DCMTagParser {
             }
 
         default:
-            // Implicit VR with 32‑bit length
-            vr = .implicitRaw
-            if littleEndian {
-                retValue = Int(b3) << 24 | Int(b2) << 16 | Int(b1) << 8 | Int(b0)
+            if Self.isPlausibleExplicitVRCode(b0, b1) {
+                // Unrecognized but plausible explicit VR code (retired or
+                // vendor-specific, e.g. "XZ"): treat as a short-form
+                // explicit element and skip its value by the declared
+                // 16-bit length instead of derailing the scan (#1235).
+                vr = .unknown
+                if littleEndian {
+                    retValue = Int(b3) << 8 | Int(b2)
+                } else {
+                    retValue = Int(b2) << 8 | Int(b3)
+                }
             } else {
-                retValue = Int(b0) << 24 | Int(b1) << 16 | Int(b2) << 8 | Int(b3)
+                // Implicit VR with 32‑bit length
+                vr = .implicitRaw
+                if littleEndian {
+                    retValue = Int(b3) << 24 | Int(b2) << 16 | Int(b1) << 8 | Int(b0)
+                } else {
+                    retValue = Int(b0) << 24 | Int(b1) << 16 | Int(b2) << 8 | Int(b3)
+                }
             }
         }
 
         elementLengthIsUndefined = retValue == -1 || retValue == 0xFFFFFFFF
         elementLength = retValue
         return retValue
+    }
+
+    /// Two uppercase ASCII letters where a VR code belongs mark an
+    /// unrecognized explicit VR; implicit-VR length bytes rarely form
+    /// that pattern.
+    private static func isPlausibleExplicitVRCode(_ first: UInt8, _ second: UInt8) -> Bool {
+        (0x41...0x5A).contains(first) && (0x41...0x5A).contains(second)
     }
 
     /// Reads the next tag from the stream.  Returns the tag value
@@ -159,12 +196,14 @@ internal final class DCMTagParser {
     ///   - data: DICOM file data
     ///   - littleEndian: Byte order flag (may be modified for big endian detection)
     ///   - bigEndianTransferSyntax: Flag indicating big endian transfer syntax
+    ///   - explicitVR: Whether the active transfer syntax encodes explicit VR fields
     /// - Returns: Tag value as 32-bit integer (group << 16 | element)
     internal func getNextTag(
         location: inout Int,
         data: Data,
         littleEndian: inout Bool,
-        bigEndianTransferSyntax: Bool
+        bigEndianTransferSyntax: Bool,
+        explicitVR: Bool
     ) -> Int {
         // Check if we have enough data to read a tag
         guard location + 4 <= data.count else {
@@ -192,7 +231,8 @@ internal final class DCMTagParser {
 
         let tag = actualGroup << 16 | element
 
-        elementLength = getLength(location: &location, littleEndian: littleEndian)
+        let elementUsesExplicitVR = actualGroup == 0x0002 || explicitVR
+        elementLength = getLength(location: &location, littleEndian: littleEndian, explicitVR: elementUsesExplicitVR)
 
         // Handle undefined lengths indicating the start of a sequence
         if elementLength == -1 || elementLength == 0xFFFFFFFF {
@@ -237,15 +277,20 @@ internal final class DCMTagParser {
         value inValue: String?,
         location: inout Int
     ) -> String? {
-        let key = String(format: "%08X", tag)
+        if tag == 0xFFFEE000 {
+            return dict.value(forTag: tag) ?? ":null"
+        }
 
-        // Handle sequence delimiters
-        if key == "FFFEE000" || key == "FFFEE00D" || key == "FFFEE0DD" {
+        if tag == 0xFFFEE00D {
+            return nil
+        }
+
+        if tag == 0xFFFEE0DD {
             inSequence = false
             return nil
         }
 
-        var description: String? = dict.value(forKey: key)
+        var description: String? = dict.value(forTag: tag)
 
         // Determine VR if implicit
         if let desc = description, vr == .implicitRaw {
@@ -255,12 +300,6 @@ internal final class DCMTagParser {
                 vr = DicomVR(rawValue: code) ?? .unknown
             }
             description = String(desc.dropFirst(2))
-        }
-
-        // ITEM tags do not have a value
-        if key == "FFFEE000" {
-            description = description ?? ":null"
-            return description
         }
 
         if let provided = inValue {
@@ -344,10 +383,8 @@ internal final class DCMTagParser {
     ///   - location: Current read position (pointing to tag value start)
     /// - Returns: TagMetadata if the tag should be stored, nil if it should be skipped
     internal func getTagMetadata(tag: Int, location: Int) -> TagMetadata? {
-        let key = String(format: "%08X", tag)
-
         // Handle sequence delimiters - these are not stored
-        if key == "FFFEE000" || key == "FFFEE00D" || key == "FFFEE0DD" {
+        if Self.isSequenceControlTag(tag) {
             return nil
         }
 

@@ -74,19 +74,22 @@ public struct DicomFrameFunctionalGroups: Equatable, Sendable {
     public let planePosition: DicomPlanePosition?
     public let planeOrientation: DicomPlaneOrientation?
     public let derivationImage: DicomDerivationImage?
+    public let pixelValueTransformation: DicomPixelValueTransformation?
 
     public init(
         frameContent: DicomFrameContent? = nil,
         pixelMeasures: DicomPixelMeasures? = nil,
         planePosition: DicomPlanePosition? = nil,
         planeOrientation: DicomPlaneOrientation? = nil,
-        derivationImage: DicomDerivationImage? = nil
+        derivationImage: DicomDerivationImage? = nil,
+        pixelValueTransformation: DicomPixelValueTransformation? = nil
     ) {
         self.frameContent = frameContent
         self.pixelMeasures = pixelMeasures
         self.planePosition = planePosition
         self.planeOrientation = planeOrientation
         self.derivationImage = derivationImage
+        self.pixelValueTransformation = pixelValueTransformation
     }
 
     public func resolving(shared: DicomFrameFunctionalGroups?) -> DicomFrameFunctionalGroups {
@@ -95,7 +98,8 @@ public struct DicomFrameFunctionalGroups: Equatable, Sendable {
             pixelMeasures: pixelMeasures ?? shared?.pixelMeasures,
             planePosition: planePosition ?? shared?.planePosition,
             planeOrientation: planeOrientation ?? shared?.planeOrientation,
-            derivationImage: derivationImage ?? shared?.derivationImage
+            derivationImage: derivationImage ?? shared?.derivationImage,
+            pixelValueTransformation: pixelValueTransformation ?? shared?.pixelValueTransformation
         )
     }
 }
@@ -150,6 +154,17 @@ public struct DicomPixelMeasures: Equatable, Sendable {
         self.pixelSpacing = pixelSpacing
         self.sliceThickness = sliceThickness
         self.spacingBetweenSlices = spacingBetweenSlices
+    }
+}
+
+/// Pixel Value Transformation Functional Group rescale values.
+public struct DicomPixelValueTransformation: Equatable, Sendable {
+    public let rescaleIntercept: Double
+    public let rescaleSlope: Double
+
+    public init(rescaleIntercept: Double, rescaleSlope: Double) {
+        self.rescaleIntercept = rescaleIntercept
+        self.rescaleSlope = rescaleSlope
     }
 }
 
@@ -258,7 +273,19 @@ enum DicomEnhancedMultiframeParser {
             pixelMeasures: dataSet.firstNestedDataSet(for: .pixelMeasuresSequence).flatMap(pixelMeasures),
             planePosition: dataSet.firstNestedDataSet(for: .planePositionSequence).flatMap(planePosition),
             planeOrientation: dataSet.firstNestedDataSet(for: .planeOrientationSequence).flatMap(planeOrientation),
-            derivationImage: derivationImage(from: dataSet.sequenceItems(for: .derivationImageSequence))
+            derivationImage: derivationImage(from: dataSet.sequenceItems(for: .derivationImageSequence)),
+            pixelValueTransformation: dataSet.firstNestedDataSet(for: .pixelValueTransformationSequence)
+                .flatMap(pixelValueTransformation)
+        )
+    }
+
+    private static func pixelValueTransformation(from dataSet: DicomDataSet) -> DicomPixelValueTransformation? {
+        let intercept = dataSet.decimalString(for: .rescaleIntercept)
+        let slope = dataSet.decimalString(for: .rescaleSlope)
+        guard intercept != nil || slope != nil else { return nil }
+        return DicomPixelValueTransformation(
+            rescaleIntercept: intercept ?? 0,
+            rescaleSlope: slope ?? 1
         )
     }
 

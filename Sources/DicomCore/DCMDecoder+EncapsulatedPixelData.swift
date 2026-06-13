@@ -7,6 +7,18 @@ extension DCMDecoder {
         }
     }
 
+    /// Codec-agnostic frame reader over this file's encapsulated Pixel Data
+    /// (issue #1226). Throws `DicomEncapsulatedPixelFrameReader.ReaderError`
+    /// with deterministic diagnostics instead of returning nil.
+    public func makeEncapsulatedPixelFrameReader() throws -> DicomEncapsulatedPixelFrameReader {
+        try synchronized {
+            guard let descriptor = makeEncapsulatedPixelDataDescriptorUnsafe() else {
+                throw DicomEncapsulatedPixelFrameReader.ReaderError.notEncapsulated
+            }
+            return try DicomEncapsulatedPixelFrameReader(descriptor: descriptor, fileData: dicomData)
+        }
+    }
+
     public func getEncapsulatedFrame(_ index: Int) -> DicomEncapsulatedPixelFrame? {
         synchronized {
             guard let descriptor = makeEncapsulatedPixelDataDescriptorUnsafe() else {

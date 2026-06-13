@@ -54,7 +54,10 @@ final class DicomTransferSyntaxRegistryTests: XCTestCase {
 
         let htj2k = try XCTUnwrap(DicomTransferSyntaxRegistry.standard.entry(for: .htj2kLossless))
         XCTAssertEqual(htj2k.codec, .htj2k)
-        XCTAssertEqual(htj2k.decoderSupport, .unavailable("HTJ2K decoding requires an explicit HTJ2K backend; ImageIO JPEG 2000 fallback is not used."))
+        XCTAssertEqual(
+            htj2k.decoderSupport,
+            .bestEffort("HTJ2K decoding requires the preflighted OpenJPEG runtime version 2.5 or newer (HT block decoder); ImageIO JPEG 2000 fallback is not used.")
+        )
     }
 
     func testWriteSupportMatrixCoversAllRecognizedTransferSyntaxes() throws {

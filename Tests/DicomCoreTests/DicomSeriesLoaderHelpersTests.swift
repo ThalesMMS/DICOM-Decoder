@@ -5,6 +5,10 @@ import DicomTestSupport
 
 // MARK: - DicomSeriesLoader Helpers Tests
 
+// Compatibility coverage: this suite intentionally exercises deprecated
+// public APIs that remain available (issue #1221); the annotation keeps
+// the deliberate legacy usage warning-free without hiding new ones.
+@available(*, deprecated)
 final class DicomSeriesLoaderHelpersTests: XCTestCase {
 
     // MARK: - computeZSpacing Tests
@@ -333,6 +337,54 @@ final class DicomSeriesLoaderHelpersTests: XCTestCase {
         XCTAssertEqual(result, expected, "Non-DCMDecoder implementations should report isValid()")
     }
 
+    // MARK: - Signed 16-bit Decode Fast Path Tests
+
+    func testDecodeSliceIntoBufferForSigned16UsesRawCopyWithoutPixelPool() throws {
+        let samples: [Int16] = [-1024, 0, 3071, Int16.max]
+        let url = try makeSigned16Dicom(width: 2, height: 2, samples: samples, photometricInterpretation: "MONOCHROME2")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        BufferPool.shared.clear()
+        BufferPool.shared.resetStatistics()
+
+        let loader = DicomSeriesLoader()
+        var output = [Int16](repeating: 0, count: samples.count)
+        let count = try loader.decodeSliceIntoBuffer(
+            at: url,
+            buffer: &output,
+            expectedWidth: 2,
+            expectedHeight: 2,
+            pixelFormat: signed16PixelFormat(photometricInterpretation: "MONOCHROME2")
+        )
+
+        XCTAssertEqual(count, samples.count)
+        XCTAssertEqual(Array(output.prefix(count)), samples)
+        XCTAssertEqual(BufferPool.shared.statistics.totalAcquires, 0)
+    }
+
+    func testDecodeSliceIntoBufferForSigned16Monochrome1PreservesLegacyInversionWithoutPixelPool() throws {
+        let samples: [Int16] = [-2, -1, 0, 1]
+        let url = try makeSigned16Dicom(width: 2, height: 2, samples: samples, photometricInterpretation: "MONOCHROME1")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        BufferPool.shared.clear()
+        BufferPool.shared.resetStatistics()
+
+        let loader = DicomSeriesLoader()
+        var output = [Int16](repeating: 0, count: samples.count)
+        let count = try loader.decodeSliceIntoBuffer(
+            at: url,
+            buffer: &output,
+            expectedWidth: 2,
+            expectedHeight: 2,
+            pixelFormat: signed16PixelFormat(photometricInterpretation: "MONOCHROME1")
+        )
+
+        XCTAssertEqual(count, samples.count)
+        XCTAssertEqual(Array(output.prefix(count)), samples.map { ~$0 })
+        XCTAssertEqual(BufferPool.shared.statistics.totalAcquires, 0)
+    }
+
     // MARK: - SliceMeta Tests
 
     func testSliceMetaCreation() throws {
@@ -357,5 +409,107 @@ final class DicomSeriesLoaderHelpersTests: XCTestCase {
         XCTAssertNil(slice.position, "SliceMeta should allow nil position")
         XCTAssertNil(slice.instanceNumber, "SliceMeta should allow nil instanceNumber")
         XCTAssertNil(slice.projection, "SliceMeta should allow nil projection")
+    }
+
+    private func signed16PixelFormat(photometricInterpretation: String) -> DicomSeriesLoaderPixelFormat {
+        DicomSeriesLoaderPixelFormat(
+            bitsAllocated: 16,
+            bitsStored: 16,
+            highBit: 15,
+            pixelRepresentation: 1,
+            samplesPerPixel: 1,
+            photometricInterpretation: photometricInterpretation,
+            planarConfiguration: nil,
+            numberOfFrames: 1,
+            transferSyntaxUID: DicomTransferSyntax.explicitVRLittleEndian.rawValue,
+            isCompressed: false
+        )
+    }
+
+    private func makeSigned16Dicom(
+        width: UInt16,
+        height: UInt16,
+        samples: [Int16],
+        photometricInterpretation: String
+    ) throws -> URL {
+        var data = Data(repeating: 0, count: 128)
+        data.append(contentsOf: "DICM".utf8)
+
+        appendElement(DicomTag.transferSyntaxUID.rawValue, vr: "UI", value: paddedUID("1.2.840.10008.1.2.1"), to: &data)
+        appendElement(DicomTag.samplesPerPixel.rawValue, vr: "US", value: uint16(1), to: &data)
+        appendElement(DicomTag.photometricInterpretation.rawValue, vr: "CS", value: paddedASCII(photometricInterpretation), to: &data)
+        appendElement(DicomTag.rows.rawValue, vr: "US", value: uint16(height), to: &data)
+        appendElement(DicomTag.columns.rawValue, vr: "US", value: uint16(width), to: &data)
+        appendElement(DicomTag.bitsAllocated.rawValue, vr: "US", value: uint16(16), to: &data)
+        appendElement(DicomTag.bitsStored.rawValue, vr: "US", value: uint16(16), to: &data)
+        appendElement(DicomTag.highBit.rawValue, vr: "US", value: uint16(15), to: &data)
+        appendElement(DicomTag.pixelRepresentation.rawValue, vr: "US", value: uint16(1), to: &data)
+        appendElement(DicomTag.pixelData.rawValue, vr: "OW", value: int16Samples(samples), to: &data)
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("dcm")
+        try data.write(to: url)
+        return url
+    }
+
+    private func appendElement(_ tag: Int, vr: String, value: Data, to data: inout Data) {
+        appendTag(tag, to: &data)
+        data.append(contentsOf: vr.utf8)
+        if ["OB", "OD", "OF", "OW", "OV", "SQ", "UN", "UR", "UT"].contains(vr) {
+            data.append(contentsOf: [0, 0])
+            appendUInt32(UInt32(value.count), to: &data)
+        } else {
+            appendUInt16(UInt16(value.count), to: &data)
+        }
+        data.append(value)
+    }
+
+    private func appendTag(_ tag: Int, to data: inout Data) {
+        appendUInt16(UInt16((tag >> 16) & 0xFFFF), to: &data)
+        appendUInt16(UInt16(tag & 0xFFFF), to: &data)
+    }
+
+    private func appendUInt16(_ value: UInt16, to data: inout Data) {
+        data.append(UInt8(value & 0x00FF))
+        data.append(UInt8((value >> 8) & 0x00FF))
+    }
+
+    private func appendUInt32(_ value: UInt32, to data: inout Data) {
+        data.append(UInt8(value & 0x000000FF))
+        data.append(UInt8((value >> 8) & 0x000000FF))
+        data.append(UInt8((value >> 16) & 0x000000FF))
+        data.append(UInt8((value >> 24) & 0x000000FF))
+    }
+
+    private func uint16(_ value: UInt16) -> Data {
+        Data([UInt8(value & 0x00FF), UInt8((value >> 8) & 0x00FF)])
+    }
+
+    private func int16Samples(_ samples: [Int16]) -> Data {
+        var data = Data()
+        data.reserveCapacity(samples.count * MemoryLayout<Int16>.size)
+        for sample in samples {
+            let value = UInt16(bitPattern: sample)
+            data.append(UInt8(value & 0x00FF))
+            data.append(UInt8((value >> 8) & 0x00FF))
+        }
+        return data
+    }
+
+    private func paddedASCII(_ value: String) -> Data {
+        var data = Data(value.utf8)
+        if data.count % 2 != 0 {
+            data.append(0x20)
+        }
+        return data
+    }
+
+    private func paddedUID(_ value: String) -> Data {
+        var data = Data(value.utf8)
+        if data.count % 2 != 0 {
+            data.append(0)
+        }
+        return data
     }
 }

@@ -137,6 +137,13 @@ public final class MockDicomDecoder: DicomDecoderProtocol, @unchecked Sendable {
         set { queue.sync { _dicomFileReadSuccess = newValue } }
     }
 
+    /// Non-deprecated view of the legacy success flag for test fixtures that
+    /// configure the mock without exercising the deprecated public API.
+    public var mockFileReadSucceeded: Bool {
+        get { queue.sync { _dicomFileReadSuccess } }
+        set { queue.sync { _dicomFileReadSuccess = newValue } }
+    }
+
     private var _compressedImage: Bool = false
     public var compressedImage: Bool {
         get { queue.sync { _compressedImage } }

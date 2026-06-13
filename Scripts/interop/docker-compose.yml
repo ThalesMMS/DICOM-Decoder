@@ -30,6 +30,30 @@ services:
     volumes:
       - orthanc-storage:/var/lib/orthanc/db
 
+  orthanc-auth:
+    image: ${ORTHANC_IMAGE:-orthancteam/orthanc:latest}
+    ports:
+      - "${ORTHANC_AUTH_HTTP_PORT:-8043}:8042"
+    environment:
+      VERBOSE_ENABLED: "true"
+      DICOM_WEB_PLUGIN_ENABLED: "true"
+      ORTHANC_JSON: |
+        {
+          "Name": "MTK Interop Orthanc (auth)",
+          "DicomAet": "ORTHANCAUTH",
+          "RemoteAccessAllowed": true,
+          "AuthenticationEnabled": true,
+          "RegisteredUsers": {
+            "smoke": "${ORTHANC_AUTH_PASSWORD:-smoke-secret}"
+          },
+          "DicomWeb": {
+            "Enable": true,
+            "Root": "/dicom-web/"
+          }
+        }
+    volumes:
+      - orthanc-auth-storage:/var/lib/orthanc/db
+
   dcm4chee-ldap:
     image: ${DCM4CHEE_LDAP_IMAGE:-dcm4che/slapd-dcm4chee:2.6.10-35.0}
     environment:
@@ -79,6 +103,7 @@ services:
       - dcm4chee-storage:/storage
 
 volumes:
+  orthanc-auth-storage:
   orthanc-storage:
   dcm4chee-ldap:
   dcm4chee-slapd:

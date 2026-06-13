@@ -10,6 +10,10 @@ import XCTest
 //                              hasDecodedPixelBuffers, currentLittleEndian, etc.
 //   - DCMDecoder+Pixels: getPixels8/16/24 on unloaded decoder
 
+// Compatibility coverage: this suite intentionally exercises deprecated
+// public APIs that remain available (issue #1221); the annotation keeps
+// the deliberate legacy usage warning-free without hiding new ones.
+@available(*, deprecated)
 final class DCMDecoderPRExtensionsTests: XCTestCase {
 
     // MARK: - DCMDecoder+LegacyConvenience Tests

@@ -56,6 +56,7 @@ struct DicomTool: AsyncParsableCommand {
             ValidateCommand.self,
             ExtractCommand.self,
             BatchCommand.self,
+            PreflightCommand.self,
         ],
         defaultSubcommand: nil
     )

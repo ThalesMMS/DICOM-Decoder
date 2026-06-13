@@ -102,7 +102,8 @@ internal struct HuffmanTable: Sendable {
 
 /// Result of JPEG Lossless decoding operation
 internal struct JPEGLosslessDecodeResult: Sendable {
-    /// Decoded pixel buffer (16-bit grayscale)
+    /// Decoded samples: grayscale when `componentCount == 1`, interleaved
+    /// (R,G,B per pixel) when `componentCount == 3`.
     let pixels: [UInt16]
     /// Image width in pixels
     let width: Int
@@ -110,4 +111,6 @@ internal struct JPEGLosslessDecodeResult: Sendable {
     let height: Int
     /// Bit depth (8, 12, or 16)
     let bitDepth: Int
+    /// Number of image components (1 grayscale, 3 interleaved color)
+    let componentCount: Int
 }

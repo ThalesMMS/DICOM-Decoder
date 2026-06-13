@@ -45,7 +45,7 @@ extension DCMDecoder {
         maxDimension: Int,
         context: String
     ) -> Bool {
-        guard dicomFileReadSuccess else {
+        guard fileReadSucceeded else {
             logger.warning("\(context) requires a successfully loaded DICOM file")
             return false
         }
@@ -207,7 +207,7 @@ extension DCMDecoder {
         synchronized {
             let startTime = CFAbsoluteTimeGetCurrent()
 
-            guard dicomFileReadSuccess else {
+            guard fileReadSucceeded else {
                 return nil
             }
             guard !compressedImage else {
@@ -254,7 +254,7 @@ extension DCMDecoder {
         synchronized {
             let startTime = CFAbsoluteTimeGetCurrent()
 
-            guard dicomFileReadSuccess else {
+            guard fileReadSucceeded else {
                 return nil
             }
             guard !compressedImage else {
@@ -303,7 +303,7 @@ extension DCMDecoder {
         synchronized {
             let startTime = CFAbsoluteTimeGetCurrent()
 
-            guard dicomFileReadSuccess else {
+            guard fileReadSucceeded else {
                 return nil
             }
             guard !compressedImage else {

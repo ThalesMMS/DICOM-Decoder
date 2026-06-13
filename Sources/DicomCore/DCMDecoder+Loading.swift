@@ -72,6 +72,19 @@ extension DCMDecoder {
         try loadDicomFile(at: path)
     }
 
+    /// Convenience initializer that loads DICOM Part 10 bytes directly from
+    /// memory. The buffer is parsed immediately and retained by the decoder,
+    /// so callers do not need to serialize sensitive inputs to a temporary
+    /// file before decoding.
+    ///
+    /// - Parameter data: In-memory DICOM Part 10 bytes to load.
+    /// - Throws: ``DICOMError/invalidDICOMFormat(reason:)`` if the buffer
+    ///   cannot be parsed as valid DICOM.
+    public convenience init(data: Data) throws {
+        self.init()
+        try loadDicomData(data, sourceDescription: "<in-memory>")
+    }
+
     /// Static factory method that loads a DICOM file from the
     /// specified URL.  This provides an alternative to the throwing
     /// initializer for developers who prefer static factory methods.
@@ -150,7 +163,7 @@ extension DCMDecoder {
             logger.warning("Failed to load file at \(filename): \(error)")
             synchronized {
                 dicomFileName = ""
-                dicomFileReadSuccess = false
+                fileReadSucceeded = false
             }
         }
     }
@@ -159,6 +172,13 @@ extension DCMDecoder {
     func loadDicomFile(at filename: String) throws {
         try synchronized {
             try loadDicomFileUnsafe(at: filename)
+        }
+    }
+
+    /// Loads in-memory DICOM Part 10 bytes into the decoder.
+    func loadDicomData(_ data: Data, sourceDescription: String = "<in-memory>") throws {
+        try synchronized {
+            try loadDicomDataUnsafe(data, sourceDescription: sourceDescription)
         }
     }
 
@@ -172,7 +192,7 @@ extension DCMDecoder {
         }
         // Prevent loading different file if one is already loaded successfully
         // DCMDecoder is designed for single-file use per instance
-        if dicomFileReadSuccess && !dicomFileName.isEmpty {
+        if fileReadSucceeded && !dicomFileName.isEmpty {
             logger.warning("Attempting to load '\(filename)' but decoder already has '\(dicomFileName)' loaded. Create a new DCMDecoder instance for each file.")
             return
         }
@@ -186,24 +206,36 @@ extension DCMDecoder {
 
             let startTime = CFAbsoluteTimeGetCurrent()
 
+            let loadedData: Data
             if fileSize > 10_000_000 { // >10MB - use memory mapping
                 // Memory-mapped access for large files; dicomData owns the mapping lifetime.
-                dicomData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+                loadedData = try Data(contentsOf: fileURL, options: .mappedIfSafe)
                 let elapsed = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
                 debugPerfLog("[PERF] Memory-mapped DICOM load: \(String(format: "%.2f", elapsed))ms | size: \(fileSize/1024/1024)MB")
             } else {
                 // Regular loading for smaller files
-                dicomData = try Data(contentsOf: fileURL)
+                loadedData = try Data(contentsOf: fileURL)
             }
-            dicomData = try DicomDeflatedDataSetCodec.inflatedPart10DataIfNeeded(dicomData)
+            try loadDicomDataUnsafe(loadedData, sourceDescription: filename)
         } catch {
             dicomFileName = ""
-            dicomFileReadSuccess = false
+            fileReadSucceeded = false
+            throw error
+        }
+    }
+
+    private func loadDicomDataUnsafe(_ data: Data, sourceDescription: String) throws {
+        do {
+            fileSize = data.count
+            dicomData = try DicomDeflatedDataSetCodec.inflatedPart10DataIfNeeded(data)
+        } catch {
+            dicomFileName = ""
+            fileReadSucceeded = false
             throw error
         }
 
         // Reset state
-        dicomFileReadSuccess = false
+        fileReadSucceeded = false
         signedImage = false
         pixelsNotLoaded = true
         pixels8 = nil
@@ -225,11 +257,11 @@ extension DCMDecoder {
         if readFileInfoUnsafe() {
             // Pixel payload stays lazy until first getPixels* call.
             pixelsNotLoaded = true
-            dicomFileName = filename
-            dicomFileReadSuccess = true
+            dicomFileName = sourceDescription
+            fileReadSucceeded = true
         } else {
             dicomFileName = ""
-            dicomFileReadSuccess = false
+            fileReadSucceeded = false
             pixelsNotLoaded = true
             try throwIfLoadFailed()
         }
@@ -237,7 +269,7 @@ extension DCMDecoder {
 
     /// Throws `DICOMError.invalidDICOMFormat` with a descriptive reason if the last load attempt failed.
     private func throwIfLoadFailed() throws {
-        guard !dicomFileReadSuccess else { return }
+        guard !fileReadSucceeded else { return }
         let reason: String
         if !dicomFound {
             reason = "Missing DICM signature or invalid DICOM header"

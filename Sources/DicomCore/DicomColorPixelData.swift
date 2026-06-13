@@ -173,11 +173,13 @@ public enum DicomColorDisplayConversionMatrix {
             supportedSamplesPerPixel: [3],
             allowsAbsentPlanarConfiguration: true,
             supportedPlanarConfigurations: [0, 1],
-            supportedBitsAllocated: [8],
+            supportedBitsAllocated: [8, 16],
             requiresPaletteColorLookupTable: false,
             preservesICCProfile: true,
-            diagnostic: "RGB display conversion supports 8-bit three-sample interleaved or planar data; "
-                + "alpha and extra samples are unsupported."
+            diagnostic: "RGB display conversion supports 8-bit and 16-bit three-sample interleaved or planar "
+                + "data; 16-bit samples scale to 8-bit display by Bits Stored, and "
+                + "displayRGB48PixelBuffer preserves the full stored precision. Alpha and extra samples "
+                + "are unsupported."
         ),
         DicomColorDisplayConversionSupport(
             photometricInterpretation: .paletteColor,
@@ -234,7 +236,9 @@ public enum DicomColorDisplayConversionMatrix {
             supportedBitsAllocated: [8],
             requiresPaletteColorLookupTable: false,
             preservesICCProfile: false,
-            diagnostic: "YBR_RCT reversible color transform display conversion is not implemented."
+            diagnostic: "YBR_RCT applies to JPEG 2000 codestreams: the OpenJPEG backend reverses the "
+                + "transform and outputs RGB through the decoded-frame path (DicomDecodedFrameReader). "
+                + "Native uncompressed YBR_RCT display conversion is rejected."
         ),
         DicomColorDisplayConversionSupport(
             photometricInterpretation: .ybrICT,
@@ -245,7 +249,9 @@ public enum DicomColorDisplayConversionMatrix {
             supportedBitsAllocated: [8],
             requiresPaletteColorLookupTable: false,
             preservesICCProfile: false,
-            diagnostic: "YBR_ICT irreversible color transform display conversion is not implemented."
+            diagnostic: "YBR_ICT applies to lossy JPEG 2000 codestreams: the OpenJPEG backend reverses "
+                + "the transform and outputs RGB through the decoded-frame path (DicomDecodedFrameReader). "
+                + "Native uncompressed YBR_ICT display conversion is rejected."
         )
     ]
 
@@ -358,6 +364,39 @@ public struct DicomDisplayPixelBuffer: Equatable, Sendable {
         self.frameIndex = frameIndex
         self.photometricInterpretation = photometricInterpretation
         self.rgbData = rgbData
+        self.iccProfile = iccProfile
+    }
+}
+
+/// Precision-preserving display buffer for high-bit-depth color frames:
+/// interleaved 16-bit little-endian R,G,B samples carrying the stored
+/// values (no scaling to 8 bits).
+public struct DicomDisplayRGB48PixelBuffer: Equatable, Sendable {
+    public let width: Int
+    public let height: Int
+    public let frameIndex: Int
+    public let photometricInterpretation: DicomPhotometricInterpretation
+    /// Bits Stored of the source samples (values occupy 0...2^bitsStored-1).
+    public let bitsStored: Int
+    /// Interleaved 16-bit little-endian R,G,B samples.
+    public let rgb48Data: Data
+    public let iccProfile: Data?
+
+    public var bytesPerPixel: Int { 6 }
+
+    public init(width: Int,
+                height: Int,
+                frameIndex: Int,
+                photometricInterpretation: DicomPhotometricInterpretation,
+                bitsStored: Int,
+                rgb48Data: Data,
+                iccProfile: Data?) {
+        self.width = width
+        self.height = height
+        self.frameIndex = frameIndex
+        self.photometricInterpretation = photometricInterpretation
+        self.bitsStored = bitsStored
+        self.rgb48Data = rgb48Data
         self.iccProfile = iccProfile
     }
 }
@@ -488,6 +527,62 @@ extension DCMDecoder {
         }
     }
 
+    /// Precision-preserving color output (issue #1232): returns the RGB
+    /// frame as interleaved 16-bit samples carrying the stored values.
+    /// Supported for native RGB frames with 8 or 16 Bits Allocated (8-bit
+    /// samples widen by 257 to fill the 16-bit range); every other
+    /// photometric interpretation is rejected typed.
+    public func displayRGB48PixelBuffer(frame frameIndex: Int = 0) throws -> DicomDisplayRGB48PixelBuffer {
+        try synchronized {
+            guard let descriptor = pixelDataDescriptor,
+                  let frame = getFrame(frameIndex) else {
+                throw DicomColorConversionError.missingPixelDataFrame(frameIndex)
+            }
+
+            let metadata = makeNativeColorMetadataUnsafe(descriptor: descriptor)
+            let context = makeColorConversionContextUnsafe(metadata: metadata)
+            guard metadata.photometricInterpretation == .rgb else {
+                throw DicomColorConversionError.unsupportedColorPath(
+                    context: context,
+                    reason: "Precision-preserving RGB48 output supports Photometric Interpretation RGB only."
+                )
+            }
+            try validateThreeSampleFrame(frame, context: context, colorSpaceName: "RGB", allowedBitsAllocated: [8, 16])
+
+            let pixelsPerFrame = descriptor.rows * descriptor.columns
+            var output = [UInt8](repeating: 0, count: pixelsPerFrame * 6)
+            let widensEightBit = descriptor.bitsAllocated == 8
+            for pixelIndex in 0..<pixelsPerFrame {
+                for sample in 0..<3 {
+                    guard let storedValue = storedSampleValue(
+                        frameData: frame.data,
+                        pixelIndex: pixelIndex,
+                        sample: sample,
+                        descriptor: descriptor
+                    ) else {
+                        throw DicomColorConversionError.invalidPixelData("Missing RGB sample at pixel \(pixelIndex).")
+                    }
+                    let value = widensEightBit
+                        ? UInt16(clamping: storedValue) &* 257
+                        : UInt16(clamping: storedValue)
+                    let base = (pixelIndex * 3 + sample) * 2
+                    output[base] = UInt8(value & 0xFF)
+                    output[base + 1] = UInt8(value >> 8)
+                }
+            }
+
+            return DicomDisplayRGB48PixelBuffer(
+                width: descriptor.columns,
+                height: descriptor.rows,
+                frameIndex: frameIndex,
+                photometricInterpretation: metadata.photometricInterpretation,
+                bitsStored: widensEightBit ? 16 : descriptor.bitsStored,
+                rgb48Data: Data(output),
+                iccProfile: metadata.iccProfile
+            )
+        }
+    }
+
     private func makeNativeColorMetadataUnsafe(
         descriptor: DicomPixelDataDescriptor?
     ) -> DicomNativeColorMetadata {
@@ -595,17 +690,51 @@ extension DCMDecoder {
         frame: DicomPixelFrame,
         context: DicomColorConversionContext
     ) throws -> Data {
-        try validateThreeSample8BitFrame(frame, context: context, colorSpaceName: "RGB")
+        try validateThreeSampleFrame(frame, context: context, colorSpaceName: "RGB", allowedBitsAllocated: [8, 16])
+        if frame.descriptor.bitsAllocated == 16 {
+            return try makeHighBitDepthRGBDisplayData(frame: frame, context: context)
+        }
         return try makeThreeSampleDisplayRGB(frame: frame) { red, green, blue in
             (red, green, blue)
         }
+    }
+
+    /// Scales 16-bit-allocated RGB samples to 8-bit display by Bits Stored
+    /// (the decode path preserved the stored precision; only the display
+    /// mapping reduces it).
+    private func makeHighBitDepthRGBDisplayData(
+        frame: DicomPixelFrame,
+        context: DicomColorConversionContext
+    ) throws -> Data {
+        let descriptor = frame.descriptor
+        let pixelsPerFrame = descriptor.rows * descriptor.columns
+        let maxStored = max(1, (1 << min(max(descriptor.bitsStored, 1), 16)) - 1)
+        var output = [UInt8](repeating: 0, count: pixelsPerFrame * 3)
+
+        for pixelIndex in 0..<pixelsPerFrame {
+            for sample in 0..<3 {
+                guard let storedValue = storedSampleValue(
+                    frameData: frame.data,
+                    pixelIndex: pixelIndex,
+                    sample: sample,
+                    descriptor: descriptor
+                ) else {
+                    throw DicomColorConversionError.invalidPixelData("Missing RGB sample at pixel \(pixelIndex).")
+                }
+                let clamped = max(0, min(maxStored, storedValue))
+                output[pixelIndex * 3 + sample] =
+                    UInt8((Double(clamped) * 255.0 / Double(maxStored)).rounded())
+            }
+        }
+
+        return Data(output)
     }
 
     private func makeYBRFullDisplayRGB(
         frame: DicomPixelFrame,
         context: DicomColorConversionContext
     ) throws -> Data {
-        try validateThreeSample8BitFrame(frame, context: context, colorSpaceName: "YBR_FULL")
+        try validateThreeSampleFrame(frame, context: context, colorSpaceName: "YBR_FULL", allowedBitsAllocated: [8])
         return try makeThreeSampleDisplayRGB(frame: frame) { y, cb, cr in
             Self.ybrToRgb(y: y, cb: cb, cr: cr)
         }
@@ -727,10 +856,11 @@ extension DCMDecoder {
         return Data(output)
     }
 
-    private func validateThreeSample8BitFrame(
+    private func validateThreeSampleFrame(
         _ frame: DicomPixelFrame,
         context: DicomColorConversionContext,
-        colorSpaceName: String
+        colorSpaceName: String,
+        allowedBitsAllocated: [Int]
     ) throws {
         let descriptor = frame.descriptor
         guard descriptor.samplesPerPixel == 3 else {
@@ -743,10 +873,11 @@ extension DCMDecoder {
                 reason: reason
             )
         }
-        guard descriptor.bitsAllocated == 8 else {
+        guard allowedBitsAllocated.contains(descriptor.bitsAllocated) else {
+            let depths = allowedBitsAllocated.map(String.init).joined(separator: "-bit or ")
             throw DicomColorConversionError.unsupportedColorPath(
                 context: context,
-                reason: "\(colorSpaceName) display conversion supports only 8-bit samples."
+                reason: "\(colorSpaceName) display conversion supports only \(depths)-bit samples."
             )
         }
         guard descriptor.planarConfiguration == nil

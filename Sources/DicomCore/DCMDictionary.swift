@@ -25,34 +25,37 @@ import Foundation
 /// Facade for looking up DICOM tag descriptions from a
 /// bundled property list.  Unlike the Objective‑C version,
 /// this implementation does not rely on ``NSObject`` or manual
-/// memory management.  Instead, the dictionary is loaded once
-/// lazily on first access and cached for the lifetime of the
-/// instance.
+/// memory management.  Instead, the bundled property lists are
+/// loaded once per process and every instance references the same
+/// immutable storage.
 ///
 /// **Migration:** This class now supports dependency injection.
 /// Use the public initializer to create instances instead of
 /// relying on the deprecated singleton.
 public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
-    /// Underlying storage for the tag mappings.  Keys are
-    /// hex strings (e.g. ``"00020002"``) and values are
-    /// strings beginning with the two character VR followed by
-    /// ``":"`` and a description.  This type alias aids
-    /// readability and makes testing easier.
+    /// Underlying storage for the tag mappings.  Keys are hex strings
+    /// (e.g. ``"00020002"``) and values begin with the two character VR.
     private typealias RawDictionary = [String: String]
 
     private let logger: LoggerProtocol = DicomLogger.make(subsystem: "com.dicomviewer", category: "DCMDictionary")
 
-    /// Internal backing store.  Marked as ``lazy`` so the
-    /// property list is only read when first used.  In the event
-    /// that the resource cannot be loaded the dictionary will be
-    /// empty and lookups will safely return ``nil``.
-    private lazy var dictionary: RawDictionary = {
+    private struct Storage {
+        let valuesByKey: RawDictionary
+        let valuesByTag: [Int: String]
+    }
+
+    private static let sharedStorage: Storage = loadStorage()
+
+    private let storage: Storage
+
+    private static func loadStorage() -> Storage {
         #if SWIFT_PACKAGE
         let bundle = Bundle.module
         #else
         let bundle = Bundle.main
         #endif
-        
+
+        let logger = DicomLogger.make(subsystem: "com.dicomviewer", category: "DCMDictionary")
         let splitResourceNames = [
             "DCMDictionary-Core",
             "DCMDictionary-Imaging",
@@ -85,7 +88,7 @@ public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
         }
 
         if loadedSplitResources {
-            return mergedDictionary
+            return Storage(valuesByKey: mergedDictionary, valuesByTag: integerKeyedDictionary(from: mergedDictionary))
         }
 
         guard let url = bundle.url(forResource: "DCMDictionary", withExtension: "plist") else {
@@ -93,12 +96,13 @@ public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
             #if DEBUG
             logger.warning("DCMDictionary resources not found in bundle")
             #endif
-            return [:]
+            return Storage(valuesByKey: [:], valuesByTag: [:])
         }
         do {
             let data = try Data(contentsOf: url)
             let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
-            return plist as? RawDictionary ?? [:]
+            let dictionary = plist as? RawDictionary ?? [:]
+            return Storage(valuesByKey: dictionary, valuesByTag: integerKeyedDictionary(from: dictionary))
         } catch {
             // Parsing errors will result in an empty dictionary.  We
             // deliberately avoid throwing here to allow clients to
@@ -106,18 +110,30 @@ public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
             #if DEBUG
             logger.warning("Error parsing DCMDictionary.plist: \(error)")
             #endif
-            return [:]
+            return Storage(valuesByKey: [:], valuesByTag: [:])
         }
-    }()
+    }
+
+    private static func integerKeyedDictionary(from dictionary: RawDictionary) -> [Int: String] {
+        dictionary.reduce(into: [Int: String](minimumCapacity: dictionary.count)) { result, element in
+            guard let tag = Int(element.key, radix: 16) else { return }
+            result[tag] = element.value
+        }
+    }
 
     // MARK: - Initialization
 
     /// Public initializer for dependency injection.
     /// Creates a new instance that loads the DCMDictionary.plist from the bundle.
     public init() {
+        storage = Self.sharedStorage
         #if DEBUG
         logger.debug("DCMDictionary initialized with dependency injection")
         #endif
+    }
+
+    internal init(entries: [String: String]) {
+        storage = Storage(valuesByKey: entries, valuesByTag: Self.integerKeyedDictionary(from: entries))
     }
 
     // MARK: - DicomDictionaryProtocol Implementation
@@ -131,7 +147,19 @@ public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
     /// - Returns: The string from the plist if present, otherwise
     ///   ``nil``.
     public func value(forKey key: String) -> String? {
-        dictionary[key]
+        if let value = storage.valuesByKey[key] {
+            return value
+        }
+        guard let tag = Int(key, radix: 16) else {
+            return nil
+        }
+        return value(forTag: tag)
+    }
+
+    /// Returns the raw value associated with the supplied integer tag.
+    /// This avoids formatting hot parse-loop tags as hex strings.
+    public func value(forTag tag: Int) -> String? {
+        storage.valuesByTag[tag]
     }
 
     /// Returns just the VR code for a given tag
@@ -143,12 +171,30 @@ public final class DCMDictionary: DicomDictionaryProtocol, @unchecked Sendable {
         return String(value.prefix(2))
     }
 
+    /// Returns just the VR code for a given integer tag.
+    public func vrCode(forTag tag: Int) -> String? {
+        guard let value = value(forTag: tag),
+              value.count >= 2 else { return nil }
+        return String(value.prefix(2))
+    }
+
     /// Returns just the description for a given tag
     /// - Parameter key: A hexadecimal string identifying a DICOM tag
     /// - Returns: The description (after "XX:") or nil if not found
     public func description(forKey key: String) -> String? {
         guard let value = value(forKey: key),
               !value.isEmpty else { return nil }
+        return description(from: value)
+    }
+
+    /// Returns just the description for a given integer tag.
+    public func description(forTag tag: Int) -> String? {
+        guard let value = value(forTag: tag),
+              !value.isEmpty else { return nil }
+        return description(from: value)
+    }
+
+    private func description(from value: String) -> String {
         if let colonIndex = value.firstIndex(of: ":") {
             return String(value[value.index(after: colonIndex)...]).trimmingCharacters(in: .whitespaces)
         } else {

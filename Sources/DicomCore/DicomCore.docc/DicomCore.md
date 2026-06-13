@@ -20,7 +20,8 @@ DICOM (Digital Imaging and Communications in Medicine) is the standard for medic
 - Deflated Explicit VR Little Endian dataset read/write support through zlib
 - JPIP referenced pixel data and progressive volume update streams with injected transport
 - DICOMweb client/server helpers with a tested conformance matrix for QIDO-RS, WADO-RS, WADO-URI, STOW-RS, BulkDataURI retrieval, pagination, auth hooks, multipart handling, and stable unsupported-route errors
-- Package-only series volume assembly for single-frame uncompressed 8/16/32-bit MONOCHROME1/2 grayscale inputs normalized to `Int16`
+- Package-only series volume assembly for single-frame 8/16/32-bit MONOCHROME1/2 grayscale inputs normalized to `Int16`; compressed slices decode through the production frame reader when the transfer syntax has an active backend
+- Enhanced CT/MR multiframe volume assembly from one object via Shared/Per-Frame Functional Groups (geometry, position ordering, per-frame rescale), native or compressed
 - DICOM Segmentation parsing, labelmap extraction, and synthetic SEG dataset building
 - RT Structure Set, RT Dose, and RT Plan parsing for contour, dose-volume, and beam inspection
 - Parametric Map scalar layer parsing with units, quantity definitions, RWV, geometry, and source references

@@ -115,4 +115,37 @@ internal struct BitStreamReader {
         }
         return result
     }
+
+    /// Byte-aligns the reader (discarding any buffered padding bits) and
+    /// consumes the next restart marker (RST0...RST7), returning its index.
+    /// - Throws: `DICOMError.invalidDICOMFormat` when the next marker is not
+    ///   a restart marker or the entropy-coded data ends first.
+    internal mutating func consumeRestartMarker() throws -> Int {
+        // Padding bits before a restart marker are discarded along with any
+        // partially consumed byte.
+        bitBuffer = 0
+        bitsAvailable = 0
+
+        while byteIndex + 1 < endIndex {
+            guard data[byteIndex] == JPEGMarker.prefix else {
+                byteIndex += 1
+                continue
+            }
+            let marker = data[byteIndex + 1]
+            if marker == JPEGMarker.prefix { // fill byte
+                byteIndex += 1
+                continue
+            }
+            if JPEGMarker.isRestart(marker) {
+                byteIndex += 2
+                return Int(marker - 0xD0)
+            }
+            throw DICOMError.invalidDICOMFormat(
+                reason: "Expected JPEG restart marker (RSTn) in entropy-coded data but found marker 0xFF\(String(marker, radix: 16, uppercase: true))"
+            )
+        }
+        throw DICOMError.invalidDICOMFormat(
+            reason: "Entropy-coded data ended while expecting a JPEG restart marker (RSTn)"
+        )
+    }
 }
